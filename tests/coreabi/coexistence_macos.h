@@ -51,6 +51,12 @@ public:
         systemProxy(true);
         check(original->clear().succeeded(),"restore original service proxy fields after releasing application ownership");
     }
+    void enableBrowserProxy(SystemProxySession &proxy)
+    {
+        systemProxy(true);
+        until([&] { return proxy.isEnabled() && !proxy.isBusy()
+            && resources["listeners"].toObject()["http"].toString()=="127.0.0.1:"+QString::number(httpPort()); });
+    }
     void exercise(ConnectionSession &session,SystemProxySession &proxy,NetworkPolicySession &policy)
     {
         const auto get = [&](const QString &url,bool enabled) {

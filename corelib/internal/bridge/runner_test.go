@@ -473,7 +473,8 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	if mode != "" && (runtime.GOOS != "darwin" || macAuthorization == "" || (mode != "cancel" && mode != "exit")) {
 		t.Fatal("authorization scenarios require the disposable macOS authorization fixture")
 	}
-	if killed && (runtime.GOOS != "darwin" || macAuthorization == "" || os.Getenv("JC_NATIVE_NETWORK_HELPER_LOSS") != "1") {
+	if killed && (runtime.GOOS != "darwin" || macAuthorization == "" ||
+		(os.Getenv("JC_NATIVE_NETWORK_HELPER_LOSS") != "1" && os.Getenv("JC_NATIVE_MAC_COEXISTENCE") == "")) {
 		t.Fatal("process crash requires the disposable macOS helper fixture")
 	}
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {

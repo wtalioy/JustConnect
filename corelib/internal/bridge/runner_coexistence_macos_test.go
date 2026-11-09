@@ -26,7 +26,7 @@ func TestNativeMacCoexistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("JC_NATIVE_MAC_COEXISTENCE", string(data))
-	g, output := runNativeTUNHost(t, false)
+	g, output := runNativeTUNHost(t, true)
 	const cases = 24
 	if bytes.Count(output, []byte("PASS: macOS composed coexistence case ")) != cases ||
 		g.authCount.Load() != 2 || g.tcpCount.Load() != 6+4*cases ||

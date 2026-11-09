@@ -1,6 +1,7 @@
 """Exercise the real signed XPC daemon on a disposable macOS runner; no desktop approval claim."""
 import argparse
 import array
+import base64
 import ctypes
 import json
 import ipaddress
@@ -126,8 +127,11 @@ def main(args):
     assert run('/bin/launchctl', 'print', 'system/' + SERVICE, check=False).returncode != 0, 'Refusing an installed service'
     account = pwd.getpwuid(args.uid)
     boot = run('/usr/sbin/sysctl', '-n', 'kern.bootsessionuuid').stdout.decode().strip().lower()
-    user_state = Path(LAYOUT['state_directory']) / boot / str(args.uid)
+    helper_state = Path(LAYOUT['state_directory'])
+    user_state = helper_state / boot / str(args.uid)
+    proxy_journal = helper_state / 'browser-proxy' / 'source.json'
     assert not user_state.exists(), 'Refusing pre-existing ownership evidence'
+    assert not proxy_journal.exists(), 'Refusing pre-existing browser proxy ownership'
     before = set(run('/sbin/ifconfig', '-l').stdout.decode().split())
     dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
@@ -533,7 +537,32 @@ def main(args):
                         Path(str(marker) + '.traffic').touch()
                         print('CHECK: new application acknowledged crash recovery before fresh owner', fresh['owner'], flush=True)
                         crashed_owner = None
-                    elif scenario not in ('normal', 'coexistence'):
+                    elif scenario == 'coexistence':
+                        boundary('.proxy-crash'); active = active_owner()
+                        observed = proxy_scope.snapshot()
+                        saved = json.loads(proxy_journal.read_text())['snapshot']['services']
+                        expected = observed | {row['id']: plistlib.loads(base64.b64decode(row['before'], validate=True))
+                            if row['before'] is not None else None for row in saved}
+                        assert expected != observed, 'Crash must occur while the helper owns actual browser proxy changes'
+                        pid = int(json.loads(Path(str(marker) + '.proxy-crash').read_text())['pid'])
+                        parent, uid = map(int, run('/bin/ps', '-p', pid, '-o', 'ppid=', '-o', 'uid=').stdout.split())
+                        assert (parent, uid) == (core.pid, args.uid), 'Refusing an unrelated proxy fixture process'
+                        daemon = helper_pid()
+                        assert daemon
+                        os.kill(daemon, signal.SIGSTOP)
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        finally:
+                            os.kill(daemon, signal.SIGKILL)
+                        wait_for(lambda: not proxy_journal.exists() and proxy_scope.snapshot() == expected,
+                                 'Restarted helper did not restore the exact original browser proxies')
+                        wait_for(lambda: receipt(active['owner'], 'restored') and dns_restored(),
+                                 'Browser proxy crash left native tunnel ownership or DNS settings')
+                        wait_for(lambda: active['device']['interface'] not in run('/sbin/ifconfig', '-l').stdout.decode().split(),
+                                 'Browser proxy crash retained the owned utun')
+                        recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
+                        print('PASS: restarted helper restored the browser proxy after app and daemon SIGKILL', flush=True)
+                    elif scenario != 'normal':
                         boundary(''); active = active_owner()
                         assert published(active['owner']), 'Fault preceded actual DNS publication and data traffic'
                         if scenario == 'helper-offline':

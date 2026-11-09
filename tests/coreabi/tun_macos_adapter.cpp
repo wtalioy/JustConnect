@@ -274,6 +274,11 @@ int main(int argc,char **argv)
                 "Privileged browser handoff rejects ports not owned by the signed app");
             coexistence.exercise(session,proxy,policy);
             check(waiting->calls==authorizationRequests,"Browser switching uses the established network helper without requesting a fresh grant");
+            coexistence.enableBrowserProxy(proxy);
+            if (round==1) {
+                publish(".proxy-crash");
+                until([] { return false; });
+            }
         }
         if (exitChange && round == 0) {
             previousGeneration = policy.currentGeneration(); changingNetwork = true;
@@ -372,13 +377,13 @@ int main(int argc,char **argv)
         const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
         const int completed = round+1+(cancelAuthorization ? 1 : 0);
         check(finished == (exitChange ? 1 : completed) && coreFinished == completed && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
+        if (composed) {
+            check(!proxy.isBusy() && !proxy.needsCleanup(),"Release browser ownership on orderly disconnect");
+            coexistence.restore();
+        }
         if (helperLoss && round == 0) {
             publish(".restored"); until([&] { return QFileInfo::exists(marker+".restart"); });
         }
-    }
-    if (composed) {
-        check(!proxy.isBusy() && !proxy.needsCleanup(),"release browser ownership before completing the composed matrix");
-        coexistence.restore();
     }
     if (!composed && !helperLoss && !policyChanges && !exitChange && !originalDNS && authorizationMode.isEmpty())
         check(waiting->calls == 1,"The second connection requested authorization despite retaining a valid grant");
