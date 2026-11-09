@@ -282,7 +282,7 @@ int main(int argc,char **argv) {
         DefaultSettings::reset(origin);origin.setValue("JustConnect/ServerAddress","vpn.example.invalid");
         origin.setValue("Credential/Username",name);
         const auto snapshot=CredentialAccess::source(origin,{});
-        auto secured=snapshot.connectionOptions;secured.credentials.password=password;
+        auto secured=snapshot.connectionOptions;secured.credentials.password=password;secured.credentials.totpSecret="saved-totp";
         check(vault.save(snapshot.scope,secured).succeeded(),"seed isolated late-result account");
         return snapshot;
     };
@@ -293,18 +293,22 @@ int main(int argc,char **argv) {
     };
     QPointer<SettingWindow> old=new SettingWindow(nullptr,&access,alice);old->show();
     check(entered.tryAcquire(1,1000),"old settings credential read started");old->reject();delete old.data();
-    auto *current=new SettingWindow(nullptr,&access,bob);current->show();
-    current->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-draft");resume.release();
-    until([&]{return !access.isBusy(alice.path) && !access.isBusy(bob.path);});
-    app.processEvents();store->beforeRead={};
-    check(current->findChild<QLineEdit *>("usernameLineEdit")->text()=="bob"
-        && current->findChild<QLineEdit *>("passwordLineEdit")->text()=="manual-draft",
-        "closed settings result cannot replace another profile or an edited secret");
-    current->findChild<QPushButton *>("saveProfileButton")->click();
-    until([&]{return !access.isBusy(bob.path);});app.processEvents();
+    QPointer<SettingWindow> current=new SettingWindow(nullptr,&access,bob);current->show();
+    auto *password=current->findChild<QLineEdit *>("passwordLineEdit");
+    password->setText("manual-draft");
+    auto *save=current->findChild<QPushButton *>("saveProfileButton");
+    check(save->isEnabled() && save->isDefault(),"Save is available while the credential read is queued");
+    bool accepted=false;
+    QObject::connect(current.data(),&QDialog::accepted,[&]{accepted=true;});
+    save->click();
+    check(!save->isEnabled() && !password->isEnabled(),"a queued save freezes the submitted draft");
+    resume.release();
+    until([&]{return accepted && !access.isBusy(alice.path) && !access.isBusy(bob.path);});
+    store->beforeRead={};
     check(vault.load(alice.scope,alice.connectionOptions,loaded).succeeded() && loaded.password=="alice-secret"
-        && vault.load(bob.scope,bob.connectionOptions,loaded).succeeded() && loaded.password=="manual-draft",
-        "settings save remains scoped after the source object and old window are released");
+        && vault.load(bob.scope,bob.connectionOptions,loaded).succeeded() && loaded.password=="manual-draft"
+        && loaded.totpSecret=="saved-totp",
+        "a queued save applies the password edit to the correct account and preserves its unread TOTP");
     // Retain the SMS/SSO contracts of the removed wizard in the shared editor.
     for (const auto &method:QStringList{"smsCheckCode","cas","httpsOauth2"}) {
         QSettings account(directory.filePath(method+".ini"),QSettings::IniFormat);DefaultSettings::reset(account);

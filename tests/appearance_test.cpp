@@ -234,6 +234,7 @@ int main(int argc,char **argv) {
     secret.addAction(QIcon(":/resource/eye.svg"),QLineEdit::TrailingPosition);layout.addWidget(&secret);
     QComboBox choice;choice.addItem("Server preset");layout.addWidget(&choice);
     QSpinBox port;port.setRange(1,65535);port.setValue(443);layout.addWidget(&port);
+    QSpinBox fixedPort;fixedPort.setRange(1,65535);fixedPort.setValue(443);fixedPort.setReadOnly(true);layout.addWidget(&fixedPort);
     inputs.resize(360,160);inputs.show();QCoreApplication::processEvents();
     check(!inputs.testAttribute(Qt::WA_TranslucentBackground)
         && inputs.grab().toImage().pixelColor(2,2).alpha()==255,
@@ -276,6 +277,22 @@ int main(int argc,char **argv) {
         std::cerr<<"text starts: line="<<lineStart<<" combo="<<comboStart<<" spin="<<spinStart<<'\n';
     check(std::abs(lineStart-comboStart)<=1 && std::abs(lineStart-spinStart)<=1,
         "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
+    fixedPort.setSpecialValueText("MMM");fixedPort.setValue(fixedPort.minimum());
+    check(std::abs(lineStart-textStart(&fixedPort))<=1,
+        "read-only numeric fields still paint their value at the shared text inset");
+    const auto paintsArrows=[](QSpinBox &field) {
+        const auto frame=field.grab().toImage();
+        const auto ratio=frame.devicePixelRatio();
+        for (int y=3*ratio;y<frame.height()-3*ratio;++y) {
+            for (int x=frame.width()-25*ratio;x<frame.width()-7*ratio;++x) {
+                const auto color=frame.pixelColor(x,y);
+                if (color.red()<180 && color.green()<180 && color.blue()<180) return true;
+            }
+        }
+        return false;
+    };
+    check(paintsArrows(port) && !paintsArrows(fixedPort),"step arrows are hidden only for the read-only field");
+    fixedPort.hide();
     choice.addItem("Unavailable");choice.addItem("Another preset");
     qobject_cast<QStandardItemModel *>(choice.model())->item(1)->setEnabled(false);
     QApplication::setEffectEnabled(Qt::UI_General,true);

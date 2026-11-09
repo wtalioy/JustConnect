@@ -216,7 +216,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     cancelQuery();
     const QSignalBlocker methodBlocker(ui->authTypeComboBox);
     resetAuthChoices();
-    ++loadGeneration;loading=false;updateBusy();
+    ++loadGeneration;loading=false;savePending=false;updateBusy();
     draftValues=DefaultSettings::publicValues(source);
     draftValues.remove("Common/ConfigVersion"); // Schema revisions belong to SettingsMigrator.
     serverEditor->load(source);
@@ -294,20 +294,21 @@ void SettingWindow::setProfileEditable(bool editable) {
     else cancelQuery();
 }
 void SettingWindow::updateBusy() {
-    ui->loginTabContents->setEnabled(profileEditable && !saving);
-    ui->profileGroup->setEnabled(profileEditable && !saving);
+    const bool canEdit=profileEditable && !saving && !savePending;
+    ui->loginTabContents->setEnabled(canEdit);
+    ui->profileGroup->setEnabled(canEdit);
     profileHint->setVisible(!profileEditable);
     profileHint->setText(tr("Disconnect to edit this connection."));
     saveButton->setVisible(profileEditable);
-    saveButton->setEnabled(!loading && !saving && !querying);
+    saveButton->setEnabled(canEdit && !querying);
     saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
     dismissButton->setText(profileEditable ? tr("Cancel") : tr("Close"));
-    serverEditor->setEnabled(profileEditable && !saving && !querying);
-    ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
-    ui->authSelectPushButton->setEnabled(profileEditable && !saving);
+    serverEditor->setEnabled(canEdit && !querying);
+    ui->authTypeComboBox->setEnabled(canEdit && !querying);
+    ui->authSelectPushButton->setEnabled(canEdit);
     ui->authSelectPushButton->setText(querying ? tr("Cancel") : tr("Get methods"));
     PresentationHelpers::setButtonIcon(ui->authSelectPushButton,querying ? ":/resource/close.svg" : ":/resource/search.svg");
-    clearCredentialButton->setEnabled(profileEditable && !loading && !saving);
+    clearCredentialButton->setEnabled(canEdit && !loading);
 }
 void SettingWindow::cancelQuery() {
     ++queryGeneration;controllerSelection->cancel();authQuery->stop();
@@ -341,20 +342,25 @@ void SettingWindow::readCredentials() {
     const auto source=credentialSource;
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (closed || generation!=loadGeneration) return;
-        loading=false;updateBusy();
+        loading=false;
+        const bool requestedSave=savePending;
+        savePending=false;
+        updateBusy();
         if (!CredentialAccess::matches(source,settings)) {
             credentialStatusText=QT_TR_NOOP("The saved profile changed. Reopen the editor.");
-            credentialStatus->setText(tr(credentialStatusText));updateAuthFields();return;
+            credentialStatus->setText(tr(credentialStatusText));updateAuthFields();
+        } else {
+            credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
+            credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
+            if (loaded.result.succeeded() && currentOptions().authenticationIdentity()==source.connectionOptions.authenticationIdentity()) {
+                const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
+                const bool totpUntouched=ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret;
+                loadedCredentials=loaded.credentials;
+                if (passwordUntouched) ui->passwordLineEdit->setText(loaded.credentials.password);
+                if (totpUntouched) ui->totpSecretLineEdit->setText(loaded.credentials.totpSecret);
+            }
         }
-        credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
-        credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
-        if (loaded.result.succeeded() && currentOptions().authenticationIdentity()==source.connectionOptions.authenticationIdentity()) {
-            const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
-            const bool totpUntouched=ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret;
-            loadedCredentials=loaded.credentials;
-            if (passwordUntouched) ui->passwordLineEdit->setText(loaded.credentials.password);
-            if (totpUntouched) ui->totpSecretLineEdit->setText(loaded.credentials.totpSecret);
-        }
+        if (requestedSave) saveSettings();
     });
 }
 void SettingWindow::clearCredentials() {
@@ -381,7 +387,13 @@ void SettingWindow::clearCredentials() {
     });
 }
 void SettingWindow::saveSettings() {
-    if (closed || !profileEditable || loading || saving) return;
+    if (closed || !profileEditable || saving || querying || savePending) return;
+    if (loading) {
+        // Merge the saved secrets before applying edits to either credential field.
+        savePending=true;
+        updateBusy();
+        return;
+    }
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
         QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before applying changes."));return;
     }

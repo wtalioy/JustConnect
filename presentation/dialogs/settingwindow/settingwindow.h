@@ -18,7 +18,7 @@ public:
     void setProfileEditable(bool editable);
     void setConnectAfterSave(bool connect);
     ~SettingWindow() override;
-    bool isSaving() const {return saving;}
+    bool isSaving() const {return saving || savePending;}
 signals:
     void connectRequested();
 protected:
@@ -50,6 +50,7 @@ private:
     QPushButton *clearCredentialButton,*saveButton,*dismissButton;
     QCheckBox *rememberAuthentication;
     bool loading=false,saving=false,closed=false,profileEditable=true,querying=false,connectAfterSave=false;
+    bool savePending=false;
     bool opened=false;
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;

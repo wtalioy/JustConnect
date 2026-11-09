@@ -8,6 +8,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStyle>
 #include <QVBoxLayout>
 #include "application/defaultsettings.h"
 #include "core/connectionoptions.h"
@@ -107,8 +108,11 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     address->setText(host);
     address->setReadOnly(builtIn);
     port->setValue(number);
-    port->setReadOnly(builtIn);
-    port->setButtonSymbols(builtIn ? QAbstractSpinBox::NoButtons : QAbstractSpinBox::UpDownArrows);
+    if (port->isReadOnly()!=builtIn) {
+        port->setReadOnly(builtIn);
+        // Refresh the read-only stylesheet selector when import changes the endpoint type.
+        if (port->testAttribute(Qt::WA_WState_Polished)) port->style()->polish(port);
+    }
     verify->setChecked(settings.value("JustConnect/TLSVerify", TlsOptions{}.verify).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
     allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes).toBool());

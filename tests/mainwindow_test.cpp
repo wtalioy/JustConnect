@@ -185,6 +185,8 @@ public:
     QList<int> offsets;
     QList<int> contentPositions;
     bool barPainted = false;
+    bool horizontalBarPainted = false;
+    bool saveWasInactive = false;
 protected:
     bool eventFilter(QObject *target, QEvent *event) override {
         if (event->type() != QEvent::Paint) return false;
@@ -195,6 +197,9 @@ protected:
             offsets.append(bar->value());
             contentPositions.append(area->widget()->y());
             barPainted |= bar->isVisible();
+            horizontalBarPainted |= area->horizontalScrollBar()->isVisible();
+            if (auto *save=area->window()->findChild<QPushButton *>("saveProfileButton"))
+                saveWasInactive |= !save->isEnabled() || !save->isDefault();
         }
         return false;
     }
@@ -396,15 +401,18 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     secret->setFocus(); // Exercise a pending focus request below the first viewport.
     ScrollPaints editorPaints("loginTab");
     PresentationHelpers::activateWindow(editor);
-    auto *save=editor->findChild<QPushButton *>("saveProfileButton");
+    auto *clear=editor->findChild<QPushButton *>("clearCredentialButton");
     waitForUi([&]{return !editorPaints.offsets.isEmpty();});
-    check(!save->isEnabled() && editor->focusWidget()==scroll,"first paint stays on the scroll surface during credential loading");
+    check(!clear->isEnabled() && editor->focusWidget()==scroll && !editorPaints.saveWasInactive,
+        "first paint stays on the scroll surface and shows the primary Save action during credential loading");
     credentialRead.release();
-    waitForUi([&]{return save->isEnabled();});
+    waitForUi([&]{return clear->isEnabled();});
     scroll->viewport()->repaint();
     check(std::all_of(editorPaints.offsets.cbegin(),editorPaints.offsets.cend(),[](int value){return value==0;})
         && std::all_of(editorPaints.contentPositions.cbegin(),editorPaints.contentPositions.cend(),[](int value){return value==0;}),
         "neither the scroll thumb nor the painted content moves during opening and credential loading");
+    check(!editorPaints.horizontalBarPainted && scroll->horizontalScrollBar()->maximum()==0,
+        "the connection form fits its viewport without a horizontal scrollbar from first paint");
     auto *bar=scroll->verticalScrollBar();
     check(bar->maximum()>0,"the editing fixture extends below the viewport");
     bar->setValue(bar->maximum());
@@ -602,6 +610,10 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && std::all_of(editorPaints.offsets.cbegin(), editorPaints.offsets.cend(), [](int value) { return value == 0; })
         && std::all_of(editorPaints.contentPositions.cbegin(),editorPaints.contentPositions.cend(),[](int value){return value==0;}),
         "the connection editor stays at the top from its first paint through credential loading");
+    check(!editorPaints.horizontalBarPainted && !editorPaints.saveWasInactive,
+        "the Fudan editor opens without a horizontal scrollbar and with Save as the primary action");
+    if (const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR"); !report.isEmpty())
+        check(initial->grab().save(QDir(report).filePath("fudan-editor.png")),"save the native Fudan editor screenshot");
     auto *methodButton = initial->findChild<QPushButton *>("authSelectPushButton");
     const auto methodButtonHeight = methodButton->sizeHint().height();
     const auto methodButtonIconSize = methodButton->iconSize();
@@ -626,7 +638,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         std::cerr << "Preferences viewport: " << preferencesScroll->viewport()->height()
                   << ", content: " << preferencesScroll->widget()->height()
                   << ", range: " << preferencesScroll->verticalScrollBar()->maximum() << '\n';
-    check(!preferencesPaints.barPainted, "application settings paint without a temporary scrollbar");
+    check(!preferencesPaints.barPainted && !preferencesPaints.horizontalBarPainted,
+        "application settings paint without a temporary scrollbar");
     check(std::all_of(preferencesPaints.contentPositions.cbegin(),preferencesPaints.contentPositions.cend(),[](int value){return value==0;}),
         "application settings paint from the top before the scrollbar policy settles");
     settings->resize(320, 360);

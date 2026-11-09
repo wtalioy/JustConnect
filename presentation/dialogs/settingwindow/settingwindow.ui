@@ -8,6 +8,9 @@
   <layout class="QVBoxLayout" name="dialogLayout">
    <item>
     <widget class="QScrollArea" name="loginTab">
+     <property name="horizontalScrollBarPolicy">
+      <enum>Qt::ScrollBarAlwaysOff</enum>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
