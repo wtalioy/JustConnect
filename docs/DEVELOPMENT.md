@@ -252,7 +252,7 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。Windows 实测已通过，本轮只复测 Apple Silicon。
 
 - **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
-- **Apple Silicon**。用浏览器[直接下载 `da6a750` DMG](https://github.com/wtalioy/JustConnect/actions/runs/42465420951/artifacts/13611114629)。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。首次打开按系统提示确认，见[签名与部署说明](#不需申请签名的开发与发行)。
+- **Apple Silicon**。用浏览器[直接下载 `d840487` DMG](https://github.com/wtalioy/JustConnect/actions/runs/42548164459/artifacts/13644064525)。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。首次打开按系统提示确认，见[签名与部署说明](#不需申请签名的开发与发行)。如果系统请求访问「JustConnect Saved Data」，这是本机钥匙串授权，用于读取 JustConnect 保存的数据。
 
 在待测设备连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
 
