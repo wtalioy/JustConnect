@@ -238,7 +238,7 @@ void ConnectionUiController::loadAuthenticationCache(const CredentialSource &sou
         credentialsPending=false;
         if (loaded.result.succeeded()) connectionOptions.authenticationCache=loaded.cache;
         else if (loaded.result.status!=CredentialStatus::NotFound)
-            notificationHandler(tr("Authentication cache was not restored"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou will sign in again for this connection."),QSystemTrayIcon::Warning);
+            qWarning() << "Saved authentication unavailable:" << int(loaded.result.status);
         refreshActions();
         requestConnection(source,connectionOptions,loaded.revision);
     });

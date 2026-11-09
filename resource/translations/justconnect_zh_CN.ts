@@ -397,18 +397,6 @@ You can sign in manually for this connection.</source>
 本次仍可手动登录。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
-        <source>Authentication cache was not restored</source>
-        <translation>认证缓存未恢复</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
-        <source>
-You will sign in again for this connection.</source>
-        <translation>
-本次将重新认证。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="280"/>
         <source>Login details were not saved</source>
         <translation>未能记住登录信息</translation>
@@ -2105,8 +2093,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>通过系统凭据库在断开和重启后恢复认证，有效期由服务器决定。关闭后停止保存与恢复，删除已有材料请使用“清除当前账户认证缓存”。</translation>
     </message>
     <message>
-        <source>macOS may ask for your local Keychain password to access JustConnect Saved Data and resume your campus sign-in.</source>
-        <translation>恢复校园登录时，macOS 可能要求输入本机钥匙串密码，以访问 JustConnect Saved Data。</translation>
+        <source>If macOS cannot read the saved sign-in from Keychain, JustConnect will ask you to sign in to campus again.</source>
+        <translation>如果 macOS 无法从钥匙串读取已保存的认证信息，JustConnect 会请你重新登录校园网。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="64"/>

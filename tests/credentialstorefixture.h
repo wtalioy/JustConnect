@@ -7,11 +7,13 @@
 class MemoryCredentialStore final: public CredentialStore {
 public:
     QHash<QString,QByteArray> values;
+    QString deniedReadKey;
     std::function<void()> beforeRead;
     std::function<void(const QString &,const QByteArray &)> beforeWrite;
     CredentialStatus failure=CredentialStatus::Success;
     CredentialResult read(const QString &key) override {
         if (beforeRead) beforeRead();
+        if (key==deniedReadKey && !key.isEmpty()) return {CredentialStatus::PermissionDenied,{}};
         if (failure!=CredentialStatus::Success) return {failure,{}};
         return values.contains(key) ? CredentialResult{CredentialStatus::Success,values.value(key)} : CredentialResult{CredentialStatus::NotFound,{}};
     }

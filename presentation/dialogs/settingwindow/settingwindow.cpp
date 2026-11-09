@@ -189,7 +189,7 @@ void SettingWindow::retranslate() {
     rememberAuthentication->setText(tr("Remember authentication"));
     auto rememberHelp=tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data.");
 #ifdef Q_OS_MACOS
-    rememberHelp+=QStringLiteral("\n\n")+tr("macOS may ask for your local Keychain password to access JustConnect Saved Data and resume your campus sign-in.");
+    rememberHelp+=QStringLiteral("\n\n")+tr("If macOS cannot read the saved sign-in from Keychain, JustConnect will ask you to sign in to campus again.");
 #endif
     rememberAuthentication->setToolTip(rememberHelp);
     ui->passwordLineEdit->setPlaceholderText(tr("Leave blank to keep saved"));

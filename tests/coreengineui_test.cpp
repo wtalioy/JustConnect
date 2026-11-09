@@ -341,6 +341,16 @@ static void authenticationCacheLifecycle() {
     emit engine->authenticationCacheUpdated({"different-user","must-not-reassign"});ready();
     check(vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded() && loaded.account=="server-confirmed-user"
         && loaded.data=="private-sso-cookie" && notices.size()==noticesBeforeMismatch+1,"different SSO account cannot replace the selected account's cache");finish();
+    store->deniedReadKey=ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions);
+    const auto noticesBeforeRead=notices.size();
+    const auto startsBeforeRead=engine->starts;
+    for (int round=1;round<=2;++round) {
+        connectButton.click();until([&]{return engine->starts==startsBeforeRead+round;});
+        check(engine->connectionOptions.authenticationCache.data.isEmpty() && notices.size()==noticesBeforeRead,
+            "Inaccessible optional authentication cache falls back to SSO without a repeated notification");
+        finish();
+    }
+    check(logs.contains("Saved authentication unavailable"),"Inaccessible authentication cache remains diagnosable");
     check(!logs.contains("private-cookie") && !logs.contains("manual-private-password") && !logs.contains("private-totp")
         && !logs.contains("private-sso-cookie"),"authentication cache and credentials do not enter application logs");
 }
