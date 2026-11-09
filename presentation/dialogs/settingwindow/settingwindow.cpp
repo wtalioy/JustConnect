@@ -16,6 +16,7 @@
 #include <QScrollBar>
 #include <QShowEvent>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QJsonArray>
 #include <QVBoxLayout>
 #include "application/defaultsettings.h"
@@ -28,6 +29,7 @@
 #include "presentation/widgets/serversettingswidget.h"
 
 namespace {
+constexpr int QueryProgressMinimumMs=250;
 constexpr struct {
     const char *type;
     const char *label;
@@ -64,13 +66,13 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     controllerSelection=new ControllerSelectionCoordinator(this,this);
     queryStatus=new QLabel(this);queryStatus->setObjectName("authQueryStatus");queryStatus->setWordWrap(true);queryStatus->hide();
     ui->authLayout->addWidget(queryStatus);
-    connect(authQuery,&AuthMethodsQuery::settled,this,[this]{querying=false;updateBusy();});
+    connect(authQuery,&AuthMethodsQuery::settled,this,[this]{finishQueryPresentation();});
     connect(authQuery,&AuthMethodsQuery::ready,this,[this](const QJsonArray &methods) {
         if (closed) return;
         if (methods.isEmpty()) {
             queryStatusText=QT_TR_NOOP("No sign-in methods are available.");
             queryStatus->setText(tr(queryStatusText));
-            queryStatus->show();
+            queryStatus->setVisible(!querying);
             return;
         }
         QSignalBlocker blocker(ui->authTypeComboBox);
@@ -102,8 +104,8 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         emit ui->authTypeComboBox->currentIndexChanged(selected);
         queryStatusText=nullptr;
         queryStatus->hide();
-        if ((methods.size()>1 || keptPreviousChoice) && isActiveWindow() && ui->authTypeComboBox->isEnabled())
-            ui->authTypeComboBox->showPopup();
+        showQueryResults=methods.size()>1 || keptPreviousChoice;
+        showQueriedMethods();
     });
     connect(authQuery,&AuthMethodsQuery::failed,this,[this](ConnectionError error) {
         if (closed) return;
@@ -116,7 +118,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         case ConnectionError::AUTHENTICATION_CHANGED: queryStatusText=QT_TR_NOOP("Sign-in methods changed. Query them again.");break;
         default: queryStatusText=QT_TR_NOOP("Could not query sign-in methods. Check the server and connection, then retry.");break;
         }
-        queryStatus->setText(tr(queryStatusText));queryStatus->show();
+        queryStatus->setText(tr(queryStatusText));queryStatus->setVisible(!querying);
     });
     credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
     ui->credentialsForm->addRow(credentialStatus);
@@ -145,6 +147,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
                 const QSignalBlocker blocker(ui->authTypeComboBox);
                 ui->authTypeComboBox->setCurrentIndex(selectedAuthIndex);
             }
+            ui->authTypeComboBox->hidePopup();
             queryMethods();
             return;
         }
@@ -156,7 +159,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         selectedAuthType=type;selectedAuthName=method["name"].toString();selectedAuthIndex=index;
         updateAuthFields();
     });
-    PresentationHelpers::setButtonIcon(ui->cancelAuthQueryButton,":/resource/close.svg");
+    PresentationHelpers::setButtonIcon(ui->cancelAuthQueryButton,":/resource/stop.svg");
     connect(ui->cancelAuthQueryButton,&QPushButton::clicked,this,&SettingWindow::cancelQuery);
     connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
     PresentationHelpers::setButtonIcon(ui->importPushButton,":/resource/import.svg");
@@ -239,7 +242,6 @@ void SettingWindow::retranslate() {
         ui->authTypeComboBox->setItemText(index,method["previousChoice"].toBool()?tr("%1 (previous choice)").arg(name):name);
     }
     ui->authTypeComboBox->setItemText(findMethodsIndex,tr("Find sign-in methods…"));
-    ui->cancelAuthQueryButton->setText(tr("Cancel"));
     if (queryStatusText) queryStatus->setText(tr(queryStatusText));
     rememberAuthentication->setText(tr("Remember authentication"));
     auto rememberHelp=tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data.");
@@ -370,13 +372,18 @@ void SettingWindow::updateBusy() {
     dismissButton->setText(profileEditable ? tr("Cancel") : tr("Close"));
     serverEditor->setEnabled(canEdit && !querying);
     ui->authTypeComboBox->setEnabled(canEdit && !querying);
-    ui->cancelAuthQueryButton->setVisible(querying);
     clearCredentialButton->setEnabled(canEdit && !loading);
 }
 void SettingWindow::cancelQuery() {
-    ++queryGeneration;controllerSelection->cancel();authQuery->stop();
-    if (!authQuery->isActive()) querying=false;
-    queryStatusText=nullptr;queryStatus->hide();updateBusy();
+    ++queryGeneration;
+    showQueryResults=false;
+    queryStatusText=nullptr;
+    queryStatus->hide();
+    controllerSelection->cancel();
+    ui->cancelAuthQueryButton->setEnabled(false);
+    authQuery->stop();
+    if (!authQuery->isActive()) finishQueryPresentation(false);
+    else updateBusy();
 }
 void SettingWindow::queryMethods() {
     if (!profileEditable || isSaving() || querying) return;
@@ -386,16 +393,44 @@ void SettingWindow::queryMethods() {
         queryStatus->show();
         return;
     }
+    if (ui->authTypeComboBox->hasFocus()) ui->loginTab->setFocus(Qt::OtherFocusReason);
     querying=true;updateBusy();const auto generation=++queryGeneration;
-    queryStatusText=QT_TR_NOOP("Loading sign-in methods…");queryStatus->setText(tr(queryStatusText));queryStatus->show();
+    queryStatusText=nullptr;
+    queryStatus->hide();
+    queryProgressShown.start();
+    ui->cancelAuthQueryButton->setEnabled(true);
+    ui->authMethodRow->setCurrentWidget(ui->authQueryPage);
     controllerSelection->choose([this,generation,connectionOptions=currentOptions()](std::optional<QString> address) mutable {
         if (closed || generation!=queryGeneration) return;
         if (address) connectionOptions.behavior.controllerAddress=*address;
         if (!address || !authQuery->start(connectionOptions)) {
-            querying=false;updateBusy();queryStatusText=QT_TR_NOOP("Query cancelled. Try again when ready.");
+            queryStatusText=QT_TR_NOOP("Query cancelled. Try again when ready.");
             queryStatus->setText(tr(queryStatusText));
+            finishQueryPresentation();
         }
     });
+}
+void SettingWindow::finishQueryPresentation(bool letProgressSettle) {
+    ui->cancelAuthQueryButton->setEnabled(false);
+    if (letProgressSettle && queryProgressShown.isValid() && queryProgressShown.elapsed()<QueryProgressMinimumMs) {
+        const int remaining=QueryProgressMinimumMs-queryProgressShown.elapsed();
+        const auto generation=queryGeneration;
+        QTimer::singleShot(qMax(0,remaining),this,[this,generation] {
+            if (!closed && querying && generation==queryGeneration) finishQueryPresentation(false);
+        });
+        return;
+    }
+    querying=false;
+    queryProgressShown.invalidate();
+    ui->authMethodRow->setCurrentWidget(ui->authMethodPage);
+    updateBusy();
+    queryStatus->setVisible(queryStatusText);
+    showQueriedMethods();
+}
+void SettingWindow::showQueriedMethods() {
+    if (querying || !showQueryResults) return;
+    showQueryResults=false;
+    if (isActiveWindow() && ui->authTypeComboBox->isEnabled()) ui->authTypeComboBox->showPopup();
 }
 void SettingWindow::done(int result) {
     cancelQuery();

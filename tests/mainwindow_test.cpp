@@ -605,7 +605,7 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     check(address->text() == "vpn.fudan.edu.cn" && address->isReadOnly()
         && method->currentData() == "httpsOauth2" && method->currentText()=="Fudan UIS"
         && method->count()==2 && method->itemText(1)=="Find sign-in methods…"
-        && initial->findChild<QPushButton *>("cancelAuthQueryButton")->isHidden()
+        && !initial->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(initial)
         && !initial->findChild<QComboBox *>("profileKindComboBox"),
         "Fudan has a fixed server and Web sign-in, with no second connection selector");
     auto *editorScroll = initial->findChild<QScrollArea *>("loginTab");

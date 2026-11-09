@@ -2186,8 +2186,12 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="279"/>
-        <source>Loading sign-in methods…</source>
-        <translation>正在获取认证方式，请稍候...</translation>
+        <source>Searching…</source>
+        <translation>正在查找…</translation>
+    </message>
+    <message>
+        <source>Cancel search</source>
+        <translation>取消查找</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="284"/>

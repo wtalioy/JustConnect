@@ -68,44 +68,51 @@
              </widget>
             </item>
             <item row="0" column="1">
-             <widget class="QWidget" name="authMethodRow">
-              <layout class="QHBoxLayout" name="authMethodLayout">
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>0</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QComboBox" name="authTypeComboBox">
-                 <property name="sizeAdjustPolicy">
-                  <enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="cancelAuthQueryButton">
-                 <property name="sizePolicy">
-                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                   <horstretch>0</horstretch>
-                   <verstretch>0</verstretch>
-                  </sizepolicy>
-                 </property>
-                 <property name="autoDefault">
-                  <bool>false</bool>
-                 </property>
-                </widget>
-               </item>
-               <property name="spacing">
-                <number>8</number>
-               </property>
-              </layout>
+             <widget class="QStackedWidget" name="authMethodRow">
+              <widget class="QWidget" name="authMethodPage">
+               <layout class="QHBoxLayout" name="authMethodLayout">
+                <property name="leftMargin"><number>0</number></property>
+                <property name="topMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <property name="bottomMargin"><number>0</number></property>
+                <item>
+                 <widget class="QComboBox" name="authTypeComboBox">
+                  <property name="sizeAdjustPolicy">
+                   <enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QFrame" name="authQueryPage">
+               <layout class="QHBoxLayout" name="authQueryLayout">
+                <property name="leftMargin"><number>12</number></property>
+                <property name="topMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <property name="bottomMargin"><number>0</number></property>
+                <property name="spacing"><number>8</number></property>
+                <item>
+                 <widget class="QLabel" name="authQueryProgress">
+                  <property name="text"><string>Searching…</string></property>
+                  <property name="secondary" stdset="0"><bool>true</bool></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="cancelAuthQueryButton">
+                  <property name="flat"><bool>true</bool></property>
+                  <property name="toolTip"><string>Cancel search</string></property>
+                  <property name="accessibleName"><string>Cancel search</string></property>
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="autoDefault"><bool>false</bool></property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
              </widget>
             </item>
             <item row="3" column="0">

@@ -125,7 +125,7 @@ int main(int argc,char **argv) {
       }
       auto *method=initial->findChild<QComboBox *>("authTypeComboBox");
       check(method->currentText()=="Campus password" && method->itemText(method->count()-1)=="Find sign-in methods…"
-          && initial->findChild<QPushButton *>("cancelAuthQueryButton")->isHidden(),
+          && !initial->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(initial),
           "the saved sign-in name and discovery share one dropdown in the idle editor");
       check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>method->font().pointSizeF(),
           "section headings have a larger type size than form controls");

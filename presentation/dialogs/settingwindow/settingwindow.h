@@ -1,5 +1,6 @@
 #pragma once
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QSettings>
 #include "infrastructure/settings/credentialaccess.h"
 class QLabel;
@@ -37,6 +38,8 @@ private:
     void saveSettings();
     void queryMethods();
     void cancelQuery();
+    void finishQueryPresentation(bool letProgressSettle=true);
+    void showQueriedMethods();
     QVariantMap publicChanges() const;
     ConnectionOptions currentOptions() const;
     Ui::SettingWindow *ui;
@@ -62,4 +65,6 @@ private:
     QLabel *queryStatus,*profileHint;
     const char *queryStatusText=nullptr;
     quint64 queryGeneration=0;
+    QElapsedTimer queryProgressShown;
+    bool showQueryResults=false;
 };

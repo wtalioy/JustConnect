@@ -49,6 +49,9 @@ using ProxyCheck::check;
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
 static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
+static void waitForQueryPicker(SettingWindow *window) {
+    until([&]{return queryChoices(window)->isVisibleTo(window);});
+}
 static void findSignInMethods(SettingWindow *window) {
     auto *choices=queryChoices(window);
     const int action=choices->count()-1;
@@ -905,6 +908,10 @@ static void uiContracts() {
     queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
     auto *query=openQuery(&parent,queryProfile,fake);
     until([&]{return fake->starts==1;});
+    check(query->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(query)
+        && query->findChild<QLabel *>("authQueryProgress")->isVisibleTo(query)
+        && !queryChoices(query)->isVisibleTo(query) && query->findChild<QLabel *>("authQueryStatus")->isHidden(),
+        "every search replaces the picker in place with visible progress and direct cancellation");
     check(!query->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),"a running query locks its server trust policy until completion or cancellation");
     check(fake->operation == CoreEngine::Operation::AuthMethods && fake->connectionOptions.endpoint.port == 8443 && fake->connectionOptions.credentials.password.isEmpty()
         && fake->connectionOptions.authenticationCache.data.isEmpty() && fake->connectionOptions.authenticationCache.account.isEmpty() && !fake->connectionOptions.behavior.rememberAuthentication
@@ -916,7 +923,9 @@ static void uiContracts() {
     auto *ok = query->findChild<QPushButton *>("saveProfileButton");
     check(!ok->isEnabled(), "method selection waits for query cleanup before releasing the global slot");
     emit fake->finished(ConnectionError::NONE);
-    check(returnedMethods(query)==1,"successful query delivers its methods inside settings");
+    waitForQueryPicker(query);
+    check(returnedMethods(query)==1 && !query->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(query),
+        "a fast search restores the picker and removes the progress state after delivering its methods");
     list->setCurrentIndex(list->findData("cas"));
     until([&]{return ok->isEnabled();});
     const auto selected=list->currentData(Qt::UserRole+1).toJsonObject();
@@ -936,6 +945,7 @@ static void uiContracts() {
     });
     check(returnedMethods(oauth)==0,"preferred query also waits for terminal cleanup");
     emit oauthEngine->finished(ConnectionError::NONE);
+    waitForQueryPicker(oauth);
     auto *methods=queryChoices(oauth);
     check(methods->currentData()=="httpsOauth2" && methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"].toString().isEmpty(),
         "discovering several methods preserves the configured choice without binding it to a guessed ID");
@@ -947,6 +957,7 @@ static void uiContracts() {
     emit oauthEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Federated sign-in"},{"auth_id","single-id"}}});
     emit oauthEngine->finished(ConnectionError::NONE);
+    waitForQueryPicker(oauth);
     check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="selected-opaque-id",
         "refreshing discovery does not silently replace a configured server identity");
     methods->setCurrentIndex(methods->findText("Federated sign-in"));
@@ -960,6 +971,7 @@ static void uiContracts() {
     emit defaultEngine->authMethodsReady({QJsonObject{{"type","auth/httpsOauth2"},{"name","Campus identity"},
         {"auth_id","live-id"},{"sub_type","https"},{"domain",queryProfile.endpoint.loginDomain}}});
     emit defaultEngine->finished(ConnectionError::NONE);
+    waitForQueryPicker(automatic);
     auto *automaticChoice=queryChoices(automatic);
     check(automaticChoice->currentText()=="Web sign-in (previous choice)"
         && automaticChoice->currentData(Qt::UserRole+1).toJsonObject()["auth_id"].toString().isEmpty(),
@@ -972,10 +984,21 @@ static void uiContracts() {
     auto *cancelEngine=new QueryEngine;
     auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);
     until([&]{return cancelEngine->starts==1;});
-    cancelled->findChild<QPushButton *>("cancelAuthQueryButton")->click();
+    auto *queryRow=cancelled->findChild<QWidget *>("authMethodRow");
+    auto *account=cancelled->findChild<QWidget *>("credentialsGroup");
+    const auto pickerGeometry=queryRow->geometry();
+    const auto accountPosition=account->mapTo(cancelled,QPoint());
+    auto *cancelSearch=cancelled->findChild<QPushButton *>("cancelAuthQueryButton");
+    check(cancelSearch->isVisibleTo(cancelled) && cancelSearch->text().isEmpty() && !cancelSearch->icon().isNull()
+        && cancelSearch->accessibleName()=="Cancel search" && cancelled->findChild<QLabel *>("authQueryStatus")->isHidden(),
+        "the picker offers a directly clickable stop icon with an accessible name");
+    cancelSearch->click();
     check(cancelEngine->stops==1 && cancelled->isVisible(),"the inline query can be cancelled without closing settings");
     emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
+    waitForQueryPicker(cancelled);
+    check(queryRow->geometry()==pickerGeometry && account->mapTo(cancelled,QPoint())==accountPosition,
+        "discovery and cancellation keep the surrounding form in place");
     check(returnedMethods(cancelled)==0 && cancelled->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),
         "cancelled results are rejected and server trust controls are released");
     findSignInMethods(cancelled);until([&]{return cancelEngine->starts==2;});
@@ -988,6 +1011,7 @@ static void uiContracts() {
     until([&]{return failedEngine->starts==1;});
     emit failedEngine->authMethodsReady({QJsonObject{{"type","auth/psw"}}});
     emit failedEngine->finished(ConnectionError::CLIENT_FAILED);
+    waitForQueryPicker(failed);
     check(returnedMethods(failed)==0 && !failed->findChild<QLabel *>("authQueryStatus")->isHidden(),"failed cleanup discards partial query results");
     failed->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 
@@ -1067,6 +1091,7 @@ static void gateway(const QJsonObject &config) {
     untrustedQuery->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *queryWindow=openQuery(&parent,p);
     until([&]{return returnedMethods(queryWindow)>0;});
+    waitForQueryPicker(queryWindow);
     auto *methodsList=queryChoices(queryWindow);
     for (int index=0;index<methodsList->count();++index) {
         if (methodsList->itemData(index,Qt::UserRole+1).toJsonObject()["auth_id"]=="fixture-primary") {
