@@ -11,21 +11,21 @@
       <stop offset="1" stop-color="#c6cfe3"/>
     </linearGradient>
     <linearGradient id="reflection" x1="26" y1="8" x2="45" y2="45" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff" stop-opacity=".43"/>
-      <stop offset=".54" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop stop-color="#ffffff" stop-opacity=".34"/>
+      <stop offset=".54" stop-color="#ffffff" stop-opacity=".12"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <path id="chain" d="M41 51l-4 4a17 17 0 0 1-24-24l13-13a17 17 0 0 1 24 24l-3 3M39 29l4-4a17 17 0 0 1 24 24L54 62a17 17 0 0 1-24-24l3-3"/>
   </defs>
   <g fill="#273958">
-    <rect x="4" y="8" width="72" height="70" rx="18" opacity=".045"/>
-    <rect x="5" y="8" width="70" height="69" rx="17" opacity=".07"/>
-    <rect x="6" y="8" width="68" height="68" rx="16" opacity=".1"/>
+    <rect x="5" y="8" width="70" height="69" rx="17" opacity=".035"/>
+    <rect x="6" y="8" width="68" height="68" rx="16" opacity=".06"/>
+    <rect x="6.5" y="8" width="67" height="67" rx="16" opacity=".09"/>
   </g>
   <rect x="6.5" y="6.5" width="67" height="67" rx="16" fill="url(#tile)" stroke="url(#edge)"/>
   <g transform="translate(6.4 6.4) scale(.84)" fill="none" stroke-width="6.4" stroke-linecap="round">
-    <use xlink:href="#chain" transform="translate(0 .62)" stroke="#303c96" opacity=".76"/>
-    <use xlink:href="#chain" stroke="#475bd5"/>
+    <use xlink:href="#chain" transform="translate(0 .56)" stroke="#28347f" opacity=".67"/>
+    <use xlink:href="#chain" stroke="#3f52cd"/>
   </g>
   <rect x="7" y="7" width="66" height="66" rx="15.5" fill="url(#reflection)"/>
 </svg>
