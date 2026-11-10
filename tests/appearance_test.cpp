@@ -130,8 +130,8 @@ static void checkboxAlignment(const QString &caption) {
             const auto color = pixels.pixelColor(x, y);
             if (x < checkboxCaption.left() * mark.devicePixelRatio() && color == QColor("#5362df"))
                 squarePixels = squarePixels.united(QRect(x, y, 1, 1));
-            if (x >= checkboxCaption.left() * mark.devicePixelRatio()
-                && color.red() < 105 && color.green() < 115 && color.blue() < 130) {
+            // Subpixel text can be dark even when one color channel stays bright.
+            if (x >= checkboxCaption.left() * mark.devicePixelRatio() && qGray(color.rgb()) < 115) {
                 captionPixels = captionPixels.united(QRect(x, y, 1, 1));
                 captionRowSum += y;
                 ++captionInk;
