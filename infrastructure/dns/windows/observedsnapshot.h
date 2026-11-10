@@ -9,11 +9,12 @@
 class WindowsObservedDnsSnapshot {
 public:
     explicit WindowsObservedDnsSnapshot(std::function<DnsSnapshot()> reader,
-        std::shared_ptr<WindowsDNS::Changes> changes = std::make_shared<WindowsDNS::Changes>())
+        std::shared_ptr<WindowsDNS::Changes> changes = {})
         : reader(std::move(reader)),changes(std::move(changes)) {}
     DnsSnapshot read()
     {
         std::lock_guard<std::mutex> lock(mutex);
+        if (!changes) changes = std::make_shared<WindowsDNS::Changes>();
         if (changes->changed()) snapshot.reset();
         if (snapshot) return *snapshot;
         const auto result = reader();
