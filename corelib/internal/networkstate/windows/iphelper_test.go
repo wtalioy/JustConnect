@@ -160,3 +160,12 @@ func BenchmarkInterfaces(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkReadRoutes(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := ReadRoutes(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

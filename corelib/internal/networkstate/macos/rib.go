@@ -59,12 +59,12 @@ func DefaultIPv4Interface() string {
 	return ""
 }
 
-func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
+func ReadRoutes() ([]model.Route, error) {
 	messages, err := routingMessages()
 	if err != nil {
 		return nil, err
 	}
-	routes := []model.Route{}
+	routes := make([]model.Route, 0, len(messages))
 	for _, message := range messages {
 		row, ok := message.(*route.RouteMessage)
 		if !ok || len(row.Addrs) <= unix.RTAX_DST {

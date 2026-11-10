@@ -68,14 +68,16 @@ func selectDefaultIPv4Interface(routes []windows.MibIpForwardRow2,
 	return name
 }
 
-func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
+func ReadRoutes() ([]model.Route, error) {
 	var table *windows.MibIpForwardTable2
 	if err := windows.GetIpForwardTable2(windows.AF_UNSPEC, &table); err != nil {
 		return nil, err
 	}
 	defer windows.FreeMibTable(unsafe.Pointer(table))
-	routes := []model.Route{}
-	for _, row := range table.Rows() {
+	rows := table.Rows()
+	routes := make([]model.Route, 0, len(rows))
+	for i := range rows {
+		row := &rows[i]
 		address, ok := windowsAddress(&row.DestinationPrefix.Prefix)
 		if !ok {
 			continue

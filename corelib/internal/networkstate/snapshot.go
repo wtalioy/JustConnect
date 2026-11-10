@@ -12,7 +12,7 @@ func Read() (model.Snapshot, error) {
 		return model.Snapshot{}, err
 	}
 	snapshot := model.Snapshot{OS: runtime.GOOS, Interfaces: interfaces}
-	snapshot.Routes, err = readRoutes(snapshot.Interfaces)
+	snapshot.Routes, err = readRoutes()
 	if err != nil {
 		return model.Snapshot{}, err
 	}
