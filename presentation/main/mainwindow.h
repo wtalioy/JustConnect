@@ -51,6 +51,9 @@ signals:
     void shutdownSettled(bool success);
 
 protected:
+#ifdef Q_OS_MACOS
+    void showEvent(QShowEvent *event) override;
+#endif
     void closeEvent(QCloseEvent *e) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void changeEvent(QEvent *event) override;

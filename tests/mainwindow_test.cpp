@@ -552,6 +552,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
+#ifdef Q_OS_MACOS
+bool hasUntitledNativeHomeFrame(QWidget &widget);
+#endif
+
 static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *details=window.findChild<QDialog *>("detailsDialog");
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
@@ -878,6 +882,9 @@ int main(int argc,char **argv) {
             check(explained,"invalid language fallback is visible in settings");invalid->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
         if (native) {
+#ifdef Q_OS_MACOS
+            check(hasUntitledNativeHomeFrame(window),"the macOS home hides the caption and keeps its title and native controls");
+#endif
             nativeHome(window, logger);
             languagePreferences(window);
             profileMenusKeepTheirActions(window,menuProfile);
@@ -892,6 +899,9 @@ int main(int argc,char **argv) {
         const bool tray=QSystemTrayIcon::isSystemTrayAvailable();
         check(tray ? window.isHidden() : window.isVisible(),"default close must use an available tray or keep the window reachable");
         window.show();
+#ifdef Q_OS_MACOS
+        if (native) check(hasUntitledNativeHomeFrame(window),"reopening the macOS home preserves the native frame without a caption");
+#endif
         auto *inspectNetwork = window.findChild<QAction *>("inspectNetworkAction");
         check(inspectNetwork, "network inspection is reachable from the main menu");
         inspectNetwork->trigger();
