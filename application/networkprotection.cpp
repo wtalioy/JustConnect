@@ -41,20 +41,17 @@ int compare(const QHostAddress &a, const QHostAddress &b)
 }
 }
 
-std::optional<std::pair<QJsonObject,QJsonObject>> originalProxyNetworkView(QJsonObject network, QJsonObject dns)
+std::optional<QJsonObject> originalProxyNetworkView(QJsonObject network)
 {
 #if defined(Q_OS_MACOS)
-    return macOriginalProxyView(std::move(network),std::move(dns));
+    return macOriginalProxyView(std::move(network));
 #else
-    return {{network,dns}};
+    return network;
 #endif
 }
 
-std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
+std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
 {
-    const auto view = originalProxyNetworkView(snapshot,{});
-    if (!view) return {};
-    const auto &network = view->first;
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return std::nullopt;
     QMap<QString, QJsonArray> targets;
     auto add = [&](const QString &value, const QJsonObject &source, bool route, bool excluded = false) {
@@ -736,7 +733,8 @@ CampusTunCapture prepareCampusTunCapture(const CampusCaptureTargets &targets,
 
 std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes)
 {
-    const auto original = originalNetworkProtection(network);
+    const auto view = originalProxyNetworkView(network);
+    const auto original = view ? originalNetworkProtection(*view) : std::nullopt;
     if (!original || reservedPrefixes.size() > MaxModelItems) return {};
     IPv4Ranges blocked;
     auto exclude = [&](const QString &text) {

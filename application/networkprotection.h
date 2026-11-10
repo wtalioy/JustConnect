@@ -7,9 +7,9 @@
 #include <optional>
 #include <utility>
 
-// Separate verified ordinary proxy capture from the original network and resolver view.
-std::optional<std::pair<QJsonObject,QJsonObject>> originalProxyNetworkView(QJsonObject network, QJsonObject dns);
-// Each target retains references into the original network view.
+// Separate verified ordinary proxy routes from the original network view.
+std::optional<QJsonObject> originalProxyNetworkView(QJsonObject network);
+// Targets refer to indices in the already projected original network view.
 std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network);
 // Known address overlaps explain conflicts; they never grant campus authorization.
 std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, const QJsonObject &resources);

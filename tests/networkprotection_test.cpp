@@ -17,20 +17,25 @@ static void macProxyTunnelView()
     const auto tunnel = QJsonObject{{"index",7},{"name","utun5"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"198.19.0.1/30"}}};
     const auto original = QJsonObject{{"destination","192.0.2.0/24"},{"interface_index",2}};
     const auto captured = QJsonObject{{"destination","8.0.0.0/5"},{"interface_index",7}};
-    const QJsonObject dns{{"original","retained"}};
     const QJsonObject network{{"interfaces",QJsonArray{physical,tunnel}},{"routes",QJsonArray{original,captured}},
         {"proxy_tunnel",QJsonObject{{"interface_index",7},{"name","utun5"}}}};
-    const auto view = macOriginalProxyView(network,dns);
-    check(view && view->first["routes"].toArray() == QJsonArray{original} && view->second == dns,
-        "Verified macOS proxy exit obscured a private campus or changed original DNS");
-    check(view->first["interfaces"] == network["interfaces"] && macOriginalProxyView(view->first,dns) == view,
+    const auto view = macOriginalProxyView(network);
+    check(view && (*view)["routes"].toArray() == QJsonArray{original},
+        "Verified macOS proxy exit obscured a private campus");
+    check((*view)["interfaces"] == network["interfaces"] && macOriginalProxyView(*view) == view,
         "macOS projection lost allocation reservations or was not idempotent");
+#if defined(Q_OS_MACOS)
+    const auto targets = originalNetworkProtection(*view);
+    const auto protectedPrefixes = targets ? protectionConfiguration(*targets,{})["protected"].toArray() : QJsonArray{};
+    check(protectedPrefixes.contains("192.0.2.0/24") && !protectedPrefixes.contains("8.0.0.0/5")
+        && !protectedPrefixes.contains("198.19.0.0/30"), "Projected protection still included the proxy tunnel");
+#endif
     auto unknown = network; unknown.remove("proxy_tunnel");
-    check(macOriginalProxyView(unknown,dns)->first == unknown,"Unconfirmed macOS tunnel lost original protection");
+    check(macOriginalProxyView(unknown) == unknown,"Unconfirmed macOS tunnel lost original protection");
     for (const auto &field : {QString("name"),QString("up")}) {
         auto stale = tunnel; stale[field] = field == "name" ? QJsonValue("utun6") : QJsonValue(false);
         auto changed = network; changed["interfaces"] = QJsonArray{physical,stale};
-        check(!macOriginalProxyView(changed,dns),"Reused or down macOS tunnel authorized projection");
+        check(!macOriginalProxyView(changed),"Reused or down macOS tunnel authorized projection");
     }
 }
 

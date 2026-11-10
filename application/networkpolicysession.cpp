@@ -281,15 +281,16 @@ void NetworkPolicySession::buildModel()
                     : snapshot.result.status == NativeStatus::Cancelled ? Status::Stale : Status::Failed;
                 return ModelResult{request, status, {}};
             }
-            auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
-            if (view) view = originalProxyNetworkView(view->first,view->second);
+            const auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
             if (!view) return ModelResult{request, Status::Failed, {}};
-            const auto targets = originalNetworkProtection(view->first);
+            const auto projected = originalProxyNetworkView(view->first);
+            if (!projected) return ModelResult{request, Status::Failed, {}};
+            const auto targets = originalNetworkProtection(*projected);
             const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;
             const auto names = originalDnsProtection(view->second);
             if (!targets || !conflicts || !names) return ModelResult{request, Status::Failed, {}};
             return ModelResult{request, Status::Success,
-                {{"schema_version", version}, {"generation", id}, {"network", view->first}, {"resources", campus},
+                {{"schema_version", version}, {"generation", id}, {"network", *projected}, {"resources", campus},
                  {"dns", view->second}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
                  {"targets", *targets}, {"conflicts", *conflicts}}};
         } catch (...) { return ModelResult{request, Status::Failed, {}}; }
