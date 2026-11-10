@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -63,4 +64,68 @@ func TestNativeTCPListenerOwnershipTracksActualSocket(t *testing.T) {
 	if OwnsTCP(t.Context(), process, netip.AddrPort{}) || OwnsTCP(t.Context(), model.Process{}, netip.MustParseAddrPort("127.0.0.1:1")) {
 		t.Fatal("invalid endpoint or process was accepted")
 	}
+}
+
+func TestFilterTCPListenersKeepsOnlyLiveEndpointsOfTheProcess(t *testing.T) {
+	process := model.Process{PID: os.Getpid(), Started: creation(windows.CurrentProcess())}
+	first := listenTCP(t, "::1")
+	second := listenTCP(t, "127.0.0.1")
+	ipv6 := netip.MustParseAddrPort(first.Addr().String())
+	ipv4 := netip.MustParseAddrPort(second.Addr().String())
+	unowned := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.2"), ipv4.Port())
+	targets := []netip.AddrPort{ipv6, unowned, {}, ipv4}
+	if got := FilterTCPListeners(t.Context(), process, slices.Clone(targets)); !slices.Equal(got, []netip.AddrPort{ipv6, ipv4}) {
+		t.Fatal("invalid endpoint accepted or listener order changed", got)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := FilterTCPListeners(t.Context(), process, slices.Clone(targets)); !slices.Equal(got, []netip.AddrPort{ipv4}) {
+		t.Fatal("fresh observation did not reflect the closed socket", got)
+	}
+	process.Started++
+	if got := FilterTCPListeners(t.Context(), process, targets); len(got) != 0 {
+		t.Fatal("stale process identity acquired listener ownership", got)
+	}
+}
+
+func listenTCP(t testing.TB, host string) net.Listener {
+	t.Helper()
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	return listener
+}
+
+func BenchmarkTCPListenerObservation(b *testing.B) {
+	process := model.Process{PID: os.Getpid(), Started: creation(windows.CurrentProcess())}
+	var targets [6]netip.AddrPort
+	for i := range targets {
+		host := "127.0.0.1"
+		if i%2 != 0 {
+			host = "::1"
+		}
+		targets[i] = netip.MustParseAddrPort(listenTCP(b, host).Addr().String())
+	}
+	b.Run("separate", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			for _, target := range targets {
+				if !OwnsTCP(b.Context(), process, target) {
+					b.Fatal("actual listener not verified")
+				}
+			}
+		}
+	})
+	b.Run("grouped", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			dst := targets
+			if len(FilterTCPListeners(b.Context(), process, dst[:])) != len(targets) {
+				b.Fatal("actual listeners not verified")
+			}
+		}
+	})
 }

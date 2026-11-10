@@ -114,22 +114,61 @@ var waitNamedPipe = windows.NewLazySystemDLL("kernel32.dll").NewProc("WaitNamedP
 var tcpTable = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetExtendedTcpTable")
 
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
-	if ctx.Err() != nil || !target.IsValid() || !Valid(p) {
-		return false
+	targets := [...]netip.AddrPort{target}
+	return len(FilterTCPListeners(ctx, p, targets[:])) != 0
+}
+
+// FilterTCPListeners keeps verified endpoints in their original order, in place.
+func FilterTCPListeners(ctx context.Context, p model.Process, targets []netip.AddrPort) []netip.AddrPort {
+	if len(targets) == 0 || ctx.Err() != nil || !Valid(p) {
+		return nil
 	}
+	families := [...]uintptr{windows.AF_INET, windows.AF_INET6}
+	var tables [len(families)][]byte
+	var read [len(families)]bool
+	owned := targets[:0]
+	for _, target := range targets {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if !target.IsValid() {
+			continue
+		}
+		i := 0
+		if target.Addr().Unmap().Is6() {
+			i = 1
+		}
+		if !read[i] {
+			tables[i] = tcpListeners(families[i])
+			read[i] = true
+		}
+		if listenerOwned(tables[i], families[i], uint32(p.PID), target) {
+			owned = append(owned, target)
+		}
+	}
+	if len(owned) == 0 || ctx.Err() != nil || !Valid(p) {
+		return nil
+	}
+	return owned
+}
+
+func tcpListeners(family uintptr) []byte {
 	// TCP_TABLE_OWNER_PID_LISTENER and MIB_TCP{,6}ROW_OWNER_PID from iprtrmib.h.
-	family := uintptr(windows.AF_INET)
-	if target.Addr().Unmap().Is6() {
-		family = windows.AF_INET6
-	}
 	var size uint32
 	status, _, _ := tcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
 	if status != uintptr(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 4<<20 {
-		return false
+		return nil
 	}
 	buffer := make([]byte, size)
 	status, _, _ = tcpTable.Call(uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
 	if status != 0 || size > uint32(len(buffer)) || size < 4 {
+		return nil
+	}
+	return buffer[:size]
+}
+
+func listenerOwned(buffer []byte, family uintptr, processID uint32, target netip.AddrPort) bool {
+	if len(buffer) < 4 {
 		return false
 	}
 	width := 24
@@ -137,7 +176,7 @@ func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
 		width = 56
 	}
 	count := binary.LittleEndian.Uint32(buffer[:4])
-	if uint64(count)*uint64(width) > uint64(size-4) {
+	if uint64(count)*uint64(width) > uint64(len(buffer)-4) {
 		return false
 	}
 	for at := 4; at < 4+int(count)*width; at += width {
@@ -154,8 +193,8 @@ func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
 			port = binary.BigEndian.Uint16(row[20:22])
 			pid = binary.LittleEndian.Uint32(row[52:56])
 		}
-		if pid == uint32(p.PID) && port == target.Port() && model.ListenerMatches(address, target.Addr()) {
-			return Valid(p)
+		if pid == processID && port == target.Port() && model.ListenerMatches(address, target.Addr()) {
+			return true
 		}
 	}
 	return false

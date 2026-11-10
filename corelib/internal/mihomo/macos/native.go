@@ -104,23 +104,56 @@ func Read(ctx context.Context) ([]model.Process, error) {
 var verifyTCPListener func(pid int, port uint16, ipv4 uint32) int
 
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
-	if ctx.Err() != nil || !target.Addr().IsLoopback() || target.Port() == 0 || !Valid(p) {
-		return false
+	targets := [...]netip.AddrPort{target}
+	return len(FilterTCPListeners(ctx, p, targets[:])) != 0
+}
+
+// FilterTCPListeners keeps verified endpoints in their original order, in place.
+func FilterTCPListeners(ctx context.Context, p model.Process, targets []netip.AddrPort) []netip.AddrPort {
+	if len(targets) == 0 || ctx.Err() != nil || !Valid(p) {
+		return nil
 	}
-	if verifyTCPListener != nil {
-		var ipv4 uint32
-		if host := target.Addr().Unmap(); host.Is4() {
-			address := host.As4()
-			ipv4 = binary.BigEndian.Uint32(address[:])
+	var output []byte
+	var read bool
+	owned := targets[:0]
+	for _, target := range targets {
+		if ctx.Err() != nil {
+			return nil
 		}
-		if result := verifyTCPListener(p.PID, target.Port(), ipv4); result >= 0 {
-			return result == 1 && ctx.Err() == nil && Valid(p)
+		if !target.Addr().IsLoopback() || target.Port() == 0 {
+			continue
+		}
+		if verifyTCPListener != nil {
+			var ipv4 uint32
+			if host := target.Addr().Unmap(); host.Is4() {
+				address := host.As4()
+				ipv4 = binary.BigEndian.Uint32(address[:])
+			}
+			if result := verifyTCPListener(p.PID, target.Port(), ipv4); result >= 0 {
+				if result == 1 {
+					owned = append(owned, target)
+				}
+				continue
+			}
+		}
+		if !read {
+			budget, cancel := context.WithTimeout(ctx, 3*time.Second)
+			var err error
+			output, err = commandOutput(budget, "/usr/sbin/netstat", "-anv", "-p", "tcp")
+			cancel()
+			if err != nil {
+				output = nil
+			}
+			read = true
+		}
+		if len(output) != 0 && tcpListenerOwned(bytes.NewReader(output), p.PID, target) {
+			owned = append(owned, target)
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	output, err := commandOutput(ctx, "/usr/sbin/netstat", "-anv", "-p", "tcp")
-	return err == nil && tcpListenerOwned(bytes.NewReader(output), p.PID, target) && Valid(p)
+	if len(owned) == 0 || ctx.Err() != nil || !Valid(p) {
+		return nil
+	}
+	return owned
 }
 
 func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {

@@ -49,20 +49,22 @@ func (c *Client) ObserveProxy(ctx context.Context) (ProxyInfo, error) {
 		return ProxyInfo{}, err
 	}
 	info := ProxyInfo{RuntimeState: state, Endpoints: []string{}}
-	ports := []uint16{state.SOCKSPort, state.MixedPort, state.HTTPPort}
+	ports := [...]uint16{state.SOCKSPort, state.MixedPort, state.HTTPPort}
+	hosts := [...]netip.Addr{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netip.IPv6Loopback()}
+	var targets [len(ports) * len(hosts)]netip.AddrPort
+	endpoints := targets[:0]
 	for i, port := range ports {
 		if port == 0 || i > 0 && port == ports[0] || i > 1 && port == ports[1] {
 			continue
 		}
-		for _, host := range []netip.Addr{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netip.IPv6Loopback()} {
-			address := netip.AddrPortFrom(host, port)
-			owned := ownsTCP(ctx, c.endpoint.process, address)
-			if owned {
-				info.Endpoints = append(info.Endpoints, address.String())
-				if info.Proxy == nil && (port == state.SOCKSPort || port == state.MixedPort) {
-					info.Proxy = &Proxy{process: c.endpoint.process, address: address}
-				}
-			}
+		for _, host := range hosts {
+			endpoints = append(endpoints, netip.AddrPortFrom(host, port))
+		}
+	}
+	for _, address := range filterTCPListeners(ctx, c.endpoint.process, endpoints) {
+		info.Endpoints = append(info.Endpoints, address.String())
+		if port := address.Port(); info.Proxy == nil && (port == state.SOCKSPort || port == state.MixedPort) {
+			info.Proxy = &Proxy{process: c.endpoint.process, address: address}
 		}
 	}
 	if ctx.Err() != nil {
