@@ -24,7 +24,7 @@ def run(output, name, args, required=True):
 def main():
     output = pathlib.Path('build/coreabi')
     output.mkdir(parents=True, exist_ok=True)
-    run(output, 'mihomo-runtime-unit', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/platform', '-p', 'setup_mihomo_test.py'])
+    run(output, 'platform-fixtures', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/platform', '-p', '*_test.py'])
     run(output, 'mihomo-api-capabilities', [sys.executable, 'tests/platform/mihomo_api_probe.py', os.environ['JC_TEST_MIHOMO_BINARY']])
     run(output, 'go', ['go', 'version'])
     run(output, 'cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
