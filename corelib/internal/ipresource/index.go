@@ -1,9 +1,10 @@
 package ipresource
 
 import (
+	"cmp"
 	"encoding/binary"
 	"net"
-	"sort"
+	"slices"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 )
@@ -12,18 +13,14 @@ type indexedResource struct {
 	resource client.IPResource
 	start    uint32
 	end      uint32
-	order    int
-}
-
-type node struct {
-	resource indexedResource
 	maxEnd   uint32
-	left     *node
-	right    *node
+	order    int
+	left     *indexedResource
+	right    *indexedResource
 }
 
 type Index struct {
-	root *node
+	root *indexedResource
 }
 
 func New(resources []client.IPResource) *Index {
@@ -36,26 +33,26 @@ func New(resources []client.IPResource) *Index {
 		}
 		indexed = append(indexed, indexedResource{resource: resource, start: start, end: end, order: order})
 	}
-	sort.SliceStable(indexed, func(i, j int) bool { return indexed[i].start < indexed[j].start })
+	slices.SortFunc(indexed, func(a, b indexedResource) int { return cmp.Compare(a.start, b.start) })
 	return &Index{root: build(indexed)}
 }
 
-func build(resources []indexedResource) *node {
+func build(resources []indexedResource) *indexedResource {
 	if len(resources) == 0 {
 		return nil
 	}
 	middle := len(resources) / 2
-	n := &node{resource: resources[middle]}
-	n.left = build(resources[:middle])
-	n.right = build(resources[middle+1:])
-	n.maxEnd = n.resource.end
-	if n.left != nil && n.left.maxEnd > n.maxEnd {
-		n.maxEnd = n.left.maxEnd
+	resource := &resources[middle]
+	resource.left = build(resources[:middle])
+	resource.right = build(resources[middle+1:])
+	resource.maxEnd = resource.end
+	if resource.left != nil {
+		resource.maxEnd = max(resource.maxEnd, resource.left.maxEnd)
 	}
-	if n.right != nil && n.right.maxEnd > n.maxEnd {
-		n.maxEnd = n.right.maxEnd
+	if resource.right != nil {
+		resource.maxEnd = max(resource.maxEnd, resource.right.maxEnd)
 	}
-	return n
+	return resource
 }
 
 func (i *Index) Match(destination net.IP, protocol string, port int) (client.IPResource, bool) {
@@ -83,23 +80,25 @@ func (i *Index) match(destination net.IP, protocol string, port int, preferLast 
 	return best.resource, true
 }
 
-func (n *node) match(ip uint32, protocol string, port int, preferLast bool, accept func(client.IPResource) bool, best **indexedResource) {
-	if n.maxEnd < ip {
+func (resource *indexedResource) match(ip uint32, protocol string, port int, preferLast bool, accept func(client.IPResource) bool, best **indexedResource) {
+	if resource.maxEnd < ip {
 		return
 	}
-	if n.left != nil && n.left.maxEnd >= ip {
-		n.left.match(ip, protocol, port, preferLast, accept, best)
+	if resource.left != nil && resource.left.maxEnd >= ip {
+		resource.left.match(ip, protocol, port, preferLast, accept, best)
 	}
-	resource := &n.resource
-	if resource.start <= ip && ip <= resource.end &&
+	if resource.start > ip {
+		return
+	}
+	if ip <= resource.end &&
 		(resource.resource.Protocol == protocol || resource.resource.Protocol == "all") &&
 		(protocol == "icmp" || resource.resource.PortMin <= port && port <= resource.resource.PortMax) &&
 		(accept == nil || accept(resource.resource)) &&
 		(*best == nil || (!preferLast && resource.order < (*best).order) || (preferLast && resource.order > (*best).order)) {
 		*best = resource
 	}
-	if resource.start <= ip && n.right != nil && n.right.maxEnd >= ip {
-		n.right.match(ip, protocol, port, preferLast, accept, best)
+	if resource.right != nil && resource.right.maxEnd >= ip {
+		resource.right.match(ip, protocol, port, preferLast, accept, best)
 	}
 }
 

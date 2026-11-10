@@ -90,7 +90,27 @@ func TestNilIndexDoesNotMatch(t *testing.T) {
 	}
 }
 
-func BenchmarkIndexMatch(b *testing.B) {
+func TestIndexKeepsRangeAcrossSubtrees(t *testing.T) {
+	start := net.IPv4(192, 0, 2, 0)
+	end := net.IPv4(192, 0, 2, 255)
+	resources := []client.IPResource{
+		{IPMin: end, IPMax: start, Protocol: "all", PortMin: 1, PortMax: 65535},
+		{IPMin: start, IPMax: end, Protocol: "all", PortMin: 443, PortMax: 443, AppID: "range"},
+	}
+	for _, last := range []byte{180, 20, 150, 90} {
+		ip := net.IPv4(192, 0, 2, last)
+		resources = append(resources, client.IPResource{IPMin: ip, IPMax: ip, Protocol: "tcp", PortMin: 443, PortMax: 443})
+	}
+	index := New(resources)
+	if got, ok := index.Match(end, "tcp", 443); !ok || got.AppID != "range" {
+		t.Fatalf("range ending past the midpoint was lost: %v, %t", got, ok)
+	}
+	if _, ok := index.Match(end, "tcp", 80); ok {
+		t.Fatal("match ignored the port bound or accepted the reversed range")
+	}
+}
+
+func BenchmarkIndex(b *testing.B) {
 	for _, resourceCount := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprintf("rules_%d", resourceCount), func(b *testing.B) {
 			resources := make([]client.IPResource, resourceCount)
@@ -98,15 +118,24 @@ func BenchmarkIndexMatch(b *testing.B) {
 				ip := net.IPv4(10, byte(i>>8), byte(i), 1)
 				resources[i] = client.IPResource{IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp"}
 			}
-			index := New(resources)
 			target := resources[len(resources)-1].IPMin
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if _, ok := index.Match(target, "tcp", 443); !ok {
-					b.Fatal("target did not match")
+			b.Run("build", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if _, ok := New(resources).Match(target, "tcp", 443); !ok {
+						b.Fatal("target did not match")
+					}
 				}
-			}
+			})
+			b.Run("match", func(b *testing.B) {
+				index := New(resources)
+				b.ReportAllocs()
+				for b.Loop() {
+					if _, ok := index.Match(target, "tcp", 443); !ok {
+						b.Fatal("target did not match")
+					}
+				}
+			})
 		})
 	}
 }
