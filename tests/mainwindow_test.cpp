@@ -562,9 +562,9 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *session=window.findChild<ConnectionSession *>();
     const auto state=session->state();
     auto *tray=window.findChild<QSystemTrayIcon *>();
-    const auto mark=QIcon(":/resource/icon.svg").pixmap(24,24).toImage();
-    check(!mark.isNull() && window.windowIcon().pixmap(24,24).toImage()==mark,"the window uses the standard link artwork");
 #ifdef Q_OS_MACOS
+    check(QApplication::windowIcon().isNull() && window.windowIcon().isNull(),
+        "macOS leaves the bundled Dock icon in control");
     const auto connectedMark=QIcon(":/resource/tray-link-ready.svg").pixmap(24,24).toImage();
     check(tray->icon().isMask() && !tray->icon().pixmap(24,24).isNull()
         && !connectedMark.isNull() && connectedMark!=tray->icon().pixmap(24,24).toImage(),
@@ -580,6 +580,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     showWindow->trigger();
     check(window.isVisible(),"the tray menu opens the main window on explicit request");
 #else
+    const auto mark=QIcon(":/resource/icon.svg").pixmap(24,24).toImage();
+    check(!mark.isNull() && window.windowIcon().pixmap(24,24).toImage()==mark,"the Windows window uses the standard link artwork");
     check(tray->icon().pixmap(24,24).toImage()==mark,"the tray uses the colored link artwork");
     window.hide();
     emit tray->activated(QSystemTrayIcon::Context);
@@ -605,7 +607,7 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && std::none_of(connectionActions.cbegin(), connectionActions.cend(), [](QAction *action) { return action->menu(); }),
         "the selected Fudan connection appears first and every management action is directly reachable");
     check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
-    check(!window.findChild<QLabel *>("applicationNameLabel") && !window.windowIcon().isNull(),"branding appears once in the native window frame");
+    check(!window.findChild<QLabel *>("applicationNameLabel"),"home does not duplicate the native app identity");
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();

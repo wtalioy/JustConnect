@@ -121,7 +121,10 @@ MainWindow::MainWindow(
 
     upgradeSettings();
 
+#ifndef Q_OS_MACOS
+    // On macOS Qt would replace the Dock icon supplied by the app bundle.
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
+#endif
     ui->setupUi(this);
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
