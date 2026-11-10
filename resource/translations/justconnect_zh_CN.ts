@@ -75,8 +75,8 @@
     </message>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="91"/>
-        <source>No system tray is available. Use Exit in the application menu to quit.</source>
-        <translation>系统托盘不可用，可在应用菜单中选择“退出”。</translation>
+        <source>Without a system tray, closing the window exits JustConnect.</source>
+        <translation>系统托盘不可用时，关闭窗口会退出 JustConnect。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="93"/>
@@ -1027,12 +1027,6 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <location filename="../../presentation/main/mainwindow.cpp" line="95"/>
         <source>Open page</source>
         <translation>打开页面</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="355"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="483"/>
-        <source>System tray unavailable. Use Exit in the application menu to quit.</source>
-        <translation>系统托盘不可用，可在应用菜单中选择“退出”。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="764"/>

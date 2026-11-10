@@ -202,10 +202,7 @@ MainWindow::MainWindow(
     auto *applicationMenu = new QMenu(ui->applicationMenuButton);
     applicationMenu->setToolTipsVisible(true);
     applicationMenu->addAction(ui->checkUpdateAction);
-    applicationMenu->addAction(ui->projectAction);
     applicationMenu->addAction(ui->aboutAction);
-    applicationMenu->addSeparator();
-    applicationMenu->addAction(ui->exitAction);
     ui->applicationMenuButton->setMenu(applicationMenu);
     connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
     ui->exitAction->setShortcut(QKeySequence::Quit);
@@ -413,14 +410,11 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (exitReady) { event->accept();return; }
     event->ignore();
-    if (!SavedConnectionStore().closeToTray()) { gracefullyQuit();return; }
-    if (trayIcon && trayIcon->isVisible() && QSystemTrayIcon::isSystemTrayAvailable()) {
+    if (SavedConnectionStore().closeToTray() && trayIcon && trayIcon->isVisible()
+        && QSystemTrayIcon::isSystemTrayAvailable()) {
         hide();
     } else {
-        PresentationHelpers::activateWindow(this);
-        setProperty("trayUnavailable",true);
-        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in the application menu to quit."));
-        ui->statusHintLabel->show();
+        gracefullyQuit();
     }
 }
 
@@ -583,9 +577,8 @@ void MainWindow::updateConnectionState(ConnectionState state)
     }
 
     const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || recoveryFailed;
-    const bool noTray=property("trayUnavailable").toBool();
-    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in the application menu to quit.") : needsAttention ? detail : QString());
-    ui->statusHintLabel->setVisible(noTray || needsAttention);
+    ui->statusHintLabel->setText(needsAttention ? detail : QString());
+    ui->statusHintLabel->setVisible(needsAttention);
     static const QHash<QString, const char *> results{
         {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
         {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},

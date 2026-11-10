@@ -589,12 +589,11 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
 #endif
     auto *appMenu=window.findChild<QToolButton *>("applicationMenuButton")->menu();
     auto *connections=window.findChild<QToolButton *>("profileMenuButton")->menu();
-    check(appMenu->actions().contains(window.findChild<QAction *>("exitAction"))
-        && appMenu->actions().contains(window.findChild<QAction *>("aboutAction"))
-        && appMenu->actions().contains(window.findChild<QAction *>("checkUpdateAction"))
-        && connections->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
+    check(appMenu->actions() == QList<QAction *>{window.findChild<QAction *>("checkUpdateAction"),
+        window.findChild<QAction *>("aboutAction")}, "the home app menu contains only updates and About");
+    check(connections->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
         && connections->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
-        "application and connection actions are accessible directly from home");
+        "connection cache actions are accessible directly from home");
     auto *networkProtection = window.findChild<QAction *>("inspectNetworkAction");
     check(!appMenu->actions().contains(networkProtection) && networkProtection->icon().isNull()
         && window.findChild<QMenu *>("fileMenu")->actions().contains(networkProtection)
@@ -895,9 +894,12 @@ int main(int argc,char **argv) {
         window.showMaximized();window.showMinimized();
         window.findChild<QAction *>("trayShowAction")->trigger();QCoreApplication::processEvents();
         check(window.isVisible() && !window.isMinimized() && window.isMaximized(),"tray restoration preserves the user's maximized state");
-        window.showNormal();window.close();QCoreApplication::processEvents();
+        window.showNormal();
         const bool tray=QSystemTrayIcon::isSystemTrayAvailable();
-        check(tray ? window.isHidden() : window.isVisible(),"default close must use an available tray or keep the window reachable");
+        if (tray) {
+            window.close();QCoreApplication::processEvents();
+            check(window.isHidden(),"default close hides the window when a system tray is available");
+        }
         window.show();
 #ifdef Q_OS_MACOS
         if (native) check(hasUntitledNativeHomeFrame(window),"reopening the macOS home preserves the native frame without a caption");
@@ -992,6 +994,10 @@ int main(int argc,char **argv) {
         });
         QTimer::singleShot(0,&app,[&] {
             if (app.arguments().contains("--close-exits")) {quitIntercepted=true;window.close();return;}
+            if (app.arguments().contains("--close-without-tray")) {
+                check(!tray && manager.closeToTray(),"exercise the default close preference without a system tray");
+                quitIntercepted=true;window.close();return;
+            }
             if (app.arguments().contains("--wait-for-signal")) {
                 QFile output;check(output.open(stdout,QIODevice::WriteOnly),"signal child output");
                 output.write("READY\n");output.flush();return;

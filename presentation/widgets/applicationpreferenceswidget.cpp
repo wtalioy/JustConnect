@@ -110,7 +110,7 @@ void ApplicationPreferencesWidget::retranslate() {
     if (!SavedConnectionStore::supportsLanguage(SavedConnectionStore().language()))
         explanation+='\n'+tr("The saved language is invalid. English is being used.");
     else if (!QSystemTrayIcon::isSystemTrayAvailable())
-        explanation+='\n'+tr("No system tray is available. Use Exit in the application menu to quit.");
+        explanation+='\n'+tr("Without a system tray, closing the window exits JustConnect.");
     hint->setText(explanation);
     controller->setText(tr("Choose instance…"));
     if (errorText) error->setText(tr(errorText));
