@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -18,14 +19,45 @@ func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duratio
 		_ = right.Close()
 		return
 	}
-	refresh := func() {
-		deadline := time.Now().Add(idle)
-		_ = left.SetDeadline(deadline)
-		_ = right.SetDeadline(deadline)
+	closeBoth := sync.OnceFunc(func() { _ = left.Close(); _ = right.Close() })
+	// gVisor recreates read and write timers on each SetDeadline call.
+	var mu sync.Mutex
+	deadline := time.Now().Add(idle)
+	var timer *time.Timer
+	mu.Lock()
+	timer = time.AfterFunc(idle, func() {
+		mu.Lock()
+		if deadline.IsZero() {
+			mu.Unlock()
+			return
+		}
+		if remaining := time.Until(deadline); remaining > 0 {
+			timer.Reset(remaining)
+			mu.Unlock()
+			return
+		}
+		deadline = time.Time{}
+		mu.Unlock()
+		closeBoth()
+	})
+	mu.Unlock()
+	defer func() {
+		mu.Lock()
+		deadline = time.Time{}
+		timer.Stop()
+		mu.Unlock()
+	}()
+	refresh := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if deadline.IsZero() {
+			return false
+		}
+		deadline = time.Now().Add(idle)
+		return true
 	}
-	refresh()
 	copyPackets := func(dst, src net.Conn) {
-		defer func() { _ = left.Close(); _ = right.Close() }()
+		defer closeBoth()
 		defer func() {
 			if recover() != nil {
 				fail(errors.New("TUN datagram relay panicked"))
@@ -37,10 +69,9 @@ func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duratio
 		buf := make([]byte, maxUDPPacket)
 		for ctx.Err() == nil {
 			n, err := src.Read(buf)
-			if err != nil || ctx.Err() != nil {
+			if err != nil || ctx.Err() != nil || !refresh() {
 				return
 			}
-			refresh()
 			if written, err := dst.Write(buf[:n]); err != nil || written != n {
 				return
 			}
