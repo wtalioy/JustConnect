@@ -17,7 +17,7 @@ extern "C" {
  * Outputs and scalar pointers are caller-owned; Go pointers never escape.
  * All length/handle/generation outputs are zeroed on error, except required
  * length on JC_BUFFER_TOO_SMALL. That result never writes or consumes an event.
- * Functions may run concurrently. See docs/CORE-ABI.md for lifecycle rules.
+ * Functions may run concurrently. Only one session can be active at a time.
  */
 JC_API uint32_t jc_abi_version(void);
 JC_API int32_t jc_build_info(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
@@ -30,8 +30,15 @@ JC_API int32_t jc_controller_snapshot(uint32_t abi, uint8_t *output, uint32_t ca
 /* Pure validation: no session, listeners, DNS or network operations. */
 JC_API int32_t jc_config_validate(uint32_t abi, const uint8_t *config, uint32_t length);
 JC_API int32_t jc_session_create(uint32_t abi, uint64_t *handle);
+/* Start validates and copies config synchronously, then starts asynchronously.
+ * Restart requires completed cleanup and all previous events to be read.
+ */
 JC_API int32_t jc_session_start(uint64_t handle, const uint8_t *config, uint32_t length, uint64_t *generation);
+/* Read the next event in FIFO order. JC_END means the session has finished
+ * and no events remain. Stop wakes blocked readers and keeps terminal events.
+ */
 JC_API int32_t jc_session_read(uint64_t handle, uint32_t wait_ms, uint8_t *output, uint32_t capacity, uint32_t *length);
+/* Respond only to a matching, already read request in the current generation. */
 JC_API int32_t jc_session_respond(uint64_t handle, const uint8_t *response, uint32_t length);
 /* Atomically replace protection rules for new connections; output the applied generation. */
 JC_API int32_t jc_session_update_policy(uint64_t handle, const uint8_t *policy, uint32_t length, uint64_t *generation);
