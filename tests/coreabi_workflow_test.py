@@ -1,4 +1,5 @@
 """Check that collecting ABI evidence never hides an earlier Go failure."""
+import importlib.util
 import io
 import os
 from pathlib import Path
@@ -24,7 +25,9 @@ def workflow_body(marker):
     raise AssertionError('Workflow Python body not found: ' + marker)
 
 
-body = workflow_body('race_status = regression_status')
+spec = importlib.util.spec_from_file_location('run_coreabi', ROOT / 'tests/platform/run_coreabi.py')
+runner_script = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner_script)
 
 def scenario(failures, arch='ARM64', runner='macOS'):
     calls = []
@@ -64,7 +67,7 @@ def scenario(failures, arch='ARM64', runner='macOS'):
                             JC_TEST_MIHOMO_BINARY='fixture-mihomo'), \
                     patch.object(subprocess, 'Popen', Process), patch.object(sys, 'stdout', output):
                 try:
-                    exec(compile(body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec'), {})
+                    runner_script.main()
                 except SystemExit as result:
                     status = result.code
                 else:
@@ -88,7 +91,7 @@ assert status == 0 and calls[-1] == 'host' and 'race' not in calls and 'regressi
 print('PASS: 10 workflow outcomes; race and native host failures remain failures')
 
 # GitHub's continue-on-error changes the displayed conclusion; retain the actual device failure.
-probe = lines.index('      - &windows_device_probe')
+probe = lines.index('      - name: Probe Windows device broker in the disposable runner')
 end = next(i for i in range(probe+1,len(lines)) if lines[i].startswith('      - '))
 assert not any(line.strip() == 'continue-on-error: true' for line in lines[probe:end]), 'Device failure would be displayed as success'
 condition = next(line.split('${{',1)[1].rsplit('}}',1)[0] for line in lines if 'if: &collect_native_evidence ' in line)
@@ -107,48 +110,12 @@ for runner, previous_success, outcome, cancelled, expected in (
         'steps':SimpleNamespace(windows_device_probe=SimpleNamespace(outcome=outcome)),
         'success':lambda:previous_success,'cancelled':lambda:cancelled})
     assert actual == expected,(runner,previous_success,outcome,cancelled,actual)
-assert '        if: *collect_native_evidence' in lines,'Packet-only checks lost independent evidence collection'
 print('PASS: device failures stay visible; 8 native evidence/cancellation conditions')
 
 
-controller_body = workflow_body("checks = [('normal', [])]")
-
-def controller_scenario(runner, arch, failure):
-    calls = []
-    def run(command, **options):
-        kind = 'race' if '-race' in command else 'normal'
-        assert './underlay' in command and './internal/mihomo/...' in command, command
-        calls.append(kind)
-        options['stdout'].write(b'native controller evidence\n')
-        return SimpleNamespace(returncode=17 if kind == failure else 0)
-    previous = Path.cwd()
-    with tempfile.TemporaryDirectory() as directory, io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
-        try:
-            os.chdir(directory)
-            with patch.dict(os.environ, RUNNER_OS=runner, RUNNER_ARCH=arch), \
-                    patch.object(subprocess, 'run', run), patch.object(sys, 'stdout', output):
-                try:
-                    exec(compile(controller_body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec'), {})
-                    status = 0
-                except SystemExit as result:
-                    status = result.code
-            assert (Path('build/controller-checks') / (calls[-1] + '.log')).read_bytes() == b'native controller evidence\n'
-        finally:
-            os.chdir(previous)
-    return status, calls
-
-for runner, arch in [('Windows', 'ARM64'), ('Windows', 'X64'), ('macOS', 'ARM64'), ('macOS', 'X64')]:
-    status, calls = controller_scenario(runner, arch, None)
-    expected = ['normal'] if (runner, arch) == ('Windows', 'ARM64') else ['normal', 'race']
-    assert status == 0 and calls == expected, (runner, arch, status, calls)
-for failure in ['normal', 'race']:
-    status, calls = controller_scenario('Windows', 'X64', failure)
-    assert status == 17 and calls[-1] == failure, (failure, status, calls)
-print('PASS: 6 native controller race-support/failure-propagation cases with actual evidence files')
-
 live_index = lines.index('      - name: Verify control beneath a live rejecting Mihomo TUN')
 formal_index = lines.index('      - name: Verify formal C ABI, protocol session and authentication')
-enforce_index = lines.index('      - &windows_device_result')
+enforce_index = lines.index('      - name: Enforce required Windows device result')
 assert probe < formal_index < live_index < enforce_index, 'Upstream embedded driver ran before original SDK/native checks or hid their result'
 
 live_body = workflow_body('https://github.com/robots.txt')

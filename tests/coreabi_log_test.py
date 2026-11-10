@@ -1,31 +1,26 @@
-import ast
+import importlib.util
 import io
 from pathlib import Path
-import subprocess
+from unittest.mock import patch
 import sys
 import tempfile
-import textwrap
 import threading
 import time
 from types import SimpleNamespace
 import unittest
 
 
-class CoreAbiLogTest(unittest.TestCase):
-    def load_runner(self, output, console):
-        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/coreabi.yml').read_text()
-        step = workflow.split('      - name: Verify formal C ABI, protocol session and authentication\n', 1)[1]
-        source = textwrap.dedent(step.split('        run: |\n', 1)[1].split('\n      - name:', 1)[0])
-        function = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == 'run')
-        namespace = {'output': output, 'subprocess': subprocess, 'sys': SimpleNamespace(stdout=SimpleNamespace(buffer=console), exit=sys.exit)}
-        exec(compile(ast.Module(body=[function], type_ignores=[]), '<coreabi workflow>', 'exec'), namespace)
-        return namespace['run']
+spec = importlib.util.spec_from_file_location(
+    'run_coreabi', Path(__file__).resolve().parent / 'platform/run_coreabi.py')
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
 
+
+class CoreAbiLogTest(unittest.TestCase):
     def test_partial_output_reaches_console_and_artifact_before_command_finishes(self):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
             console = io.BytesIO()
-            run = self.load_runner(output, console)
             release = output / 'release'
             code = ('import pathlib,sys,time; print("in-progress", end="", flush=True); '
                     'release=pathlib.Path(sys.argv[1]); '
@@ -33,7 +28,8 @@ class CoreAbiLogTest(unittest.TestCase):
             errors = []
             def invoke():
                 try:
-                    run('build', [sys.executable, '-c', code, str(release)])
+                    with patch.object(runner, 'sys', SimpleNamespace(stdout=SimpleNamespace(buffer=console), exit=sys.exit)):
+                        runner.run(output, 'build', [sys.executable, '-c', code, str(release)])
                 except BaseException as error:
                     errors.append(error)
             worker = threading.Thread(target=invoke)
@@ -57,9 +53,9 @@ class CoreAbiLogTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
             console = io.BytesIO()
-            run = self.load_runner(output, console)
-            with self.assertRaises(SystemExit) as error:
-                run('build', [sys.executable, '-c', 'import sys; sys.stderr.buffer.write(b"compile failed\\n"); sys.exit(7)'])
+            with patch.object(runner, 'sys', SimpleNamespace(stdout=SimpleNamespace(buffer=console), exit=sys.exit)), \
+                    self.assertRaises(SystemExit) as error:
+                runner.run(output, 'build', [sys.executable, '-c', 'import sys; sys.stderr.buffer.write(b"compile failed\\n"); sys.exit(7)'])
             self.assertEqual(error.exception.code, 7)
             self.assertEqual((output / 'build.log').read_bytes(), b'compile failed\n')
             self.assertEqual(console.getvalue(), b'RUN: build\ncompile failed\n')

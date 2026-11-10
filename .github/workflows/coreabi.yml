@@ -3,24 +3,35 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/uiwait.h', 'tests/coreabi_workflow_test.py', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: &coreabi_paths
+      - '.gitattributes'
+      - '.github/actions/**'
+      - '.github/workflows/coreabi.yml'
+      - 'CMakeLists.txt'
+      - 'application/**'
+      - 'cmake/**'
+      - 'core/**'
+      - 'corelib/**'
+      - 'infrastructure/**'
+      - 'presentation/**'
+      - 'resource.qrc'
+      - 'resource/network-helper*'
+      - 'scripts/generate-core-abi.py'
+      - 'scripts/verify-package.py'
+      - 'scripts/windows_helper_sdk.py'
+      - 'tests/CoreEngineTests.cmake'
+      - 'tests/coreabi/**'
+      - 'tests/coreabi*_test.py'
+      - 'tests/coreengineui_test.cpp'
+      - 'tests/credentialstorefixture.h'
+      - 'tests/embeddedcoreengine_test.cpp'
+      - 'tests/platform/**'
+      - 'tests/uiwait.h'
+      - 'tests/windows_helper_sdk_test.py'
   pull_request:
     branches: [main, develop]
     paths: *coreabi_paths
   workflow_dispatch:
-    inputs:
-      windows_packet_only:
-        type: boolean
-        default: false
-        description: Run only Windows native device, ordinary Qt/core packets and application sessions
-      macos_helper_only:
-        type: boolean
-        default: false
-        description: Run only the signed macOS permission helper checks (not the full ABI matrix)
-      controller_only:
-        type: boolean
-        default: false
-        description: Run four native controller/DNS checks and owned live-TUN control on disposable runners
 
 permissions:
   contents: read
@@ -30,57 +41,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  macos-helper:
-    if: github.event_name == 'workflow_dispatch' && inputs.macos_helper_only
-    name: macOS helper ${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {os: macos-26, arch: arm64}
-          - {os: macos-26-intel, arch: x64}
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: ./.github/actions/setup-qt
-        with:
-          host: mac
-          arch: clang_64
-      - uses: ./.github/actions/setup-core-toolchain
-      - name: Stage pinned Mihomo for native coexistence
-        run: python tests/platform/setup_mihomo.py --target macos-${{ matrix.arch }}
-      - name: Verify signed helper and independent recovery
-        run: bash tests/platform/run_macos_networkhelper.sh
-      - name: Upload native helper evidence
-        if: always()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: macos-helper-${{ matrix.arch }}
-          retention-days: 14
-          if-no-files-found: error
-          path: |
-            build/coreabi/*.txt
-            build/coreabi/Testing/Temporary/LastTest.log
-            build/coreabi/macos-helper.log
-            build/coreabi/macos-original-dns.log
-            build/coreabi/macos-tun-dns.log
-            build/coreabi/macos-tun-routes.log
-            build/coreabi/macos-helper/*.out
-            build/coreabi/macos-helper/*.err
-            build/coreabi/macos-helper/*.json
-            build/controller-checks/*.log
   probe:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.macos_helper_only && !inputs.windows_packet_only && !inputs.controller_only)
     name: ${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
-      matrix: &native_platforms
+      matrix:
         include:
-          - &windows_x64 {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
-          - &windows_arm64 {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
           - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
           - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64}
     steps:
@@ -96,7 +66,7 @@ jobs:
 
       - name: Build Windows native backends before toolchain setup
         if: runner.os == 'Windows'
-        run: &windows_native_probe |
+        run: |
           New-Item -ItemType Directory -Force build/coreabi | Out-Null
           python tests/platform/run_windows_packet.py --build-only 2>&1 | Tee-Object -FilePath build/coreabi/windows-native-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -112,8 +82,7 @@ jobs:
         if: runner.os == 'Windows'
         run: python tests/platform/run_windows_helper.py --qt-control
 
-      - &windows_device_probe
-        name: Probe Windows device broker in the disposable runner
+      - name: Probe Windows device broker in the disposable runner
         id: windows_device_probe
         if: runner.os == 'Windows'
         run: python tests/platform/run_windows_packet.py --device-only
@@ -130,54 +99,7 @@ jobs:
       - name: Verify formal C ABI, protocol session and authentication
         if: *collect_native_evidence
         timeout-minutes: 20
-        shell: python
-        run: |
-          import os, pathlib, subprocess, sys
-          output = pathlib.Path('build/coreabi')
-          output.mkdir(parents=True, exist_ok=True)
-          def run(name, args, required=True):
-              sys.stdout.buffer.write(('RUN: ' + name + '\n').encode())
-              sys.stdout.buffer.flush()
-              with (output / (name + '.log')).open('wb') as log:
-                  with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
-                      for chunk in iter(lambda: process.stdout.read1(4096), b''):
-                          log.write(chunk)
-                          log.flush()
-                          sys.stdout.buffer.write(chunk)
-                          sys.stdout.buffer.flush()
-                      status = process.wait()
-              if status and required:
-                  sys.exit(status)
-              return status
-          run('mihomo-runtime-unit', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/platform', '-p', 'setup_mihomo_test.py'])
-          run('mihomo-api-capabilities', [sys.executable, 'tests/platform/mihomo_api_probe.py', os.environ['JC_TEST_MIHOMO_BINARY']])
-          run('go', ['go', 'version'])
-          run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
-          run('cc', [os.environ['CC'], '--version'])
-          run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
-          run('go-test', ['go', '-C', 'corelib', 'test', '-json', '-timeout', '90s', './...'])
-          race_status = regression_status = 0
-          if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
-              # Collect independent ABI results even when a race regression fails; the step still fails below.
-              # Serialize packages; retain the platform's CPU and parallel-test budgets.
-              race_status = run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'], required=False)
-              # Repeat observed shutdown/DNS regressions without relaxing their original deadlines.
-              regression_status = run('go-race-tun-regressions', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
-                  '-timeout', '90s', '-run', '^(TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown|TestTUNDNSUsesOwnedPeerAndCampusACL)$', './service'], required=False)
-          else:
-              print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
-          args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
-          if sys.platform == 'win32':
-              args += ['-A', 'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64']
-          run('configure', args)
-          run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3', '--verbose'])
-          run('host', [sys.executable, 'tests/platform/run_ctest.py', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
-          sys.exit(race_status or regression_status)
-
-      - name: Measure native macOS TCP listener ownership
-        if: runner.os == 'macOS'
-        shell: bash
-        run: go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos 2>&1 | tee build/coreabi/macos-listener-ownership.log
+        run: python tests/platform/run_coreabi.py
 
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
@@ -202,9 +124,9 @@ jobs:
 
       # Run the upstream runtime only after the original signed SDK and native application checks.
       - name: Verify control beneath a live rejecting Mihomo TUN
-        if: ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
+        if: *collect_native_evidence
         shell: python
-        run: &native_control_tun |
+        run: |
           import os, pathlib, subprocess, sys
           output = pathlib.Path('build/controller-checks')
           output.mkdir(parents=True, exist_ok=True)
@@ -225,8 +147,7 @@ jobs:
               sys.stdout.buffer.flush()
 
       # Collect independent ABI/application evidence, but keep the original device probe mandatory.
-      - &windows_device_result
-        name: Enforce required Windows device result
+      - name: Enforce required Windows device result
         if: ${{ !cancelled() && runner.os == 'Windows' && steps.windows_device_probe.outcome != 'success' }}
         shell: pwsh
         run: throw 'Required Windows native device/4096-packet check failed or did not run; see its original log.'
@@ -247,90 +168,4 @@ jobs:
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
             build/coreabi/macos-helper/*.json
-
-  controller:
-    if: github.event_name == 'workflow_dispatch' && inputs.controller_only
-    name: Controller ${{ matrix.platform }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 12
-    strategy:
-      fail-fast: false
-      matrix: *native_platforms
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: ./.github/actions/setup-core-toolchain
-      - name: Stage pinned Mihomo for native control-DNS integration
-        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
-      - name: Verify native controller, DNS and shared underlay
-        shell: python
-        run: |
-          import os, pathlib, subprocess, sys
-          output = pathlib.Path('build/controller-checks')
-          output.mkdir(parents=True, exist_ok=True)
-          checks = [('normal', [])]
-          if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
-              checks.append(('race', ['-race']))
-          else:
-              print('UNSUPPORTED: Go race detector on Windows ARM64; native normal checks still run', flush=True)
-          for name, flags in checks:
-              print('RUN: native controller ' + name, flush=True)
-              path = output / (name + '.log')
-              command = ['go', '-C', 'corelib', 'test', '-json', '-mod=readonly', '-count=1', '-timeout=90s', *flags,
-                         './underlay', './internal/mihomo/...', './internal/dialer']
-              with path.open('wb') as log:
-                  result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
-              sys.stdout.buffer.write(path.read_bytes())
-              sys.stdout.buffer.flush()
-              if result.returncode:
-                  sys.exit(result.returncode)
-      - name: Verify control beneath a live rejecting Mihomo TUN
-        shell: python
-        run: *native_control_tun
-      - name: Upload native controller evidence
-        if: always()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: controller-${{ matrix.platform }}-${{ matrix.arch }}
-          retention-days: 14
-          if-no-files-found: error
-          path: build/controller-checks/*.log
-
-  windows-packet:
-    if: github.event_name == 'workflow_dispatch' && inputs.windows_packet_only
-    name: Windows packet ${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - *windows_x64
-          - *windows_arm64
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Build Windows native backends before toolchain setup
-        run: *windows_native_probe
-      - uses: ./.github/actions/setup-qt
-        with:
-          host: ${{ matrix.qt_host }}
-          arch: ${{ matrix.qt_arch }}
-      - uses: ./.github/actions/setup-core-toolchain
-      - name: Verify ordinary Qt authorization and recovery control
-        run: python tests/platform/run_windows_helper.py --qt-control
-      - *windows_device_probe
-      - name: Verify ordinary Qt/core packets and application sessions
-        if: *collect_native_evidence
-        run: python tests/platform/run_windows_packet.py --core-only
-      - *windows_device_result
-      - name: Upload native Windows evidence
-        if: always()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: windows-packet-${{ matrix.arch }}
-          retention-days: 14
-          if-no-files-found: error
-          path: |
-            build/coreabi/*.txt
-            build/coreabi/*.json
-            build/coreabi/*.log
-            build/coreabi/Testing/Temporary/LastTest.log
+            build/controller-checks/*.log

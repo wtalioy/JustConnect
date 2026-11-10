@@ -15,7 +15,6 @@ runs:
         python-version: '3.14'
 
     - name: Install Qt SDK
-      id: sdk
       uses: jurplel/install-qt-action/action@v4.4.1
       with:
         version: '6.12.0'

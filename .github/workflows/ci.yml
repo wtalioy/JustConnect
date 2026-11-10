@@ -40,27 +40,21 @@ jobs:
       - name: Prepare Go and cgo toolchain
         uses: ./.github/actions/setup-core-toolchain
 
-      - name: Verify integrated Go module and complete tests
-        run: python scripts/test-corelib.py
-
-      - name: Verify source export and package validation
-        run: python -m unittest discover -s tests -p '*_test.py'
+      - name: Verify Go module and Python tooling
+        shell: bash
+        run: |
+          python scripts/test-corelib.py
+          python -m unittest discover -s tests -p '*_test.py'
 
       - name: Configure
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
 
-      - name: Build and verify native sign-in
-        shell: bash
-        run: |
-          cmake --build build --config Release --target coreengineui_test --parallel 3
-          ctest --test-dir build --build-config Release --output-on-failure --tests-regex '^coreengineui_test_browser$'
-
       - name: Build
         run: cmake --build build --config Release --parallel 3
 
       - name: Run tests
-        run: ctest --test-dir build --build-config Release --output-on-failure --exclude-regex '^coreengineui_test_browser$'
+        run: ctest --test-dir build --build-config Release --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
 

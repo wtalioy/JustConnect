@@ -1,4 +1,4 @@
-"""Verify Windows device ownership and the ordinary Qt/core packet path on disposable runners."""
+"""Stage and verify the native Windows backends on disposable runners."""
 import argparse
 import hashlib
 import importlib.util
@@ -62,9 +62,9 @@ def verify_native_dns(native, output, arch):
     print('PASS: native DNS reader and source facts verified before Qt/Go setup', flush=True)
 
 
-def device(*, prepared=False):
+def device():
     output = pathlib.Path('build/coreabi').resolve()
-    contract, arch, metadata = stage_sdk(output, prepared=prepared)
+    contract, arch, metadata = stage_sdk(output, prepared=True)
     dll = pathlib.Path(metadata['driver'])
     (output / 'windows-device-license.txt').write_bytes(pathlib.Path(metadata['license']).read_bytes())
     host = shutil.which('pwsh')
@@ -149,14 +149,11 @@ def device(*, prepared=False):
         'measurements': records,
     }, indent=2), encoding='utf-8')
 
-    return env
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group()
+    mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--device-only', action='store_true', help='Run the device probe with the inputs from --build-only')
-    mode.add_argument('--core-only', action='store_true', help='Use the native inputs exported by the device step')
     mode.add_argument('--build-only', action='store_true', help='Build and check native Windows DNS and recovery before installing Qt/Go')
     args = parser.parse_args()
     os.chdir(ROOT)
@@ -175,25 +172,7 @@ def main():
         (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
         subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], check=True, timeout=260)
         return
-    if args.core_only:
-        if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
-            raise RuntimeError('Native Windows network mutation requires a disposable runner')
-        env = dict(os.environ, GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
-        for key in ('JC_TEST_WINTUN_DLL', 'JC_TEST_CPP_WINTUN_BROKER'):
-            path = pathlib.Path(env.get(key, ''))
-            if not path.is_absolute() or not path.is_file():
-                raise RuntimeError(f'Device step did not export a built native input: {key}')
-    else:
-        env = device(prepared=args.device_only)
-    if args.device_only:
-        return
-    env.pop('CGO_ENABLED', None)
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/packetpipe'], env=env, check=True, timeout=60)
-    output = ROOT / 'build/coreabi'
-    subprocess.run(['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release', '-A',
-        'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64'], check=True, timeout=120)
-    subprocess.run(['cmake', '--build', str(output), '--config', 'Release', '--target', 'coreabi_windows_packet_test', 'coreabi_windows_session_test', '--parallel', '3'], check=True, timeout=600)
-    subprocess.run(['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '-R', '^coreabi_windows_(packet|session)_test$', '--output-on-failure'], env=env, check=True, timeout=480)
+    device()
 
 
 if __name__ == '__main__':

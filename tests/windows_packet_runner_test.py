@@ -20,6 +20,13 @@ spec.loader.exec_module(helper)
 
 
 class WindowsPacketRunnerTest(unittest.TestCase):
+    def test_device_probe_refuses_non_disposable_host(self):
+        with patch.dict(os.environ, {'RUNNER_OS': 'Windows'}, clear=True), \
+                patch.object(runner.subprocess, 'run') as execute:
+            with self.assertRaisesRegex(RuntimeError, 'disposable runner'):
+                runner.device()
+            execute.assert_not_called()
+
     def test_device_step_reuses_only_the_verified_inputs_for_its_build(self):
         contract = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
         with tempfile.TemporaryDirectory() as directory:
@@ -110,41 +117,6 @@ class WindowsPacketRunnerTest(unittest.TestCase):
                         with self.assertRaises(RuntimeError):
                             runner.verify_native_dns(folder, folder, 'arm64')
                         self.assertFalse(report.exists())
-
-    def test_core_only_refuses_non_disposable_host(self):
-        with patch.object(sys, 'argv', ['runner', '--core-only']), \
-                patch.dict(os.environ, {}, clear=True), patch.object(runner.os, 'chdir'), \
-                patch.object(runner.subprocess, 'run') as execute:
-            with self.assertRaisesRegex(RuntimeError, 'disposable runner'):
-                runner.main()
-            execute.assert_not_called()
-
-    def test_core_only_requires_device_inputs_before_execution(self):
-        with patch.object(sys, 'argv', ['runner', '--core-only']), \
-                patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'Windows'}, clear=True), \
-                patch.object(runner.os, 'chdir'), patch.object(runner.subprocess, 'run') as execute:
-            with self.assertRaisesRegex(RuntimeError, 'native input'):
-                runner.main()
-            execute.assert_not_called()
-
-    def test_core_only_collects_application_evidence_without_repeating_device_probe(self):
-        with tempfile.TemporaryDirectory() as directory:
-            driver, broker = Path(directory) / 'wintun.dll', Path(directory) / 'broker.exe'
-            driver.touch()
-            broker.touch()
-            env = {'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'Windows', 'RUNNER_ARCH': 'ARM64',
-                   'JC_TEST_WINTUN_DLL': str(driver.resolve()), 'JC_TEST_CPP_WINTUN_BROKER': str(broker.resolve())}
-            with patch.object(sys, 'argv', ['runner', '--core-only']), \
-                    patch.dict(os.environ, env, clear=True), patch.object(runner.os, 'chdir'), \
-                    patch.object(runner, 'device', side_effect=AssertionError('device probe repeated')), \
-                    patch.object(runner.subprocess, 'run') as execute:
-                runner.main()
-            commands = [call.args[0] for call in execute.call_args_list]
-            self.assertTrue(any('coreabi_windows_session_test' in args for args in commands))
-            self.assertTrue(any(args[0] == 'ctest' and '^coreabi_windows_(packet|session)_test$' in args for args in commands))
-            for call in execute.call_args_list:
-                if 'env' in call.kwargs:
-                    self.assertEqual(call.kwargs['env']['JC_TEST_WINTUN_DLL'], env['JC_TEST_WINTUN_DLL'])
 
 
 if __name__ == '__main__':
