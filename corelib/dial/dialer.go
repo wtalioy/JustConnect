@@ -126,32 +126,32 @@ func (d *Dialer) DialDomainDNS(ctx context.Context, network, address string) (ne
 	return d.DialCampusIPPort(ctx, network, address)
 }
 
-// DialCapturedIPPort also accepts a live campus DNS binding; IP protection still applies.
-func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string) (net.Conn, error) {
+// DialCaptured also accepts a live campus DNS binding; IP protection still applies.
+func (d *Dialer) DialCaptured(ctx context.Context, network string, endpoint netip.AddrPort) (net.Conn, error) {
+	if !endpoint.IsValid() || endpoint.Port() == 0 || (network != "tcp" && network != "udp") {
+		return nil, ErrACLDenied
+	}
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && d.ProtectionPolicy != nil {
 		snapshot = d.ProtectionPolicy()
 		ctx = context.WithValue(ctx, resolve.ContextKeyProtectionPolicy, snapshot)
 	}
 	if d.resolver != nil {
-		if host, _, err := net.SplitHostPort(address); err == nil {
-			if ip, err := netip.ParseAddr(host); err == nil {
-				original, err := d.resolver.OriginalDNSProtectedIP(ctx, ip)
-				if err != nil {
-					return nil, err
-				}
-				if original {
-					return nil, policy.ErrProtectedTarget
-				}
-				if ctx.Value(resolve.ContextKeyDomainResource) == nil {
-					if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
-						ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
-					}
-				}
+		ip := endpoint.Addr()
+		original, err := d.resolver.OriginalDNSProtectedIP(ctx, ip)
+		if err != nil {
+			return nil, err
+		}
+		if original {
+			return nil, policy.ErrProtectedTarget
+		}
+		if ctx.Value(resolve.ContextKeyDomainResource) == nil {
+			if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
+				ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
 			}
 		}
 	}
-	return d.DialCampusIPPort(ctx, network, address)
+	return d.CampusOnly().dialIP(ctx, network, endpoint)
 }
 
 func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Conn, error) {
@@ -174,7 +174,11 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		}
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
-	address = address.Unmap()
+	return d.dialIP(ctx, network, netip.AddrPortFrom(address, uint16(port)))
+}
+
+func (d *Dialer) dialIP(ctx context.Context, network string, endpoint netip.AddrPort) (net.Conn, error) {
+	address, port := endpoint.Addr().Unmap(), int(endpoint.Port())
 	resource, host, matchedResource := matchContextDomainResource(ctx, network, port)
 	useVPN := d.alwaysUseVPN
 	if !useVPN {
@@ -184,7 +188,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		if useVPN {
 			return nil, policy.ErrProtectedTarget
 		}
-		return d.dialOrdinary(ctx, network, ipAddr)
+		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && d.ProtectionPolicy != nil {
@@ -198,7 +202,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 					if d.alwaysUseVPN {
 						return nil, policy.ErrProtectedTarget
 					}
-					return dialDirect(ctx, network, net.JoinHostPort(requestedHost, portStr))
+					return dialDirect(ctx, network, net.JoinHostPort(requestedHost, strconv.Itoa(port)))
 				}
 				namedCampus, useVPN = true, true
 			}
@@ -207,7 +211,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			if useVPN {
 				return nil, policy.ErrProtectedTarget
 			}
-			return dialDirect(ctx, network, ipAddr)
+			return dialDirect(ctx, network, endpoint.String())
 		} else if scope.IsValid() {
 			useVPN = true
 		}
@@ -227,7 +231,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		if useVPN {
 			return nil, ErrACLDenied
 		}
-		return d.dialOrdinary(ctx, network, ipAddr)
+		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	if !matchedResource {
 		index := d.scopedIndex
@@ -243,7 +247,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 
 	if !useVPN {
-		return d.dialOrdinary(ctx, network, ipAddr)
+		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	// Refuse before an ungranted flow can terminate the shared tunnel.
 	if !matchedResource {

@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/netip"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -168,10 +167,11 @@ func (i *tunIngress) release(key tunFlow) {
 
 func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Conn, error) {
 	ctx := i.owner.ctx
-	host := id.LocalAddress.String()
-	if i.peer.IsValid() && id.LocalAddress.String() == i.peer.String() {
+	address, _ := netip.AddrFromSlice(id.LocalAddress.AsSlice())
+	if i.peer.IsValid() && address == i.peer {
 		origin := i.owner.dialer.OriginalAuthentication
-		if id.RemoteAddress.String() != i.local.String() || !origin.Address.IsValid() || origin.Name == "" || i.owner.resolver == nil {
+		remote, _ := netip.AddrFromSlice(id.RemoteAddress.AsSlice())
+		if remote != i.local || !origin.Address.IsValid() || origin.Name == "" || i.owner.resolver == nil {
 			return nil, errors.New("the owned TUN peer has no campus destination")
 		}
 		resources := i.owner.resolver.CampusResourcesExcludingName(ctx, origin.Address, origin.Name)
@@ -179,10 +179,9 @@ func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Co
 			return nil, errors.New("the owned TUN peer has no live campus binding")
 		}
 		ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
-		host = origin.Address.String()
+		address = origin.Address
 	}
-	address := net.JoinHostPort(host, strconv.Itoa(int(id.LocalPort)))
-	conn, err := i.owner.dialer.DialCapturedIPPort(ctx, protocol, address)
+	conn, err := i.owner.dialer.DialCaptured(ctx, protocol, netip.AddrPortFrom(address, id.LocalPort))
 	if err != nil {
 		return nil, err
 	}

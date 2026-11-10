@@ -245,7 +245,7 @@ func TestTUNOriginalDNSExcludesCaptureAndRejectsRecapturedData(t *testing.T) {
 		t.Fatal("original DNS created campus authority or lost its capture publication", queries.Load(), publications.Load())
 	}
 	for _, transport := range []string{"tcp", "udp"} {
-		conn, err := d.DialCapturedIPPort(t.Context(), transport, tcp.Addr().String())
+		conn, err := d.DialCaptured(t.Context(), transport, tcp.Addr().(*net.TCPAddr).AddrPort())
 		if conn != nil {
 			conn.Close()
 		}

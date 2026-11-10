@@ -88,7 +88,7 @@ func TestOriginalAuthenticationAddressKeepsTheOrdinaryPath(t *testing.T) {
 	if _, err := d.DialIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, ordinary) {
 		t.Fatalf("ordinary authentication was captured: %v", err)
 	}
-	if _, err := d.DialCapturedIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, policy.ErrProtectedTarget) || stack.tcpCalls != 0 {
+	if _, err := d.DialCaptured(t.Context(), "tcp", netip.MustParseAddrPort(endpoint)); !errors.Is(err, policy.ErrProtectedTarget) || stack.tcpCalls != 0 {
 		t.Fatalf("forced campus authentication escaped: %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestCapturedDNSKeepsNamePortAndTransportTogether(t *testing.T) {
 		{"tcp", "443", "https.campus.test", "https"},
 		{"udp", "443", "udp.campus.test", "udp"},
 	} {
-		if _, err := d.DialCapturedIPPort(t.Context(), test.network, "192.0.2.7:"+test.port); err != nil {
+		if _, err := d.DialCaptured(t.Context(), test.network, netip.MustParseAddrPort("192.0.2.7:"+test.port)); err != nil {
 			t.Fatal(err)
 		}
 		if campus.resolvedHost != test.name || campus.domainResource.AppID != test.app {
@@ -151,10 +151,10 @@ func TestCapturedDNSKeepsNamePortAndTransportTogether(t *testing.T) {
 		}
 	}
 	known := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "http.campus.test")
-	if _, err := d.DialCapturedIPPort(known, "tcp", "192.0.2.7:443"); err == nil || campus.tcpCalls != 2 {
+	if _, err := d.DialCaptured(known, "tcp", netip.MustParseAddrPort("192.0.2.7:443")); err == nil || campus.tcpCalls != 2 {
 		t.Fatal("known name borrowed another name's port grant", err, campus.tcpCalls)
 	}
-	if _, err := d.DialCapturedIPPort(t.Context(), "tcp", "192.0.2.7:444"); err == nil || campus.tcpCalls != 2 {
+	if _, err := d.DialCaptured(t.Context(), "tcp", netip.MustParseAddrPort("192.0.2.7:444")); err == nil || campus.tcpCalls != 2 {
 		t.Fatal("DNS binding expanded the authorized ports", err, campus.tcpCalls)
 	}
 }

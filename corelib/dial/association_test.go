@@ -3,6 +3,7 @@ package dial
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -20,7 +21,7 @@ func TestCapturedDNSAddressRetainsPortNameAndIPProtection(t *testing.T) {
 	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return current }
 	check := func(network, address string, want error) {
 		t.Helper()
-		conn, err := d.DialCapturedIPPort(t.Context(), network, address)
+		conn, err := d.DialCaptured(t.Context(), network, netip.MustParseAddrPort(address))
 		if conn != nil {
 			conn.Close()
 		}
@@ -35,6 +36,8 @@ func TestCapturedDNSAddressRetainsPortNameAndIPProtection(t *testing.T) {
 	check("tcp", "203.0.113.7:80", nil)
 	check("tcp", "203.0.113.7:81", ErrACLDenied)
 	check("udp", "203.0.113.7:80", ErrACLDenied)
+	check("tcp", "203.0.113.7:0", ErrACLDenied)
+	check("tcp4", "203.0.113.7:80", ErrACLDenied)
 	if _, err := d.DialCampusIPPort(t.Context(), "tcp", "203.0.113.7:80"); !errors.Is(err, ErrACLDenied) {
 		t.Fatal("strict campus upstream used a captured DNS binding", err)
 	}
