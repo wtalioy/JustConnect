@@ -75,6 +75,8 @@ type conntrackMgr struct {
 	byID       map[uint64]*conntrack
 	lru        list.List
 	nextExpiry time.Time
+	nextAuth   time.Time
+	authWake   chan struct{}
 	maxEntries int
 	now        func() time.Time
 	closed     bool
@@ -84,6 +86,7 @@ func newConntrackMgr() *conntrackMgr {
 	return &conntrackMgr{
 		byKey:      make(map[conntrackKey]*conntrack),
 		byID:       make(map[uint64]*conntrack),
+		authWake:   make(chan struct{}, 1),
 		maxEntries: defaultConntrackMaxEntries,
 		now:        time.Now,
 	}
@@ -284,6 +287,7 @@ func (m *conntrackMgr) completeAuth(authID uint64, token string, err error) (*co
 	}
 	packets := ct.pending
 	ct.pending = nil
+	ct.authDeadline = time.Time{}
 	if token != "" {
 		ct.connectToken = token
 	}
@@ -337,9 +341,14 @@ func (m *conntrackMgr) nextAuthBatch(limit int) ([]conntrackAuthJob, bool) {
 	defer m.mu.Unlock()
 	var jobs []conntrackAuthJob
 	more := false
+	now := m.now()
 	for element := m.lru.Front(); element != nil; element = element.Next() {
 		ct := element.Value.(*conntrack)
-		if ct.authStarted != 0 || len(ct.pending) == 0 || m.now().Before(ct.authRetryAt) {
+		if ct.authStarted != 0 || len(ct.pending) == 0 {
+			continue
+		}
+		if now.Before(ct.authRetryAt) {
+			m.scheduleAuthCheckLocked(ct.authRetryAt)
 			continue
 		}
 		if len(jobs) >= limit {
@@ -357,24 +366,51 @@ func (m *conntrackMgr) nextAuthBatch(limit int) ([]conntrackAuthJob, bool) {
 
 func (m *conntrackMgr) markAuthSent(authID uint64, deadline time.Time) {
 	m.mu.Lock()
-	if ct := m.byID[authID]; ct != nil {
+	if ct := m.byID[authID]; ct != nil && ct.authStarted != 0 {
 		select {
 		case <-ct.authCh:
 		default:
 			ct.authDeadline = deadline
+			m.scheduleAuthCheckLocked(deadline)
 		}
 	}
 	m.mu.Unlock()
 }
 
+func (m *conntrackMgr) authCheck() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nextAuth
+}
+
+func (m *conntrackMgr) notifyAuth() {
+	select {
+	case m.authWake <- struct{}{}:
+	default:
+	}
+}
+
+func (m *conntrackMgr) scheduleAuthCheckLocked(deadline time.Time) {
+	if m.nextAuth.IsZero() || deadline.Before(m.nextAuth) {
+		m.nextAuth = deadline
+	}
+}
+
 func (m *conntrackMgr) expireAuth(now time.Time, err error) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A stale early deadline is harmless after an auth completes or a flow is removed.
+	if m.nextAuth.IsZero() || now.Before(m.nextAuth) {
+		return 0
+	}
+	m.nextAuth = time.Time{}
 	expired := 0
 	for element := m.lru.Front(); element != nil; {
 		next := element.Next()
 		ct := element.Value.(*conntrack)
-		if !ct.authDeadline.IsZero() && !now.Before(ct.authDeadline) {
+		if !ct.authDeadline.IsZero() && now.Before(ct.authDeadline) {
+			m.scheduleAuthCheckLocked(ct.authDeadline)
+		} else if !ct.authDeadline.IsZero() {
 			ct.authTimeouts++
 			if ct.authTimeouts < defaultAuthMaxAttempts {
 				ct.authStarted = 0

@@ -1191,7 +1191,6 @@ func TestPendingPacketsFlushInOrderAfterAuthentication(t *testing.T) {
 	frames := make([][]byte, 0, 3)
 	conn := &l3TunnelConn{
 		closeCh:      make(chan struct{}),
-		authWake:     make(chan struct{}, 1),
 		conntrackMgr: manager,
 		writeFrameHook: func(frame []byte) error {
 			frames = append(frames, append([]byte(nil), frame...))
@@ -1541,7 +1540,7 @@ func TestAuthStatus84RetriesImmediately(t *testing.T) {
 		t.Fatalf("initial auth jobs = %d, want 1", len(jobs))
 	}
 	manager.markAuthSent(ct.authID, now.Add(defaultAuthTimeout))
-	conn := &l3TunnelConn{closeCh: make(chan struct{}), authWake: make(chan struct{}, 1), conntrackMgr: manager}
+	conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager}
 	response, err := json.Marshal(authResponseIP{
 		Data: authResponseIPData{ConntrackHash: ct.authID},
 	})
@@ -1555,7 +1554,7 @@ func TestAuthStatus84RetriesImmediately(t *testing.T) {
 		t.Fatalf("immediate retry jobs = %v, want conntrack", jobs)
 	}
 	select {
-	case <-conn.authWake:
+	case <-manager.authWake:
 	default:
 		t.Fatal("immediate retry did not wake auth scheduler")
 	}
@@ -1575,7 +1574,6 @@ func TestAuthRetryStatusesRecoverAfterRepeatedBusyResponses(t *testing.T) {
 			var frames [][]byte
 			conn := &l3TunnelConn{
 				closeCh:      make(chan struct{}),
-				authWake:     make(chan struct{}, 1),
 				conntrackMgr: manager,
 				writeFrameHook: func(frame []byte) error {
 					frames = append(frames, append([]byte(nil), frame...))
@@ -1646,6 +1644,62 @@ func TestAuthServerRetryPreservesConsumedTimeoutBudget(t *testing.T) {
 	if ct.authTimeouts != 1 {
 		t.Fatalf("auth timeouts after server retry = %d, want 1", ct.authTimeouts)
 	}
+}
+
+func TestAuthSchedulerKeepsRetryDeadlineAcrossReconnect(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		manager := newConntrackMgr()
+		ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
+		if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, []byte{1}); err != nil {
+			t.Fatal(err)
+		}
+		jobs, _ := manager.nextAuthBatch(defaultAuthBatchSize)
+		if len(jobs) != 1 || jobs[0].conntrack != ct {
+			t.Fatal("missing original authentication job")
+		}
+		ct.authTimeouts = defaultAuthMaxAttempts - 1
+		const retryDelay = 40 * time.Millisecond
+		start := time.Now()
+		if !manager.retryAuth(ct.authID, retryDelay) {
+			t.Fatal("retry was rejected")
+		}
+		// A busy reply can arrive before the sender records that the old request was sent.
+		manager.markAuthSent(ct.authID, start.Add(retryDelay/2))
+		sent := make(chan time.Time, 2)
+		open := func() *l3TunnelConn {
+			conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager,
+				writeFrameHook: func(frame []byte) error {
+					if frame[1] == cmdAuthReq {
+						sent <- time.Now()
+					}
+					return nil
+				}}
+			conn.startWorker(conn.authLoop)
+			return conn
+		}
+		first := open()
+		time.Sleep(retryDelay / 2)
+		_ = first.Close()
+		first.Wait()
+		second := open()
+		defer func() { _ = second.Close(); second.Wait() }()
+		time.Sleep(retryDelay / 2)
+		synctest.Wait()
+		select {
+		case at := <-sent:
+			if at.Sub(start) != retryDelay {
+				t.Fatalf("retried at %v, want %v", at.Sub(start), retryDelay)
+			}
+		default:
+			t.Fatal("replacement tunnel did not resume the delayed retry")
+		}
+		manager.completeAuth(ct.authID, "token", nil)
+		time.Sleep(defaultAuthTimeout)
+		synctest.Wait()
+		if manager.getByKey(ct.key) != ct || len(sent) != 0 {
+			t.Fatal("completed authentication kept an active retry or lost its flow")
+		}
+	})
 }
 
 func TestAuthBusyMessageWithoutBusyCodeIsNotRetried(t *testing.T) {

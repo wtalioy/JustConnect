@@ -34,7 +34,6 @@ const (
 	defaultHeartbeatInterval  = 5 * time.Second
 	defaultHeartbeatMissLimit = 3
 	defaultAuthTimeout        = 5 * time.Second
-	defaultAuthScanInterval   = 250 * time.Millisecond
 	defaultAuthRetryWait      = 10 * time.Second
 	defaultAuthMaxAttempts    = 3
 	defaultAuthBatchSize      = 64
@@ -88,7 +87,6 @@ type l3TunnelConn struct {
 	heartbeatInterval  time.Duration
 	heartbeatMissLimit int32
 	heartbeatHasWrite  uint32
-	authWake           chan struct{}
 	writeFrameHook     func([]byte) error
 	readHeader         [3]byte
 	dataStream         []byte
@@ -187,7 +185,6 @@ func newL3TunnelConn(ctx context.Context, dialTLS func(context.Context, string, 
 		onVIP:              onVIP,
 		heartbeatInterval:  defaultHeartbeatInterval,
 		heartbeatMissLimit: defaultHeartbeatMissLimit,
-		authWake:           make(chan struct{}, 1),
 	}
 	if err := c.withContextDeadline(ctx, c.authTunnel); err != nil {
 		_ = c.Close()
@@ -411,7 +408,7 @@ func (c *l3TunnelConn) WritePacket(meta packetMeta, appID, nodeGroupID string, p
 	if err != nil {
 		return err
 	}
-	c.notifyAuth()
+	c.conntrackMgr.notifyAuth()
 	return nil
 }
 
@@ -426,29 +423,34 @@ func (c *l3TunnelConn) writeAuthenticatedPacket(token string, pkt []byte) error 
 	return c.writeFrame(payload)
 }
 
-func (c *l3TunnelConn) notifyAuth() {
-	select {
-	case c.authWake <- struct{}{}:
-	default:
-	}
-}
-
 func (c *l3TunnelConn) authLoop() {
-	ticker := time.NewTicker(defaultAuthScanInterval)
-	defer ticker.Stop()
+	manager := c.conntrackMgr
+	// A replacement tunnel shares these flows and can already be waiting.
+	defer manager.notifyAuth()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	next := timer.C
 	for {
 		select {
-		case <-c.authWake:
-			if !c.dispatchPendingAuth() {
-				return
-			}
-		case now := <-ticker.C:
-			c.conntrackMgr.expireAuth(now, errL3TunnelAuthTimeout)
-			if !c.dispatchPendingAuth() {
-				return
-			}
+		case <-manager.authWake:
+		case <-next:
 		case <-c.closeCh:
 			return
+		}
+		select {
+		case <-c.closeCh:
+			return
+		default:
+		}
+		manager.expireAuth(time.Now(), errL3TunnelAuthTimeout)
+		if !c.dispatchPendingAuth() {
+			return
+		}
+		timer.Stop()
+		next = nil
+		if deadline := manager.authCheck(); !deadline.IsZero() {
+			timer.Reset(time.Until(deadline))
+			next = timer.C
 		}
 	}
 }
@@ -532,7 +534,7 @@ func isRetryableAuthResponse(status byte, resp authResponseIP) bool {
 func (c *l3TunnelConn) scheduleAuthRetry(authID uint64, delay time.Duration) {
 	if c.conntrackMgr.retryAuth(authID, delay) {
 
-		c.notifyAuth()
+		c.conntrackMgr.notifyAuth()
 	}
 }
 
