@@ -39,6 +39,13 @@ $crt = & $vswhere -latest -products '*' -find "VC\Redist\MSVC\*\$Architecture\Mi
     Sort-Object { [version](Get-Item -LiteralPath $_).Directory.Parent.Parent.Name } -Descending |
     Select-Object -First 1
 if (!$crt) { throw "Missing Visual C++ redistributable files for $Architecture" }
-Copy-Item -Path (Join-Path (Split-Path -Parent $crt) '*.dll') -Destination .
+$machine = @{ x64 = 'AMD64'; arm64 = 'ARM64' }[$Architecture]
+foreach ($dll in Get-ChildItem -LiteralPath (Split-Path -Parent $crt) -Filter '*.dll' -File) {
+    $header = & llvm-readobj --file-headers $dll.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect $($dll.Name)" }
+    if ($header -match "^\s*Machine: IMAGE_FILE_MACHINE_${machine} ") {
+        Copy-Item -LiteralPath $dll.FullName -Destination .
+    }
+}
 
 Pop-Location

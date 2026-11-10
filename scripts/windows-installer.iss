@@ -5,6 +5,7 @@ AppVersion={#AppVersion}
 AppPublisher=JustConnect
 AppPublisherURL=https://github.com/wtalioy/JustConnect
 DefaultDirName={localappdata}\Programs\JustConnect
+DisableDirPage=no
 PrivilegesRequired=lowest
 ArchitecturesAllowed={#TargetArchitecture}
 DisableProgramGroupPage=yes
@@ -18,5 +19,8 @@ WizardStyle=modern
 [Files]
 Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Tasks]
+Name: "startmenuicon"; Description: "Create a Start menu shortcut"
+
 [Icons]
-Name: "{autoprograms}\JustConnect"; Filename: "{app}\JustConnect.exe"
+Name: "{autoprograms}\JustConnect"; Filename: "{app}\JustConnect.exe"; Tasks: startmenuicon

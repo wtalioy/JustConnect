@@ -194,6 +194,8 @@ def windows_audit(files, root, arch):
             bundled = next((p for p in candidates if p.is_file()), None)
             if bundled:
                 dependencies[name] = str(bundled.relative_to(root))
+            elif name.lower().startswith(('msvcp140', 'vcruntime140', 'concrt140', 'vccorlib140')):
+                raise RuntimeError(f'Missing app-local Visual C++ runtime: {path}: {name}')
             elif (system / name).is_file() or name.lower().startswith(('api-ms-win-', 'ext-ms-win-')):
                 dependencies[name] = 'Windows System32/API set'
             else:

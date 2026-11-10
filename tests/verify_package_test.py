@@ -18,6 +18,23 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_windows_package_requires_app_local_crt_even_on_a_development_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            system = root / 'Windows' / 'System32'
+            system.mkdir(parents=True)
+            (system / 'MSVCP140.dll').touch()
+            host = root / 'JustConnect.exe'
+            host.write_bytes(b'\0' * 60 + b'\x40\0\0\0' + b'PE\0\0\x64\xaa' + b'\0' * 90)
+            with patch.dict(os.environ, SystemRoot=str(system.parent)), \
+                    patch.object(package, 'run', return_value='  Name: MSVCP140.dll'), \
+                    patch.object(package.sys, 'getwindowsversion', return_value=SimpleNamespace(major=10, minor=0), create=True):
+                with self.assertRaisesRegex(RuntimeError, 'Missing app-local Visual C\\+\\+ runtime'):
+                    package.windows_audit([host], root, 'arm64')
+                (root / 'MSVCP140.dll').touch()
+                audited = package.windows_audit([host], root, 'arm64')
+                self.assertEqual(audited['files'][0]['dependencies']['MSVCP140.dll'], 'MSVCP140.dll')
+
     def test_windows_package_accepts_unsigned_and_rejects_invalid_signatures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

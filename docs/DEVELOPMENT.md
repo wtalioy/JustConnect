@@ -325,21 +325,21 @@ tailscale ping $peer
 
 Windows 的三次 DNS 查询应返回同一设备地址。若连接前已稳定直连，连接中和断开后仍应能建立直连。若本轮起始就走中继，注明基线即可。可用 `tailscale status` 查看对端名称。如果命令不在 PATH，用 `& "$env:ProgramFiles\Tailscale\tailscale.exe" ping $peer`。回复两台设备的结果，失败时附对应步骤和错误，日志可从详情复制并去除个人信息。
 
-## 分支与 Actions
+## Release workflow
 
-| 触发 | 结果 |
+| Trigger | Result |
 | --- | --- |
-| 推送 develop／向 develop 或 main 提 PR | 两平台 Tests，构建及 CTest，不打包发布；Core ABI 按自身路径规则验证四组宿主 |
-| 手动 Build packages，选择 develop | 留空 version 构建按提交命名的预览；填入 `vX.Y.Z` 可试做版本候选。两者均只上传 Actions 附件 |
-| 手动 Build packages，选择 main 并指定 `vX.Y.Z` | 四架构测试、包验证及 macOS 27 启动通过后，将附件和对应源码上传到指向本次提交的 Release 草稿 |
+| Push to `develop` or open a PR against `develop` or `main` | Run the native test suites. Changes within the Core ABI workflow's path filters also run its four-architecture matrix. |
+| Run **Build packages** on `develop` | Leave **version** blank for a commit-named preview, or enter `vX.Y.Z` for a release candidate. Both produce Actions artifacts only. |
+| Run **Build packages** on `main` with `vX.Y.Z` | After the four builds and the macOS 27 launch check pass, attach the verified files to a release draft pinned to that commit. |
 
-发布版本使用 `vX.Y.Z` 标签，应用内显示 `X.Y.Z`。首个公开版本用 `v0.0.1`；补丁修正递增末位，新增功能递增次版本。合入 main 前完成 CI 并准备 `docs/releases/vX.Y.Z.md`，说明变化、下载选项和系统要求。草稿生成后核对目标提交、六个安装附件、对应源码和 `SHA256SUMS.txt`，由维护者手动公开；公开后修正产物用新版本，不替换同标签附件。只有上传草稿的 job 具有 `contents: write`。
+Tags use `vX.Y.Z`; the app shows `X.Y.Z`. The first public release is `v0.0.1`. Bump the patch number for fixes and the minor number for new features. Before merging to `main`, check CI and write `docs/releases/vX.Y.Z.md` with highlights, download choices, and system requirements. Review the draft's target commit, six packages, source archive, and `SHA256SUMS.txt` before publishing it manually. If a published artifact needs a fix, cut a new release. Only the job that creates the draft has write access to repository contents.
 
-Windows 提供当前用户安装 EXE 和免安装 ZIP，二者使用同一批文件并随包提供应用本地 VC++ 运行库。安装程序在 `%LOCALAPPDATA%\Programs\JustConnect` 安装并注册开始菜单和卸载入口；卸载不移除 ZIP 版也可使用的独立网络恢复服务和个人配置。macOS 为 DMG，打开后把应用拖入「应用程序」。Actions 附件直接下载，保留 14 天。CI 真实安装／卸载 EXE，比对安装文件与 ZIP，并执行离线自检。所有包的上传摘要与已验证文件比对。macOS 正式交付还须验证从 Release 用浏览器下载、正常安装并通过系统首次打开流程。
+The Windows installer and ZIP ship the same app files and an app-local Visual C++ runtime. Setup defaults to `%LOCALAPPDATA%\Programs\JustConnect`; users can change the destination and skip the Start menu shortcut. Uninstalling leaves user settings and the shared network recovery service in place, so the ZIP build can still use them. On macOS, open the DMG and drag the app to Applications. Actions keeps downloadable packages for 14 days.
 
-[打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败；两平台均在清空 SDK 环境后启动包内原生浏览器页面及 JavaScript。Release 省略 Go DWARF；Windows 共享库另去掉本地符号表，保留正式 C ABI 导出及 Go 运行时回溯数据，macOS 静态归档保留链接所需符号。新增语言须同步部署及包验证。
+[The packaging workflow](../.github/workflows/build.yml) runs [verify-package.py](../scripts/verify-package.py) against the unpacked app without relying on the SDK environment. It checks the ABI, source revision, version, dependencies, signatures, and native sign-in browser. On Windows, CI installs and uninstalls the EXE with both the default options and a custom path without a shortcut. It checks the installed files against the ZIP and runs the app's offline self-test. Uploads must match the verified package digests. Before closing out a macOS release, also test a browser download from Releases and the normal first-open flow on a Mac.
 
-每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4。静态字段检查不代替旧系统实机兼容验证。
+[The source exporter](../scripts/archive-source.py) archives the same clean commit and includes `source-revision.txt`, so CMake can build without a `.git` directory. Release builds omit Go DWARF. The Windows core also drops local symbols while keeping the C ABI exports and Go traceback data; the macOS static archive retains the symbols needed for linking. The macOS deployment target is 14.4.
 
 ## 包体积基线
 

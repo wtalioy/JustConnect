@@ -1,11 +1,18 @@
 # JustConnect
 
-面向 Windows 和 macOS 的 aTrust 校园网络客户端，支持 x64／ARM64。校园浏览器与终端访问共用连接，保留原网络及 Tailscale 等已有网络的选择。
+JustConnect is an aTrust client for campus networks on Windows and macOS. Connect once, then reach campus websites and SSH hosts from the browser and terminal you already use.
 
-从 [GitHub Releases](https://github.com/wtalioy/JustConnect/releases) 选择对应架构。Windows 推荐运行 `-setup.exe`，也可完整解压 ZIP 后运行 `JustConnect.exe`；macOS 从 DMG 将应用拖到「应用程序」。尚无正式发布时可使用 [Actions 预览包](docs/DEVELOPMENT.md#s8-实测步骤)。
+## Install
 
-在主窗口选择 Fudan 或自己的 aTrust 连接，点击连接，按需完成学校登录和系统授权。显示已连接后，直接用现有浏览器和终端访问校园网页或运行普通 `ssh`。断开时，应用只撤销自己管理的网络设置。
+Download the package for your processor from [GitHub Releases](https://github.com/wtalioy/JustConnect/releases). Development builds are available under [Actions](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml).
 
-Windows 登录需要 WebView2 Runtime，macOS 使用系统 WebKit。预览无需自行申请证书，首次打开的系统提示及 macOS 下载限制见[签名与部署说明](docs/DEVELOPMENT.md#不需申请签名的开发与发行)。
+- **Windows (x64 or ARM64):** Run `-setup.exe` to install for your account. You can choose the destination and whether to add a Start menu shortcut. To use the ZIP instead, extract it in full and open `JustConnect.exe`. Sign-in requires the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- **macOS 14.4 or later (Apple silicon or Intel):** Open the DMG and drag JustConnect to Applications.
 
-[域名专用 DNS](docs/DEVELOPMENT.md#域名专用-dns) · [实施计划](plan.md) · [开发说明](docs/DEVELOPMENT.md) · [架构说明](docs/ARCHITECTURE.md)
+Windows installers are unsigned, and macOS builds are not notarized. Your system may ask you to confirm the first launch. Download only from this repository and check the release's `SHA256SUMS.txt` if you need to verify a file.
+
+## Connect
+
+Choose the Fudan University profile or add your own aTrust gateway, then select **Connect**. Follow the campus sign-in and system permission prompts. When you disconnect, JustConnect removes the network settings it applied.
+
+[Domain-specific DNS](docs/DEVELOPMENT.md#域名专用-dns) · [Development](docs/DEVELOPMENT.md) · [Release workflow](docs/DEVELOPMENT.md#release-workflow) · [Architecture](docs/ARCHITECTURE.md)

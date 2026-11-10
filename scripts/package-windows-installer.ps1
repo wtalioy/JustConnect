@@ -21,7 +21,7 @@ if ((Get-FileHash -LiteralPath $compilerSetup).Hash -ne '03446e46f5da932e4088811
     throw 'Inno Setup compiler download differs from the pinned release'
 }
 $compilerDir = Join-Path $env:RUNNER_TEMP 'inno-compiler'
-$silent = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+$silent = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-'
 Invoke-Setup $compilerSetup "$silent /CURRENTUSER /DIR=`"$compilerDir`""
 
 $payloadRoot = (Resolve-Path -LiteralPath $Payload).Path
@@ -31,28 +31,33 @@ $outDir = (Get-Location).Path
     "/O$outDir" "/F$OutputName" (Join-Path $PSScriptRoot 'windows-installer.iss')
 
 $installer = Join-Path $outDir "$OutputName.exe"
-$app = Join-Path $env:LOCALAPPDATA 'Programs\JustConnect'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'JustConnect.lnk'
-if ((Test-Path -LiteralPath $app) -or (Test-Path -LiteralPath $shortcut)) { throw 'Installer smoke test requires a clean user profile' }
-Invoke-Setup $installer $silent
-$uninstaller = Join-Path $app 'unins000.exe'
-try {
-    if (!(Test-Path -LiteralPath $shortcut)) { throw 'Missing Start menu shortcut' }
-    foreach ($file in Get-ChildItem -LiteralPath $payloadRoot -Recurse -File) {
-        $relative = [IO.Path]::GetRelativePath($payloadRoot, $file.FullName)
-        $installed = Join-Path $app $relative
-        if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
-            throw "Installed file differs from the verified portable payload: $relative"
+function Test-InstalledApp($App, $Options, $StartMenu) {
+    if ((Test-Path -LiteralPath $App) -or (Test-Path -LiteralPath $shortcut)) { throw 'Installer smoke test requires a clean user profile' }
+    Invoke-Setup $installer "$silent $Options"
+    $exe = Join-Path $App 'JustConnect.exe'
+    try {
+        if ((Test-Path -LiteralPath $shortcut) -ne $StartMenu) { throw 'Start menu shortcut did not match the selected task' }
+        foreach ($file in Get-ChildItem -LiteralPath $payloadRoot -Recurse -File) {
+            $relative = [IO.Path]::GetRelativePath($payloadRoot, $file.FullName)
+            $installed = Join-Path $App $relative
+            if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
+                throw "Installed file differs from the verified portable payload: $relative"
+            }
         }
+        $result = & $exe --core-self-test | ConvertFrom-Json
+        if (!$result.ok -or $result.application_version -ne $Version -or $result.core.build.revision -ne $env:GITHUB_SHA) {
+            throw 'Installed application failed its version and core self-test'
+        }
+    } finally {
+        Invoke-Setup (Join-Path $App 'unins000.exe') $silent
     }
-    $result = & (Join-Path $app 'JustConnect.exe') --core-self-test | ConvertFrom-Json
-    if (!$result.ok -or $result.application_version -ne $Version -or $result.core.build.revision -ne $env:GITHUB_SHA) {
-        throw 'Installed application failed its version and core self-test'
+    if ((Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $shortcut)) {
+        throw 'Uninstall left the application or shortcut installed'
     }
-} finally {
-    Invoke-Setup $uninstaller $silent
 }
-if ((Test-Path -LiteralPath (Join-Path $app 'JustConnect.exe')) -or (Test-Path -LiteralPath $shortcut)) {
-    throw 'Uninstall left the application or shortcut installed'
-}
+Test-InstalledApp (Join-Path $env:LOCALAPPDATA 'Programs\JustConnect') '' $true
+$customDir = Join-Path $env:RUNNER_TEMP 'JustConnect alternate location'
+Test-InstalledApp $customDir "/DIR=`"$customDir`" /MERGETASKS=!startmenuicon" $false
+
 "sha256=$((Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
