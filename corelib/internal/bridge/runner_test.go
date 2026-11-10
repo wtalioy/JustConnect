@@ -79,7 +79,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 			t.Fatalf("ready = %+v", ready)
 		}
 		device := exerciseProtocolTUN(t, e, h, ready.Generation, false)
-		data, status := e.Resources(h, ready.Generation)
+		data, status := readResourceBytes(e, h, ready.Generation)
 		if status != OK {
 			t.Fatal(status)
 		}

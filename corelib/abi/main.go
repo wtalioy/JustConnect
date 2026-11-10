@@ -366,11 +366,10 @@ func jc_go_session_resources(handle C.uint64_t, generation C.uint64_t, output *C
 	if !outputValid(output, capacity, length) {
 		return C.int32_t(bridge.InvalidArgument)
 	}
-	data, status := engine.Resources(uint64(handle), uint64(generation))
-	if status != bridge.OK {
-		return C.int32_t(status)
-	}
-	return writeOutput(data, output, capacity, length)
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(output)), int(capacity))
+	size, status := engine.CopyResources(uint64(handle), uint64(generation), dst)
+	*length = C.uint32_t(size)
+	return C.int32_t(status)
 }
 
 //export jc_go_session_stop

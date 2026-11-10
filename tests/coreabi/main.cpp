@@ -206,6 +206,12 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     uint32_t resourceLength=0;
     check(api.jc_session_resources(handle,generation,nullptr,0,&resourceLength)==JC_BUFFER_TOO_SMALL && resourceLength>0,
         "campus resource size query is non-destructive");
+    const auto requiredResourceLength = resourceLength;
+    const auto shortResourceStatus = api.jc_session_resources(handle, generation, resourceBytes.data()+1,
+        requiredResourceLength-1, &resourceLength);
+    check(shortResourceStatus == JC_BUFFER_TOO_SMALL && resourceLength == requiredResourceLength
+        && std::all_of(resourceBytes.begin(), resourceBytes.end(), [](uint8_t byte) { return byte == 0x5a; }),
+        "short campus resource buffer is untouched");
     check(api.jc_session_resources(handle,generation+1,resourceBytes.data()+1,JC_MAX_OUTPUT,&resourceLength)==JC_STALE_REQUEST
         && resourceLength==0,"real C ABI rejects resource reads for another session generation");
     check(api.jc_session_resources(handle,generation,resourceBytes.data()+1,JC_MAX_OUTPUT,&resourceLength)==JC_OK

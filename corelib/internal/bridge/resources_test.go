@@ -14,6 +14,15 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 )
 
+func readResourceBytes(e *Engine, handle, generation uint64) ([]byte, Status) {
+	buffer := make([]byte, MaxOutput)
+	length, status := e.CopyResources(handle, generation, buffer)
+	if status != OK {
+		return nil, status
+	}
+	return buffer[:length], OK
+}
+
 func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 	entered := make(chan *Session, 2)
 	e := New(func(ctx context.Context, _ Config, s *Session) Status { entered <- s; <-ctx.Done(); return Cancelled })
@@ -23,7 +32,7 @@ func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 		t.Fatal(status)
 	}
 	s := <-entered
-	if _, status := e.Resources(h, g); status != Busy {
+	if _, status := e.CopyResources(h, g, nil); status != Busy {
 		t.Fatal(status)
 	}
 	ip := net.IPv4(192, 0, 2, 10)
@@ -33,7 +42,7 @@ func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 	}
 	ip[15] = 11
 	resources.Domains[".campus.test"][0].PortMax = 80
-	data, status := e.Resources(h, g)
+	data, status := readResourceBytes(e, h, g)
 	if status != OK || strings.Contains(string(data), "private-") {
 		t.Fatal("unavailable or overexposed resource snapshot", status)
 	}
@@ -47,23 +56,27 @@ func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 	if result.Generation != "1" || len(result.Resources.IPs) != 1 || result.Resources.IPs[0].IPMin != "192.0.2.10" || result.Resources.IPs[0].PortMin != 22 || result.Resources.Domains[".campus.test"][0].PortMax != 443 || result.Resources.DNSRecords["ssh.campus.test"][0] != "192.0.2.10" || !result.Resources.CampusDNSEnabled || result.Resources.UnderlayInterface != "original0" {
 		t.Fatal("parsed permissions or borrowed input changed")
 	}
+	short := []byte{0x5a}
+	if size, status := e.CopyResources(h, g, short); status != BufferTooSmall || size != len(data) || short[0] != 0x5a {
+		t.Fatal("short resource read touched its destination or returned the wrong size", status, size)
+	}
 	clear(data)
-	if data, status := e.Resources(h, g); status != OK || !json.Valid(data) {
+	if data, status := readResourceBytes(e, h, g); status != OK || !json.Valid(data) {
 		t.Fatal("caller modified stored resource bytes", status)
 	}
-	if _, status := e.Resources(h, g+1); status != StaleRequest {
+	if _, status := e.CopyResources(h, g+1, nil); status != StaleRequest {
 		t.Fatal(status)
 	}
-	if _, status := e.Resources(h, 0); status != InvalidArgument {
+	if _, status := e.CopyResources(h, 0, nil); status != InvalidArgument {
 		t.Fatal(status)
 	}
-	if _, status := e.Resources(h+100, g); status != InvalidHandle {
+	if _, status := e.CopyResources(h+100, g, nil); status != InvalidHandle {
 		t.Fatal(status)
 	}
 	if e.Stop(h, 1000) != OK {
 		t.Fatal("stop")
 	}
-	if _, status := e.Resources(h, g); status != StaleRequest {
+	if _, status := e.CopyResources(h, g, nil); status != StaleRequest {
 		t.Fatal(status)
 	}
 	read(t, e, h)
@@ -73,16 +86,16 @@ func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 		t.Fatal(status)
 	}
 	<-entered
-	if _, status := e.Resources(h, g); status != StaleRequest {
+	if _, status := e.CopyResources(h, g, nil); status != StaleRequest {
 		t.Fatal(status)
 	}
-	if _, status := e.Resources(h, g2); status != Busy {
+	if _, status := e.CopyResources(h, g2, nil); status != Busy {
 		t.Fatal("previous session resources leaked", status)
 	}
 	if status := s.setResources(corelib.Resources{DNSRecords: map[string][]net.IP{strings.Repeat("large", MaxOutput): {ip}}}); status != Limit {
 		t.Fatal(status)
 	}
-	if data, status := e.Resources(h, g2); status != Limit || len(data) != 0 {
+	if size, status := e.CopyResources(h, g2, nil); status != Limit || size != 0 {
 		t.Fatal("oversized snapshot was truncated or exposed", status)
 	}
 }
@@ -108,7 +121,6 @@ func TestResourceSnapshotWithdrawsLiveDataAndRetainsOwnedRules(t *testing.T) {
 		if status != OK || json.Unmarshal(data, &envelope) != nil || envelope.Generation != 1 {
 			t.Fatalf("invalid resource snapshot: %v", status)
 		}
-		clear(data)
 		return envelope.Resources
 	}
 
@@ -174,6 +186,7 @@ func BenchmarkRefreshResourceSnapshot(b *testing.B) {
 			records := map[string][]string{"service-0.campus.test": {"192.0.2.99"}}
 			original := map[string][]string{"original.test": {"192.0.2.80"}}
 			listeners := map[string]string{"source": "127.0.0.1:12345"}
+			dst := make([]byte, MaxOutput)
 			b.ReportAllocs()
 			for b.Loop() {
 				if !stable {
@@ -184,7 +197,7 @@ func BenchmarkRefreshResourceSnapshot(b *testing.B) {
 					}
 				}
 				data, status := s.resources.snapshot(resourceActivity{active, records, original, listeners})
-				if status != OK || len(data) == 0 {
+				if status != OK || len(data) == 0 || copy(dst, data) != len(data) {
 					b.Fatal(status)
 				}
 			}

@@ -290,7 +290,7 @@ Tailscale 对照保持同一对端及网络，记录解析和实际直连。Wind
 | A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名通过会话补充解析器接入，普通子域保留原解析；`b86d167` Apple Silicon 实测关闭 Clash 代理与 TUN 时 Chrome 可访问 `zb`。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
 | A14 | 按职责与实际开销复查全仓 | **已收尾**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、两平台应用、四架构 ABI、四组实际包及 `b2fbdb3` Windows 合并实测通过；清理重复初验输出，保留当前构建／工具与关键报告。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 | A15 | 全仓性能、职责与清理复查 | **已收尾**。收敛数据面分配、域名与路由查询、Qt ABI、DNS 快照、助手 JSON 和资源构建，清理无调用代码、重复夹具与九项模块依赖。最终 `3f6ba6f` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42454884365)、[四架构 ABI](https://github.com/wtalioy/JustConnect/actions/runs/42454884394)及[四组实际包、源码和 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)通过。ARM64 竞态复验保留原时限，发布实机矩阵归 S8。[审查与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，证据 `build/reports/review-2026-11-08/`。 |
-| A16 | 全仓性能、职责、测试与本地产物复查 | **进行中**。[组件测量、包体积及清理证据](docs/DEVELOPMENT.md#全仓性能复查-a16)已归档。首批四架构 Core ABI 通过；第二批两平台 Tests 通过，Windows 两架构实际包已确认移除 TUIO，其余 Core ABI／打包在途；资源快照、L3 调度、Qt 缓冲和 UDP 转发已通过相应本地检查，原生矩阵待验。 |
+| A16 | 全仓性能、职责、测试与本地产物复查 | **进行中**。[组件测量、包体积及清理证据](docs/DEVELOPMENT.md#全仓性能复查-a16)已归档。第二批 `b0698a9` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42736171311)、[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42736171337)和[四组包、源码及 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42736171269)通过。后续的资源快照、L3 调度、Qt 缓冲及 UDP 转发已通过相应本地检查，原生矩阵待验。 |
 
 ## 上游问题转化为库化验收
 

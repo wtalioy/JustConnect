@@ -95,7 +95,7 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 					t.Fatal(ready)
 				}
 				readResources := func() resourceSnapshot {
-					data, status := e.Resources(h, ready.Generation)
+					data, status := readResourceBytes(e, h, ready.Generation)
 					var value resourcesEnvelope
 					if status != OK || json.Unmarshal(data, &value) != nil || value.Generation != ready.Generation {
 						t.Fatal("invalid generation-bound original DNS resources", status)
@@ -197,7 +197,7 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 					t.Fatal("original listener records leaked into campus DNS grants")
 				}
 				if oldGeneration != 0 {
-					if _, status := e.Resources(h, oldGeneration); status != StaleRequest {
+					if _, status := e.CopyResources(h, oldGeneration, nil); status != StaleRequest {
 						t.Fatal("old generation retained DNS listener authority", status)
 					}
 				}
@@ -207,7 +207,7 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 				if event := next(t, e, h); event.Type != "terminal" || event.Status != Cancelled {
 					t.Fatal(event)
 				}
-				if _, status := e.Resources(h, ready.Generation); status != StaleRequest {
+				if _, status := e.CopyResources(h, ready.Generation, nil); status != StaleRequest {
 					t.Fatal("stopped session exposed native DNS endpoint", status)
 				}
 				if value, status := prepare(ready.Generation, sources); status != StaleRequest || value != 0 {

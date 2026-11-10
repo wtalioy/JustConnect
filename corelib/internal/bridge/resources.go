@@ -1,7 +1,6 @@
 package bridge
 
 import (
-	"bytes"
 	"encoding/json"
 	"maps"
 	"net/netip"
@@ -131,27 +130,28 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 	return status
 }
 
-func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
+// CopyResources reports the required size without touching a short destination.
+func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Status) {
 	if generation == 0 {
-		return nil, InvalidArgument
+		return 0, InvalidArgument
 	}
 	s := e.lookup(handle)
 	if s == nil {
-		return nil, InvalidHandle
+		return 0, InvalidHandle
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.destroyed {
-		return nil, InvalidHandle
+		return 0, InvalidHandle
 	}
 	if !s.running || s.stopping || s.generation != generation {
-		return nil, StaleRequest
+		return 0, StaleRequest
 	}
 	if !s.connectOperation {
-		return nil, Unsupported
+		return 0, Unsupported
 	}
 	if s.resourcesStatus != OK {
-		return nil, s.resourcesStatus
+		return 0, s.resourcesStatus
 	}
 	var activity resourceActivity
 	if s.protocol != nil {
@@ -163,12 +163,19 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 			listeners: s.protocol.OriginalDNSListeners(),
 		}
 	}
-	return s.resources.snapshot(activity)
+	data, status := s.resources.snapshot(activity)
+	if status != OK {
+		return 0, status
+	}
+	if len(dst) < len(data) {
+		return len(data), BufferTooSmall
+	}
+	return copy(dst, data), OK
 }
 
 func (r *publishedResources) snapshot(activity resourceActivity) ([]byte, Status) {
 	if r.activity.equal(activity) {
-		return bytes.Clone(r.data), OK
+		return r.data, OK
 	}
 	view := r.base
 	view.Resources.ActiveTUNAddresses = activity.active
@@ -192,5 +199,5 @@ func (r *publishedResources) snapshot(activity resourceActivity) ([]byte, Status
 		return nil, status
 	}
 	r.data, r.activity = data, activity
-	return bytes.Clone(data), OK
+	return data, OK
 }
