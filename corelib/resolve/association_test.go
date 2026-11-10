@@ -126,6 +126,11 @@ func TestCampusDNSBindingCapacityRejectsAtomicallyAndReclaimsExpiry(t *testing.T
 		if _, err := r.bindCampusAnswer(request, reply, nil); err != nil {
 			t.Fatal(err)
 		}
+		if group == 3 {
+			if _, err := r.bindCampusAnswer(request, reply, nil); err != nil || r.dnsBindingCount != maxDNSCacheEntries {
+				t.Fatal("full cache could not refresh existing bindings", err)
+			}
+		}
 	}
 	request := new(dns.Msg).SetQuestion("next.campus.test.", dns.TypeA)
 	reply := new(dns.Msg).SetReply(request)

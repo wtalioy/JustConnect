@@ -119,9 +119,11 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 	if len(addresses) == 0 {
 		return nil, nil
 	}
+	lifetime := r.dnsTTL
 	result := make([]netip.Addr, 0, len(addresses))
-	for address := range addresses {
+	for address, ttl := range addresses {
 		result = append(result, address)
+		lifetime = min(lifetime, ttl)
 	}
 	slices.SortFunc(result, netip.Addr.Compare)
 	if publish != nil {
@@ -132,24 +134,42 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 	if _, _, granted := r.domainIndex.Match(host); !granted && !original {
 		return result, nil
 	}
+	if err := r.storeDNSBindings(host, addresses, original); err != nil {
+		return nil, err
+	}
+	if !original {
+		// Downstream caches must not outlive the authorization created for this answer.
+		for _, record := range reply.Answer {
+			if record.Header().Class != dns.ClassINET || !seen[normalizeHostname(record.Header().Name)] {
+				continue
+			}
+			switch record.(type) {
+			case *dns.A, *dns.CNAME, *dns.RRSIG:
+				record.Header().Ttl = min(record.Header().Ttl, lifetime)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r *Resolver) storeDNSBindings(host string, addresses map[netip.Addr]uint32, original bool) error {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 	now := time.Now()
 	// A campus refresh must not erase the original direction needed after withdrawal.
+	matches := func(binding dnsBinding) bool {
+		return binding.host == host && binding.original == original
+	}
 	needed := func() int {
 		n := 0
 		for address := range addresses {
-			found := false
-			for _, binding := range r.dnsBindings[address] {
-				found = found || (binding.host == host && binding.original == original)
-			}
-			if !found {
+			if !slices.ContainsFunc(r.dnsBindings[address], matches) {
 				n++
 			}
 		}
 		return n
 	}
-	if r.dnsBindingCount+needed() > maxDNSCacheEntries {
+	if r.dnsBindingCount+len(addresses) > maxDNSCacheEntries && r.dnsBindingCount+needed() > maxDNSCacheEntries {
 		for address, bindings := range r.dnsBindings {
 			kept := bindings[:0]
 			for _, binding := range bindings {
@@ -166,7 +186,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 			}
 		}
 		if r.dnsBindingCount+needed() > maxDNSCacheEntries {
-			return nil, ErrCampusDNSCapacity
+			return ErrCampusDNSCapacity
 		}
 	}
 	if r.dnsBindings == nil {
@@ -176,37 +196,14 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		// A zero-TTL answer needs a bounded window for the host's first connection.
 		binding := dnsBinding{host: host, expires: now.Add(time.Duration(max(ttl, 1)) * time.Second), original: original}
 		rows := r.dnsBindings[address]
-		found := false
-		for index := range rows {
-			if rows[index].host == host && rows[index].original == original {
-				rows[index] = binding
-				found = true
-				break
-			}
+		if index := slices.IndexFunc(rows, matches); index >= 0 {
+			rows[index] = binding
+			continue
 		}
-		if !found {
-			rows = append(rows, binding)
-			r.dnsBindingCount++
-		}
-		r.dnsBindings[address] = rows
+		r.dnsBindings[address] = append(rows, binding)
+		r.dnsBindingCount++
 	}
-	if !original {
-		// Downstream caches must not outlive the authorization created for this answer.
-		lifetime := r.dnsTTL
-		for _, ttl := range addresses {
-			lifetime = min(lifetime, ttl)
-		}
-		for _, record := range reply.Answer {
-			if record.Header().Class != dns.ClassINET || !seen[normalizeHostname(record.Header().Name)] {
-				continue
-			}
-			switch record.(type) {
-			case *dns.A, *dns.CNAME, *dns.RRSIG:
-				record.Header().Ttl = min(record.Header().Ttl, lifetime)
-			}
-		}
-	}
-	return result, nil
+	return nil
 }
 
 // CampusResourcesForIP keeps the name with each live grant for the tunnel authorization request.
