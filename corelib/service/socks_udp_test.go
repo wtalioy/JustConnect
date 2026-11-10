@@ -39,7 +39,7 @@ func TestSOCKSUDPReplyFailureReleasesBoundSocket(t *testing.T) {
 	request := &socks5.Request{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)}, RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)}, DestAddr: &statute.AddrSpec{}}
 	for range 32 {
 		reply := &rejectedReply{}
-		if err := p.handleSOCKSUDP(context.Background(), reply, request); !errors.Is(err, io.ErrClosedPipe) {
+		if err := p.handleSOCKSUDP(context.Background(), reply, request, udpIdleTimeout); !errors.Is(err, io.ErrClosedPipe) {
 			t.Fatal(err)
 		}
 		p.mu.Lock()
@@ -202,9 +202,36 @@ func TestSOCKSUDPDatagramsAndActiveAssociationStop(t *testing.T) {
 	}
 }
 
+func socksUDPEchoPipe(size int) net.Conn {
+	upstream, echo := net.Pipe()
+	go func() {
+		defer echo.Close()
+		data := make([]byte, size)
+		for {
+			if _, err := io.ReadFull(echo, data); err != nil {
+				return
+			}
+			if _, err := echo.Write(data); err != nil {
+				return
+			}
+		}
+	}()
+	return upstream
+}
+
 func BenchmarkSOCKSUDPDatagrams(b *testing.B) {
-	f := newSOCKSUDPFixture(b, "127.0.0.1", false)
-	datagram, err := statute.NewDatagram(f.targets[0], bytes.Repeat([]byte{0x5a}, 1200))
+	const payloadSize = 1200
+	b.Run("native", func(b *testing.B) { benchmarkSOCKSUDPDatagrams(b, payloadSize) })
+	b.Run("user-space", func(b *testing.B) {
+		benchmarkSOCKSUDPDatagrams(b, payloadSize, func(context.Context, string, string) (net.Conn, error) {
+			return socksUDPEchoPipe(payloadSize), nil
+		})
+	})
+}
+
+func benchmarkSOCKSUDPDatagrams(b *testing.B, payloadSize int, upstream ...client.DialContextFunc) {
+	f := newSOCKSUDPFixture(b, "127.0.0.1", false, upstream...)
+	datagram, err := statute.NewDatagram(f.targets[0], bytes.Repeat([]byte{0x5a}, payloadSize))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -221,52 +248,74 @@ func BenchmarkSOCKSUDPDatagrams(b *testing.B) {
 	}
 	exchange()
 	b.ReportAllocs()
-	b.SetBytes(1200)
+	b.SetBytes(int64(payloadSize))
 	b.ResetTimer()
 	for b.Loop() {
 		exchange()
 	}
 }
 
-type shortUDPDeadline struct {
+type observedSOCKSUDPConn struct {
 	net.Conn
 	closed chan struct{}
 	once   sync.Once
 }
 
-func (c *shortUDPDeadline) SetDeadline(deadline time.Time) error {
-	// Scale the real 90-second budget to 200 ms without a product test option.
-	return c.Conn.SetDeadline(time.Now().Add(time.Until(deadline) / 450))
-}
-func (c *shortUDPDeadline) Close() error {
+func (c *observedSOCKSUDPConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return c.Conn.Close()
 }
 
 func TestSOCKSUDPReleasesIdleFlowsAndRedials(t *testing.T) {
-	connections := make(chan *shortUDPDeadline, 2)
+	const payload = "payload"
+	connections := make(chan *observedSOCKSUDPConn, 2)
 	var dials atomic.Int32
-	f := newSOCKSUDPFixture(t, "127.0.0.1", false, func(ctx context.Context, network, address string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
-		if err != nil {
-			return nil, err
+	dialer := dial.NewDialer(nil, nil, nil, false)
+	dialer.Upstream = func() client.DialContextFunc {
+		return func(context.Context, string, string) (net.Conn, error) {
+			remote := &observedSOCKSUDPConn{Conn: socksUDPEchoPipe(len(payload)), closed: make(chan struct{})}
+			dials.Add(1)
+			connections <- remote
+			return remote, nil
 		}
-		remote := &shortUDPDeadline{Conn: conn, closed: make(chan struct{})}
-		dials.Add(1)
-		connections <- remote
-		return remote, nil
-	})
+	}
+	p, err := NewListeners(t.Context(), "", "", dialer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	control, association := net.Pipe()
+	_ = control.SetDeadline(time.Now().Add(3 * time.Second))
+	done := make(chan struct{})
+	loopback := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	request := &socks5.Request{LocalAddr: loopback, RemoteAddr: loopback, DestAddr: &statute.AddrSpec{}, Reader: association}
+	go func() {
+		defer close(done)
+		_ = p.handleSOCKSUDP(t.Context(), association, request, 200*time.Millisecond)
+	}()
+	defer func() { _ = control.Close(); _ = association.Close(); <-done }()
+	reply, err := statute.ParseReply(control)
+	if err != nil || reply.Response != statute.RepSuccess {
+		t.Fatalf("association=%v, %v", reply, err)
+	}
+	address := &net.UDPAddr{IP: reply.BndAddr.IP, Port: reply.BndAddr.Port}
+	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: loopback.IP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer socket.Close()
+	_ = socket.SetDeadline(time.Now().Add(3 * time.Second))
 	exchange := func() {
 		t.Helper()
-		packet, err := statute.NewDatagram(f.targets[0], []byte("payload"))
+		packet, err := statute.NewDatagram("192.0.2.1:1234", []byte(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := f.client.WriteToUDP(packet.Bytes(), f.address); err != nil {
+		if _, err := socket.WriteToUDP(packet.Bytes(), address); err != nil {
 			t.Fatal(err)
 		}
 		response := make([]byte, maxUDPPacket)
-		n, _, err := f.client.ReadFromUDPAddrPort(response)
+		n, _, err := socket.ReadFromUDPAddrPort(response)
 		if err != nil || !bytes.Equal(response[:n], packet.Bytes()) {
 			t.Fatalf("UDP exchange: %d, %v", n, err)
 		}

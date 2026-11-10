@@ -15,7 +15,12 @@ import (
 
 const maxSOCKSUDPFlows = 256
 
-func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, request *socks5.Request) error {
+type socksUDPFlow struct {
+	net.Conn
+	idle *udpIdleTimer
+}
+
+func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, request *socks5.Request, timeout time.Duration) error {
 	local, localOK := request.LocalAddr.(*net.TCPAddr)
 	peer, peerOK := request.RemoteAddr.(*net.TCPAddr)
 	if !localOK || !peerOK {
@@ -41,7 +46,7 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 	p.mu.Unlock()
 	ctx, cancel := joinedContext(ctx, p.ctx)
 	var mu sync.Mutex
-	flows := make(map[string]net.Conn)
+	flows := make(map[string]*socksUDPFlow)
 	var workers sync.WaitGroup
 	start := func(work func()) {
 		workers.Add(1)
@@ -94,48 +99,49 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 				if full {
 					continue
 				}
-				target, err = p.dial(ctx, "udp", packet.DstAddr.String())
+				conn, err := p.dial(ctx, "udp", packet.DstAddr.String())
 				if err != nil {
 					continue
 				}
 				mu.Lock()
 				if ctx.Err() != nil {
 					mu.Unlock()
-					_ = target.Close()
+					_ = conn.Close()
 					return
 				}
 				// Own the validated wire header once; packet storage is reused on the next read.
 				key := string(encodedDestination)
-				flows[key] = target
+				remote := &socksUDPFlow{Conn: conn}
+				closeFlow := sync.OnceFunc(func() {
+					mu.Lock()
+					if flows[key] == remote {
+						delete(flows, key)
+					}
+					mu.Unlock()
+					_ = conn.Close()
+				})
+				remote.idle = newUDPIdleTimer(timeout, closeFlow)
+				flows[key] = remote
+				target = remote
 				mu.Unlock()
-				remote := target
 				replyTo := source
 				start(func() {
-					defer remote.Close()
-					defer func() {
-						mu.Lock()
-						if flows[key] == remote {
-							delete(flows, key)
-						}
-						mu.Unlock()
-					}()
+					defer closeFlow()
+					defer remote.idle.stop()
 					reply := make([]byte, maxUDPPacket)
+					copy(reply, key)
 					for {
-						if err := remote.SetDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
-							return
-						}
 						n, err := remote.Read(reply[len(key):])
-						if err != nil {
+						if err != nil || !remote.idle.touch() {
 							return
 						}
-						copy(reply, key)
 						if _, err := listener.WriteToUDPAddrPort(reply[:len(key)+n], replyTo); err != nil {
 							return
 						}
 					}
 				})
 			}
-			if err := target.SetDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
+			if !target.idle.touch() {
 				_ = target.Close()
 				continue
 			}

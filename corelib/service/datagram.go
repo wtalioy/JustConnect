@@ -13,6 +13,53 @@ const (
 	udpIdleTimeout = 90 * time.Second
 )
 
+// UDP activity extends one flow deadline without replacing the connection's timers.
+type udpIdleTimer struct {
+	mu       sync.Mutex
+	interval time.Duration
+	deadline time.Time
+	timer    *time.Timer
+}
+
+func newUDPIdleTimer(interval time.Duration, expire func()) *udpIdleTimer {
+	idle := &udpIdleTimer{interval: interval, deadline: time.Now().Add(interval)}
+	idle.mu.Lock()
+	idle.timer = time.AfterFunc(interval, func() {
+		idle.mu.Lock()
+		if idle.deadline.IsZero() {
+			idle.mu.Unlock()
+			return
+		}
+		if remaining := time.Until(idle.deadline); remaining > 0 {
+			idle.timer.Reset(remaining)
+			idle.mu.Unlock()
+			return
+		}
+		idle.deadline = time.Time{}
+		idle.mu.Unlock()
+		expire()
+	})
+	idle.mu.Unlock()
+	return idle
+}
+
+func (idle *udpIdleTimer) touch() bool {
+	idle.mu.Lock()
+	defer idle.mu.Unlock()
+	if idle.deadline.IsZero() {
+		return false
+	}
+	idle.deadline = time.Now().Add(idle.interval)
+	return true
+}
+
+func (idle *udpIdleTimer) stop() {
+	idle.mu.Lock()
+	idle.deadline = time.Time{}
+	idle.timer.Stop()
+	idle.mu.Unlock()
+}
+
 func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duration, fail func(error)) {
 	if ctx.Err() != nil {
 		_ = left.Close()
@@ -20,42 +67,8 @@ func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duratio
 		return
 	}
 	closeBoth := sync.OnceFunc(func() { _ = left.Close(); _ = right.Close() })
-	// gVisor recreates read and write timers on each SetDeadline call.
-	var mu sync.Mutex
-	deadline := time.Now().Add(idle)
-	var timer *time.Timer
-	mu.Lock()
-	timer = time.AfterFunc(idle, func() {
-		mu.Lock()
-		if deadline.IsZero() {
-			mu.Unlock()
-			return
-		}
-		if remaining := time.Until(deadline); remaining > 0 {
-			timer.Reset(remaining)
-			mu.Unlock()
-			return
-		}
-		deadline = time.Time{}
-		mu.Unlock()
-		closeBoth()
-	})
-	mu.Unlock()
-	defer func() {
-		mu.Lock()
-		deadline = time.Time{}
-		timer.Stop()
-		mu.Unlock()
-	}()
-	refresh := func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		if deadline.IsZero() {
-			return false
-		}
-		deadline = time.Now().Add(idle)
-		return true
-	}
+	watch := newUDPIdleTimer(idle, closeBoth)
+	defer watch.stop()
 	copyPackets := func(dst, src net.Conn) {
 		defer closeBoth()
 		defer func() {
@@ -69,7 +82,7 @@ func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duratio
 		buf := make([]byte, maxUDPPacket)
 		for ctx.Err() == nil {
 			n, err := src.Read(buf)
-			if err != nil || ctx.Err() != nil || !refresh() {
+			if err != nil || ctx.Err() != nil || !watch.touch() {
 				return
 			}
 			if written, err := dst.Write(buf[:n]); err != nil || written != n {

@@ -21,7 +21,9 @@ func (r sessionResolver) Resolve(_ context.Context, host string) (context.Contex
 
 func (p *Listeners) socksServer() *socks5.Server {
 	return socks5.NewServer(
-		socks5.WithAssociateHandle(p.handleSOCKSUDP),
+		socks5.WithAssociateHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
+			return p.handleSOCKSUDP(ctx, writer, request, udpIdleTimeout)
+		}),
 		socks5.WithResolver(sessionResolver{p.ctx, p.dialer}),
 		socks5.WithConnectHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 			target, err := p.dial(ctx, "tcp", request.DestAddr.String())
