@@ -122,6 +122,7 @@ static void checkboxAlignment(const QString &caption) {
     const auto mark = checkbox.grab();
     const auto pixels = mark.toImage();
     QRect squarePixels;
+    QRect captionPixels;
     qint64 captionRowSum = 0;
     int captionInk = 0;
     for (int y = 0; y < pixels.height(); ++y) {
@@ -131,6 +132,7 @@ static void checkboxAlignment(const QString &caption) {
                 squarePixels = squarePixels.united(QRect(x, y, 1, 1));
             if (x >= checkboxCaption.left() * mark.devicePixelRatio()
                 && color.red() < 105 && color.green() < 115 && color.blue() < 130) {
+                captionPixels = captionPixels.united(QRect(x, y, 1, 1));
                 captionRowSum += y;
                 ++captionInk;
             }
@@ -139,8 +141,13 @@ static void checkboxAlignment(const QString &caption) {
     check(!squarePixels.isEmpty() && captionInk > 0, "the captured checkbox contains its square and caption");
     const auto captionCenter = double(captionRowSum) / captionInk;
     const auto squareCenter = (squarePixels.top() + squarePixels.bottom()) / 2.0;
-    if (qAbs(squareCenter - captionCenter) > 2 * mark.devicePixelRatio())
-        std::cerr << "Checkbox square center: " << squareCenter << ", caption ink center: " << captionCenter << '\n';
+    const auto captionBoundsCenter = (captionPixels.top() + captionPixels.bottom()) / 2.0;
+    if (qAbs(squareCenter - captionBoundsCenter) > mark.devicePixelRatio()
+        || qAbs(squareCenter - captionCenter) > 2 * mark.devicePixelRatio())
+        std::cerr << caption.toStdString() << ": checkbox center " << squareCenter
+                  << ", caption bounds center " << captionBoundsCenter << ", ink center " << captionCenter << '\n';
+    check(qAbs(squareCenter - captionBoundsCenter) <= mark.devicePixelRatio(),
+        "the checkbox and visible caption bounds align to within one logical pixel");
     check(qAbs(squareCenter - captionCenter) <= 2 * mark.devicePixelRatio(),
         "the painted checkbox square is vertically centered on its visible caption");
     bool checkMarkPainted = false;
@@ -157,6 +164,10 @@ int main(int argc,char **argv) {
     if (app.arguments().contains("--checkbox-only")) {
         checkboxAlignment(QStringLiteral("Remember authentication"));
         checkboxAlignment(QStringLiteral("Check for updates at startup"));
+        checkboxAlignment(QStringLiteral("Start in the background"));
+        checkboxAlignment(QStringLiteral("Skip tunnel verification"));
+        checkboxAlignment(QStringLiteral("验证服务器证书"));
+        checkboxAlignment(QStringLiteral("记住登录"));
         return 0;
     }
     QWidget promptParent;
