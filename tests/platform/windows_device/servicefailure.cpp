@@ -24,7 +24,6 @@ int wmain(int argc,wchar_t **argv) try
         return StartServiceCtrlDispatcherW(table)?0:1;
     }
     if(std::wstring(argv[1])!=L"--install")throw std::runtime_error("unknown startup fixture request");
-    auto installation=WindowsHelperInstallation::prepare();
-    ensureWindowsRecoveryService(*installation);
+    auto installation=installWindowsRecoveryService();
     throw std::runtime_error("broken service startup was accepted");
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

@@ -68,10 +68,13 @@ try {
     }
     if (Get-Service -Name $env:JC_HELPER_SERVICE_NAME -ErrorAction SilentlyContinue) { throw 'Refuse pre-existing recovery service in fixture' }
     Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD "Release/$env:JC_HELPER_EXECUTABLE") -Destination $env:JC_HELPER_SERVICE_IMAGE
-    $hash = (Get-FileHash -LiteralPath $env:JC_HELPER_SERVICE_IMAGE -Algorithm SHA256).Hash.ToLowerInvariant()
-    $directory = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) (Join-Path $env:JC_HELPER_INSTALL_DIRECTORY $hash)
-    if (Test-Path -LiteralPath $directory) { throw 'Refuse pre-existing service payload directory in fixture' }
-    $ownedDirectories += $directory
+    $installRoot = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) $env:JC_HELPER_INSTALL_DIRECTORY
+    $primary = Join-Path $installRoot $layout.install_primary
+    $alternate = Join-Path $installRoot $layout.install_alternate
+    foreach ($slot in @($primary, $alternate)) {
+        if (Test-Path -LiteralPath $slot) { throw 'Refuse pre-existing service payload directory in fixture' }
+        $ownedDirectories += $slot
+    }
     $ownedService = $true
     $tamperHelper = Join-Path $env:JC_HELPER_TAMPER_DIRECTORY $layout.executable
     Copy-Item -LiteralPath $helperImage -Destination $tamperHelper
@@ -83,7 +86,7 @@ try {
             $changed[0] = $changed[0] -bxor 1
             [IO.File]::WriteAllBytes($path, $changed)
             & $tamperHelper --install
-            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $directory)) {
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $primary)) {
                 throw 'Altered helper payload reached protected installation'
             }
         } finally { [IO.File]::WriteAllBytes($path, $original) }
@@ -97,14 +100,10 @@ try {
             foreach ($payload in @($env:JC_HELPER_DRIVER_NAME,$layout.driver_license)) {
                 Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_SDK_DIRECTORY $payload) -Destination (Join-Path (Split-Path $image) $payload)
             }
-            $identity = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
-            $installedDirectory = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) (Join-Path $env:JC_HELPER_INSTALL_DIRECTORY $identity)
-            if (Test-Path -LiteralPath $installedDirectory) { throw 'Refuse pre-existing replacement fixture payload' }
-            $ownedDirectories += $installedDirectory
-            $variants[$variant] = @{source=$image;installed=(Join-Path $installedDirectory $env:JC_HELPER_EXECUTABLE)}
+            $variants[$variant] = $image
         }
-        $previousInstalled = & $variants.previous.source --install
-        if ($LASTEXITCODE -ne 0 -or $previousInstalled -ne $variants.previous.installed) { throw 'Prior service image installation failed' }
+        $previousInstalled = & $variants.previous --install
+        if ($LASTEXITCODE -ne 0 -or $previousInstalled -ne (Join-Path $primary $env:JC_HELPER_EXECUTABLE)) { throw 'Prior service image installation failed' }
         $previousService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
         & (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_recovery_test.exe') --upgrade-busy $env:JC_HELPER_SERVICE_IMAGE
         if ($LASTEXITCODE -ne 0) { throw 'Replacement did not preserve live ownership' }
@@ -113,7 +112,7 @@ try {
             throw 'Refused replacement disrupted the active recovery service'
         }
         $failedLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-startup-failure.log'
-        $failed = Start-Process -FilePath $variants.startup_failure.source -ArgumentList '--install' -PassThru -NoNewWindow -RedirectStandardError $failedLog
+        $failed = Start-Process -FilePath $variants.startup_failure -ArgumentList '--install' -PassThru -NoNewWindow -RedirectStandardError $failedLog
         $failed.Handle | Out-Null
         $installers += $failed
         if (-not $failed.WaitForExit(30000) -or $null -eq $failed.ExitCode -or $failed.ExitCode -eq 0) { throw 'Broken replacement unexpectedly started or exceeded its deadline' }
@@ -132,15 +131,34 @@ try {
         if (-not $first.WaitForExit(30000) -or -not $second.WaitForExit(30000) -or $first.ExitCode -ne 0 -or $second.ExitCode -ne 0) {
             throw 'Concurrent service replacement/reuse failed'
         }
-        $expectedInstalled = Join-Path $directory $env:JC_HELPER_EXECUTABLE
+        $expectedInstalled = Join-Path $alternate $env:JC_HELPER_EXECUTABLE
         if ((Get-Content -Raw $firstLog).Trim() -ne $expectedInstalled -or (Get-Content -Raw $secondLog).Trim() -ne $expectedInstalled) {
             throw 'Concurrent replacements returned different installation identities'
         }
         $upgraded = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
-        if ($upgraded.State -ne 'Running' -or (Get-Process -Id $upgraded.ProcessId).Path -ne $expectedInstalled) {
+        if ($upgraded.State -ne 'Running' -or (Get-Process -Id $upgraded.ProcessId).Path -ne $expectedInstalled -or (Test-Path -LiteralPath $primary)) {
             throw 'Service does not execute the current protected image after replacement'
         }
         Write-Host 'PASS: two concurrent installers replace a previous protected image with one current running service'
+
+        $legacyName = (Get-FileHash -LiteralPath $expectedInstalled -Algorithm SHA256).Hash.ToLowerInvariant()
+        $legacyDirectory = Join-Path $installRoot $legacyName
+        if (Test-Path -LiteralPath $legacyDirectory) { throw 'Refuse pre-existing legacy payload directory in fixture' }
+        $ownedDirectories += $legacyDirectory
+        $oldProcess = Get-Process -Id $upgraded.ProcessId
+        Stop-Service -Name $env:JC_HELPER_SERVICE_NAME
+        if (-not $oldProcess.WaitForExit(10000)) { throw 'Recovery process retained its protected slot' }
+        Rename-Item -LiteralPath $alternate -NewName $legacyName
+        $legacyCommand = '"' + (Join-Path $legacyDirectory $env:JC_HELPER_EXECUTABLE) + '" --service'
+        $changed = Invoke-CimMethod -InputObject $upgraded -MethodName Change -Arguments @{PathName=$legacyCommand}
+        if ($changed.ReturnValue -ne 0) { throw 'Could not register the legacy recovery layout' }
+        Start-Service -Name $env:JC_HELPER_SERVICE_NAME
+        $migrated = & $env:JC_HELPER_SERVICE_IMAGE --install
+        if ($LASTEXITCODE -ne 0 -or $migrated -ne (Join-Path $primary $env:JC_HELPER_EXECUTABLE) -or
+            (Test-Path -LiteralPath $legacyDirectory) -or (Test-Path -LiteralPath $alternate)) {
+            throw 'Migration did not leave just one protected helper payload'
+        }
+        Write-Host 'PASS: registered legacy recovery image migrates to a single fixed-slot payload'
     }
 
     Write-Host 'RUN: unsigned production C++ service install and idempotent reuse'
@@ -148,6 +166,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $installed -isnot [string]) { throw 'Recovery service installation failed' }
     $reused = & $env:JC_HELPER_SERVICE_IMAGE --install
     if ($LASTEXITCODE -ne 0 -or $reused -ne $installed) { throw 'Recovery service reuse changed its identity' }
+    $directory = Split-Path -Parent $installed
     if (-not $qtOnly) {
         $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
         $originalCommand = $service.PathName

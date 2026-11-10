@@ -38,8 +38,7 @@ int wmain(int argc,wchar_t **argv) try
             :runWindowsNetworkControl(static_cast<DWORD>(pid),created,session);
     }
     if(argc!=2 || std::wstring(argv[1])!=L"--install")throw std::runtime_error("unknown native helper request");
-    auto installation=WindowsHelperInstallation::prepare();
-    ensureWindowsRecoveryService(*installation);
+    auto installation=installWindowsRecoveryService();
     std::wcout<<installation->image()<<L'\n';
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

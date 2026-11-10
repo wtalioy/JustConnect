@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/windows/installation.h"
+#include "infrastructure/networkhelper/windows/service.h"
 #include "infrastructure/process/windows/identity.h"
 #include "windowsnetworkcontract.h"
 #include <aclapi.h>
@@ -15,9 +16,12 @@
 #include <iterator>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 using Sha256=std::array<unsigned char,32>;
+using WindowsNetworkContract::InstallPrimary;
+using WindowsNetworkContract::InstallAlternate;
 [[noreturn]] void fail(const char *stage,LONG error=GetLastError())
 {
     throw std::system_error(static_cast<int>(error),std::system_category(),stage);
@@ -44,6 +48,26 @@ std::wstring hex(const Sha256 &value)
     for (const auto byte:value) { result+=digits[byte>>4];result+=digits[byte&15]; }
     return result;
 }
+bool fixedSlot(const std::wstring &slot)
+{
+    return slot==InstallPrimary || slot==InstallAlternate;
+}
+bool legacySlot(const std::wstring &slot)
+{
+    return slot.size()==64 && slot.find_first_not_of(L"0123456789abcdef")==std::wstring::npos;
+}
+bool missing(int error) { return error==ERROR_FILE_NOT_FOUND || error==ERROR_PATH_NOT_FOUND; }
+struct View {
+    Handle mapping;
+    void *data=nullptr;
+    explicit View(HANDLE file,DWORD size) {
+        mapping.value=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
+        if (!mapping.value) fail("map pinned helper payload");
+        data=MapViewOfFile(mapping.value,FILE_MAP_READ,0,0,size);
+        if (!data) fail("read pinned helper payload");
+    }
+    ~View() { UnmapViewOfFile(data); }
+};
 struct File {
     HANDLE value=INVALID_HANDLE_VALUE;
     DWORD size=0;
@@ -63,16 +87,17 @@ struct File {
     File &operator=(const File &)=delete;
     Sha256 hash() const
     {
-        Handle mapping;
-        mapping.value=CreateFileMappingW(value,nullptr,PAGE_READONLY,0,0,nullptr);
-        if (!mapping.value) fail("map pinned helper payload");
-        auto *data=static_cast<unsigned char *>(MapViewOfFile(mapping.value,FILE_MAP_READ,0,0,0));
-        if (!data) fail("read pinned helper payload");
+        const View view(value,size);
         Sha256 result{};
-        const auto status=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,data,size,result.data(),static_cast<ULONG>(result.size()));
-        UnmapViewOfFile(data);
+        const auto status=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,static_cast<unsigned char *>(view.data),
+            size,result.data(),static_cast<ULONG>(result.size()));
         if (status<0) fail("hash pinned helper payload",RtlNtStatusToDosError(status));
         return result;
+    }
+    bool matches(const File &other) const {
+        if (size!=other.size) return false;
+        const View first(value,size),second(other.value,other.size);
+        return std::memcmp(first.data,second.data,size)==0;
     }
 };
 bool trustedOwner(PSID sid)
@@ -139,9 +164,13 @@ void installed(const std::wstring &path,const Sha256 &hash)
     File existing(path);immutable(existing.value,false);
     if (existing.hash()!=hash) fail("unknown existing installation payload",ERROR_INVALID_DATA);
 }
-void install(const File &source,const std::wstring &path,const Sha256 &hash)
+void install(const File &source,const std::wstring &path)
 {
-    try { installed(path,hash);return; } catch (const std::system_error &error) { if (error.code().value()!=ERROR_FILE_NOT_FOUND) throw; }
+    const auto confirm=[&] {
+        File existing(path);immutable(existing.value,false);
+        if (!existing.matches(source)) fail("different protected installation payload",ERROR_REVISION_MISMATCH);
+    };
+    try { confirm();return; } catch (const std::system_error &error) { if (!missing(error.code().value())) throw; }
     GUID id{};wchar_t suffix[39]{};
     if (FAILED(CoCreateGuid(&id)) || !StringFromGUID2(id,suffix,39)) fail("allocate installation temporary identity",ERROR_INVALID_DATA);
     const auto temporary=path+L"."+suffix+L".tmp";
@@ -173,7 +202,7 @@ void install(const File &source,const std::wstring &path,const Sha256 &hash)
     if (!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_WRITE_THROUGH)) {
         const auto error=GetLastError();
         if (error!=ERROR_ALREADY_EXISTS && error!=ERROR_FILE_EXISTS) fail("publish protected installation payload",error);
-        installed(path,hash);
+        confirm();
     }
 }
 std::wstring currentImage()
@@ -190,9 +219,8 @@ struct Source {
     Sha256 driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
     std::filesystem::path directory=std::filesystem::path(executable).parent_path();
     File driver{(directory/WindowsNetworkContract::DriverLibrary).wstring()},license{(directory/WindowsNetworkContract::DriverLicense).wstring()};
-    Sha256 identity{};
     Source(){
-        runningImage(image);identity=image.hash();
+        runningImage(image);
         if(driver.hash()!=driverHash || license.hash()!=licenseHash)fail("untrusted helper driver or license",ERROR_INVALID_DATA);
     }
 };
@@ -213,7 +241,7 @@ void WindowsHelperInstallation::pinDirectory(const std::wstring &path,bool creat
     immutable(handle.value,allowNewChildren);
     pins.push_back(handle.value);handle.value=nullptr;
 }
-void WindowsHelperInstallation::pinInstallation(const std::wstring &hash,bool create)
+void WindowsHelperInstallation::pinInstallation(const std::wstring &slot,bool create)
 {
     PWSTR folder=nullptr;
     const auto status=SHGetKnownFolderPath(FOLDERID_ProgramFiles,0,nullptr,&folder);
@@ -226,7 +254,8 @@ void WindowsHelperInstallation::pinInstallation(const std::wstring &hash,bool cr
     pinDirectory(path.wstring(),false,true);
     for (const auto &part:base.relative_path()) { path/=part;pinDirectory(path.wstring(),false,true); }
     path/=WindowsNetworkContract::InstallDirectory;pinDirectory(path.wstring(),create,false);
-    path/=hash;pinDirectory(path.wstring(),create,false);
+    root=path.wstring();
+    path/=slot;pinDirectory(path.wstring(),create,false);
     executable=(path/WindowsNetworkContract::Executable).wstring();
     library=(path/WindowsNetworkContract::DriverLibrary).wstring();
 }
@@ -236,17 +265,20 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstal
 }
 std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstalledImage(const std::wstring &executable)
 {
+    const auto slot=std::filesystem::path(executable).parent_path().filename().wstring();
+    if (!fixedSlot(slot) && !legacySlot(slot)) fail("unknown recovery installation slot",ERROR_ACCESS_DENIED);
+    auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
+    result->pinInstallation(slot,false);
+    if (_wcsicmp(executable.c_str(),result->image().c_str())!=0) fail("recovery must run from its protected installation",ERROR_ACCESS_DENIED);
     File image(executable);immutable(image.value,false);
     if(_wcsicmp(executable.c_str(),currentImage().c_str())==0)runningImage(image);
-    auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
-    result->pinInstallation(hex(image.hash()),false);
-    if (_wcsicmp(executable.c_str(),result->image().c_str())!=0) fail("recovery must run from its protected installation",ERROR_ACCESS_DENIED);
+    if (legacySlot(slot) && hex(image.hash())!=slot) fail("legacy recovery image differs from its installation",ERROR_ACCESS_DENIED);
     installed(result->library,decode(WindowsNetworkContract::DriverSHA256));
     installed((std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring(),decode(WindowsNetworkContract::LicenseSHA256));
     result->pins.push_back(image.value);image.value=nullptr;
     return result;
 }
-std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
+std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare(const std::wstring &previous)
 {
     Handle token;
     if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token.value)) fail("read installation elevation");
@@ -254,12 +286,62 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
     if (!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size)) fail("read installation privilege");
     if (!elevation.TokenIsElevated) fail("installation requires elevation",ERROR_ACCESS_DENIED);
     Source source;
+    std::wstring slot=InstallPrimary;
+    if (!previous.empty()) {
+        auto active=openInstalledImage(previous);
+        const auto oldSlot=std::filesystem::path(previous).parent_path().filename().wstring();
+        if (fixedSlot(oldSlot) && source.image.matches(File(previous))) return active;
+        if (oldSlot==InstallPrimary) slot=InstallAlternate;
+    }
     auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
-    result->pinInstallation(hex(source.identity),true);
-    const auto path=std::filesystem::path(result->image()).parent_path();
-    install(source.image,result->executable,source.identity);install(source.driver,result->library,source.driverHash);
-    install(source.license,(path/WindowsNetworkContract::DriverLicense).wstring(),source.licenseHash);
-    return result;
+    result->pinInstallation(slot,true);
+    const auto license=(std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring();
+    const auto publish=[&] {
+        install(source.image,result->executable);install(source.driver,result->library);install(source.license,license);
+    };
+    try { publish(); }
+    catch (const std::system_error &error) {
+        if (error.code().value()!=ERROR_REVISION_MISMATCH || previous.empty()) throw;
+        result->close();result->removeSlot(slot);
+        result->pinInstallation(slot,true);
+        publish();
+    }
+    return openInstalledImage(result->image());
+}
+
+void WindowsHelperInstallation::removeSlot(const std::wstring &slot) const
+{
+    WindowsHelperInstallation pinned;
+    try { pinned.pinInstallation(slot,false); }
+    catch (const std::system_error &error) { if (missing(error.code().value())) return; throw; }
+    const auto directory=std::filesystem::path(pinned.image()).parent_path();
+    const auto license=(directory/WindowsNetworkContract::DriverLicense).wstring();
+    for (const auto &path:{pinned.image(),pinned.driver(),license}) {
+        try {
+            File file(path);immutable(file.value,false);
+            if (path==pinned.image() && legacySlot(slot) && hex(file.hash())!=slot)
+                fail("unrecognized legacy recovery image",ERROR_ACCESS_DENIED);
+        } catch (const std::system_error &error) { if (!missing(error.code().value())) throw; }
+    }
+    for (const auto &path:{pinned.image(),pinned.driver(),license})
+        if (!DeleteFileW(path.c_str()) && !missing(GetLastError())) fail("remove inactive network helper payload");
+    CloseHandle(pinned.pins.back());pinned.pins.pop_back();
+    if (!RemoveDirectoryW(directory.c_str()) && !missing(GetLastError()) && GetLastError()!=ERROR_DIR_NOT_EMPTY)
+        fail("remove inactive network helper directory");
+}
+
+void WindowsHelperInstallation::pruneInactive() const
+{
+    const auto active=std::filesystem::path(executable).parent_path().filename();
+    std::vector<std::wstring> inactive;
+    for (const auto &entry:std::filesystem::directory_iterator(root)) {
+        auto slot=entry.path().filename().wstring();
+        if (slot!=active && (fixedSlot(slot) || legacySlot(slot))) inactive.push_back(std::move(slot));
+    }
+    for (const auto &slot:inactive) {
+        try { removeSlot(slot); }
+        catch (const std::system_error &error) { OutputDebugStringA(error.what()); }
+    }
 }
 
 int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,const GUID &session,const WindowsControlElevation &elevate)
@@ -288,19 +370,27 @@ int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,
         if(!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size))fail("read launcher elevation");
         if(elevation.TokenIsElevated)fail("authorization launcher must remain ordinary",ERROR_ACCESS_DENIED);
         Source source;
+        const auto registeredImage=installedWindowsRecoveryImage();
+        auto target=source.executable;
+        std::unique_ptr<WindowsHelperInstallation> installed;
+        if(!registeredImage.empty()){
+            installed=openInstalledImage(registeredImage);
+            if(source.image.matches(File(installed->image())))target=installed->image();
+        }
         const auto parameters=L"--control "+std::to_wstring(pid)+L" "+std::to_wstring(created)+L" "+id;
-        if(elevate)approved.value=elevate(source.executable,parameters);
+        if(elevate)approved.value=elevate(target,parameters);
         else{
             SHELLEXECUTEINFOW request{sizeof(request)};
             request.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NOASYNC|SEE_MASK_FLAG_NO_UI;
-            request.lpVerb=L"runas";request.lpFile=source.executable.c_str();request.lpParameters=parameters.c_str();request.nShow=SW_HIDE;
+            request.lpVerb=L"runas";request.lpFile=target.c_str();request.lpParameters=parameters.c_str();request.nShow=SW_HIDE;
             if(!ShellExecuteExW(&request))fail("request network permission");
             approved.value=request.hProcess;
             if(!approved.value)fail("approved helper process was not returned",ERROR_INVALID_HANDLE);
             std::wstring launched(32768,L'\0');DWORD length=static_cast<DWORD>(launched.size());
             if(!QueryFullProcessImageNameW(approved.value,0,launched.data(),&length))fail("identify approved helper image");
             launched.resize(length);File running(launched);
-            if(running.hash()!=source.identity)fail("approved process differs from the verified helper",ERROR_ACCESS_DENIED);
+            if(!running.matches(source.image))
+                fail("approved process differs from the verified helper",ERROR_ACCESS_DENIED);
         }
         if(!approved.value)fail("network permission was not granted",GetLastError()?GetLastError():ERROR_INVALID_HANDLE);
         if(!caller->identity().alive() || WaitForSingleObject(approved.value,0)!=WAIT_TIMEOUT)fail("approved connection is no longer active",ERROR_PROCESS_ABORTED);

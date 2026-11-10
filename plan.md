@@ -243,6 +243,7 @@
 - [x] **S8-03**：实际包启动、正常认证和授权、连接状态及退出通过。Windows 复用 S7 UI 实测，Apple Silicon 已实测 Finder 安装、菜单栏恢复窗口、退出及认证缓存复用。取消、双语、偏好、键盘及异常流程复用已有回归。旧独立恢复工具保留用于已发布版本的待恢复记录。
 - [x] **S8-04**：`96c6c09` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42603167416)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/job/129120657414)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：当前预览尚未发布到 GitHub Release。按 [main／Release 交付流程](docs/DEVELOPMENT.md#分支与-actions)核对正式附件与来源，并验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」及按系统首次打开流程启动。
+  - Windows 网络助手改为复用 Program Files 的受保护同版副本，成功换版后清理旧安装；待原生 CI 和 Windows 桌面确认安全警告是否仍出现。
 
 ## 验收记录
 

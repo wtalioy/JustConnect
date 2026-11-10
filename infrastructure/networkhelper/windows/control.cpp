@@ -116,8 +116,7 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
                 if(cached){WindowsNetworkRecovery recovery;recovery.acknowledge(session,caller.identity().sid);}
             }
             if(!installation && command.operation!=L"close"){
-                installation=WindowsHelperInstallation::prepare();
-                ensureWindowsRecoveryService(*installation);
+                installation=installWindowsRecoveryService();
             }
             if(command.operation!=L"close"){
                 WindowsNetworkRecovery recovery;

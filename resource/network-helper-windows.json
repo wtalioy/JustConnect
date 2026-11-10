@@ -4,6 +4,8 @@
   "executable": "JustConnectNetworkHelper.exe",
   "service": "JustConnectNetworkRecovery",
   "install_directory": "JustConnectNetworkHelper",
+  "install_primary": "current",
+  "install_alternate": "update",
   "state_registry": "SOFTWARE\\JustConnectNetworkHelper",
   "ownership_mutex": "Global\\JustConnectNetworkOwnership",
   "control_pipe_prefix": "\\\\.\\pipe\\JustConnectNetworkControl-",

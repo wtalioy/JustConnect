@@ -12,7 +12,7 @@ using WindowsControlElevation = std::function<HANDLE(const std::wstring &,const 
 class WindowsHelperInstallation final {
 public:
     static bool identityReady() noexcept;
-    static std::unique_ptr<WindowsHelperInstallation> prepare();
+    static std::unique_ptr<WindowsHelperInstallation> prepare(const std::wstring &previous = {});
     static std::unique_ptr<WindowsHelperInstallation> openInstalled();
     // Pin an existing protected image for service replacement without executing it.
     static std::unique_ptr<WindowsHelperInstallation> openInstalledImage(const std::wstring &executable);
@@ -23,11 +23,13 @@ public:
     WindowsHelperInstallation &operator=(const WindowsHelperInstallation &) = delete;
     const std::wstring &image() const { return executable; }
     const std::wstring &driver() const { return library; }
+    void pruneInactive() const;
     void close();
 private:
     WindowsHelperInstallation() = default;
     void pinDirectory(const std::wstring &path,bool create,bool allowNewChildren);
-    void pinInstallation(const std::wstring &hash,bool create);
-    std::wstring executable,library;
+    void pinInstallation(const std::wstring &slot,bool create);
+    void removeSlot(const std::wstring &slot) const;
+    std::wstring root,executable,library;
     std::vector<HANDLE> pins;
 };
