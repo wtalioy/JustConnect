@@ -49,3 +49,9 @@ CMakeUserPresets.json
 
 __pycache__/
 aqtinstall.log
+
+# Local development documents
+/AGENTS.md
+/plan.md
+/docs/*
+!/docs/releases/
