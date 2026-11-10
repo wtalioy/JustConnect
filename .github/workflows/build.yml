@@ -171,7 +171,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir dmg-root
-          cp -R "$TARGET_NAME.app" dmg-root/
+          mv "$TARGET_NAME.app" dmg-root/
           ln -s /Applications dmg-root/Applications
           hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
@@ -180,23 +180,13 @@ jobs:
           python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" --browser-probe "build/signinbrowser_test"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
-      - name: Upload Windows package
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          if-no-files-found: error
-          retention-days: 14
-          path: ${{ env.ARCHIVE_NAME }}.zip
-
-      - name: Upload macOS disk image
-        if: runner.os == 'macOS'
+      - name: Upload install package
         uses: actions/upload-artifact@v7.0.2
         with:
           archive: false
           if-no-files-found: error
           retention-days: 14
-          path: ${{ env.ARCHIVE_NAME }}.dmg
+          path: ${{ env.ARCHIVE_NAME }}.${{ runner.os == 'Windows' && 'zip' || 'dmg' }}
 
       - name: Upload package verification evidence
         if: always()
@@ -299,7 +289,15 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: JustConnect-${{ github.event.release.tag_name }}-*
+          pattern: JustConnect-${{ github.event.release.tag_name }}-*.{zip,dmg}
+          skip-decompress: true
+          merge-multiple: true
+          path: packages
+
+      - name: Download source and verification reports
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: JustConnect-${{ github.event.release.tag_name }}-{source,*-checks}
           merge-multiple: true
           path: packages
 

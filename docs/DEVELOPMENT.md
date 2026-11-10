@@ -319,7 +319,7 @@ Windows 的三次 DNS 查询应返回同一设备地址。若连接前已稳定�
 | 手动 Build packages，选择 main | 可选 nightly；关闭时须提供有效 version，不自动创建 Release |
 | 发布 vX.Y.Z（可带后缀）的 GitHub Release | 重建四组并上传附件，失败不发布成功结果 |
 
-面向用户的安装包从 GitHub Release 的附件下载。Windows 为 ZIP（完整解压后运行 `JustConnect.exe`），macOS 为 DMG（打开后把应用拖入「应用程序」）。Actions 预览同样直接上传 DMG，保留 14 天。macOS 正式交付还须验证从 Release 用浏览器下载、正常安装并通过系统首次打开流程。普通 job 仅 `contents: read`，上传 Release 的 job 才用 `contents: write`，无需额外 PAT。
+面向用户的安装包从 GitHub Release 的附件下载。Windows 为 ZIP（完整解压后运行 `JustConnect.exe`），macOS 为 DMG（打开后把应用拖入「应用程序」）。Actions 预览也直接提供 ZIP 和 DMG，保留 14 天；发布任务保留这两种文件的原始字节。macOS 正式交付还须验证从 Release 用浏览器下载、正常安装并通过系统首次打开流程。普通 job 仅 `contents: read`，上传 Release 的 job 才用 `contents: write`，无需额外 PAT。
 
 [打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败；两平台均在清空 SDK 环境后启动包内原生浏览器页面及 JavaScript。Release 省略 Go DWARF；Windows 共享库另去掉本地符号表，保留正式 C ABI 导出及 Go 运行时回溯数据，macOS 静态归档保留链接所需符号。新增语言须同步部署及包验证。
 
