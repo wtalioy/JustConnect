@@ -207,6 +207,8 @@ int main(int argc, char **argv) {
     };
     readSnapshot(CoreEngine::Snapshot::Network,generation,CoreEngine::RequestStatus::Success);
     check(!lastSnapshot["network"].toObject()["interfaces"].toArray().isEmpty(), "native network snapshot reaches the Qt consumer");
+    const auto heldSnapshot = lastSnapshot;
+    const auto heldJson = QJsonDocument(heldSnapshot).toJson(QJsonDocument::Compact);
     readSnapshot(CoreEngine::Snapshot::Resources,generation,CoreEngine::RequestStatus::Unavailable);
     readSnapshot(CoreEngine::Snapshot::Coexistence,generation,CoreEngine::RequestStatus::Unavailable);
     engine.updateCoexistence(generation,{});
@@ -248,6 +250,8 @@ int main(int argc, char **argv) {
     check(policyReplies.last() == CoreEngine::RequestStatus::Stale, "queued success cannot claim active policy after stop");
     until([&] { return snapshotReplies.size() == snapshotsBeforeStop+1; });
     check(snapshotReplies.last() == CoreEngine::RequestStatus::Stale && lastSnapshot.isEmpty(), "queued snapshot is discarded after stop");
+    check(QJsonDocument(heldSnapshot).toJson(QJsonDocument::Compact) == heldJson,
+        "published snapshot survives later reads and terminal cleanup");
     request = {};
     check(engine.start(profile), "restart accepted after cleanup");
     until([&] { return !request.isEmpty(); });

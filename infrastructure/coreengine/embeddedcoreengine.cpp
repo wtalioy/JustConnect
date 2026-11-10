@@ -134,7 +134,7 @@ struct NativeSnapshot {
     int status = JC_UNSUPPORTED;
     QJsonObject data;
 };
-NativeSnapshot readNativeSnapshot(CoreEngine::Snapshot kind, uint64_t handle = 0, uint64_t generation = 0) {
+NativeSnapshot readNativeSnapshot(QByteArray &buffer, CoreEngine::Snapshot kind, uint64_t handle = 0, uint64_t generation = 0) {
     auto &api = library();
     const bool resources = kind == CoreEngine::Snapshot::Resources;
     const bool coexistence = kind == CoreEngine::Snapshot::Coexistence;
@@ -143,26 +143,28 @@ NativeSnapshot readNativeSnapshot(CoreEngine::Snapshot kind, uint64_t handle = 0
     if (!(coexistence ? api.jc_session_coexistence && capabilities["coexistence"].toBool()
                     : resources ? api.jc_session_resources && capabilities["resource_snapshot"].toBool()
                     : api.jc_network_snapshot && capabilities["network_snapshot"].toBool())) return {};
-    QByteArray bytes(JC_MAX_OUTPUT, Qt::Uninitialized);
+    buffer.resizeForOverwrite(JC_MAX_OUTPUT);
+    auto *output = reinterpret_cast<uint8_t *>(buffer.data());
+    const auto capacity = uint32_t(buffer.size());
     uint32_t length = 0;
     const int status = coexistence
-        ? api.jc_session_coexistence(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
+        ? api.jc_session_coexistence(handle, generation, output, capacity, &length)
         : resources
-        ? api.jc_session_resources(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
-        : api.jc_network_snapshot(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length);
+        ? api.jc_session_resources(handle, generation, output, capacity, &length)
+        : api.jc_network_snapshot(JC_ABI_VERSION, output, capacity, &length);
     if (status != JC_OK) return {status, {}};
-    const auto snapshot = coreObject(bytes, length);
+    const auto snapshot = coreObject(buffer, length);
     if (snapshot["schema_version"].toInt() != JC_ABI_VERSION
         || !snapshot[key].isObject()
         || ((resources || coexistence) && snapshot["generation"].toString() != QString::number(generation))) return {JC_INTERNAL, {}};
     return {JC_OK, snapshot};
 }
-int installInitialProtection(QByteArray &config, QJsonObject &initialPolicy) {
+int installInitialProtection(QByteArray &config, QJsonObject &initialPolicy, QByteArray &buffer) {
     auto fields = QJsonDocument::fromJson(config).object();
     if (fields["operation"] != "connect") return JC_OK;
     const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
     if (!capabilities["initial_protection"].toBool() || !capabilities["name_protection"].toBool()) return JC_UNSUPPORTED;
-    const auto snapshot = readNativeSnapshot(CoreEngine::Snapshot::Network);
+    const auto snapshot = readNativeSnapshot(buffer, CoreEngine::Snapshot::Network);
     if (snapshot.status != JC_OK) return snapshot.status;
     const auto targets = originalNetworkProtection(snapshot.data["network"].toObject());
     if (!targets) return JC_INTERNAL;
@@ -213,7 +215,7 @@ public:
         if (api.available) {
             status = api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(config.constData()), uint32_t(config.size()));
             if (status == JC_OK && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested())
-                status = installInitialProtection(config, initialPolicy);
+                status = installInitialProtection(config, initialPolicy, buffer);
             // Stop can arrive while the native read is blocking this worker's event loop.
             if (cancelled.load() || QThread::currentThread()->isInterruptionRequested()) status = JC_CANCELLED;
             if (status == JC_OK) {
@@ -231,7 +233,7 @@ public:
             }
         }
         config.fill('\0');
-        if (status != JC_OK) { initialPolicy = {}; emit failed(serial, status); return; }
+        if (status != JC_OK) { initialPolicy = {}; buffer.clear(); emit failed(serial, status); return; }
         if (!initialPolicy.isEmpty()) {
             initialPolicy["generation"] = QString::number(generation);
             initialPolicy["revision"] = "0";
@@ -281,7 +283,7 @@ public:
         int status = JC_STALE_REQUEST;
         QJsonObject snapshot;
         if (id == serial && active && requestedGeneration == QString::number(generation)) {
-            const auto result = readNativeSnapshot(kind, handle, generation);
+            const auto result = readNativeSnapshot(buffer, kind, handle, generation);
             status = result.status;
             snapshot = result.data;
         }
@@ -296,7 +298,7 @@ public:
                 reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()), &applied);
             if (status == JC_OK && applied != generation) status = JC_INTERNAL;
             if (status == JC_OK) {
-                const auto snapshot = readNativeSnapshot(CoreEngine::Snapshot::Resources, handle, generation);
+                const auto snapshot = readNativeSnapshot(buffer, CoreEngine::Snapshot::Resources, handle, generation);
                 status = snapshot.status;
                 if (status == JC_OK) listeners = snapshot.data["resources"].toObject()["original_dns_listeners"].toObject();
             }
