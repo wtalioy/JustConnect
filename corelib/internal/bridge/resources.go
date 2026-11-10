@@ -3,6 +3,7 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/netip"
 	"slices"
 
@@ -44,6 +45,38 @@ type resourcesEnvelope struct {
 	Resources     resourceSnapshot `json:"resources"`
 }
 
+type resourceActivity struct {
+	active    []string
+	campus    map[string][]string
+	original  map[string][]string
+	listeners map[string]string
+}
+
+func (a resourceActivity) equal(b resourceActivity) bool {
+	return slices.Equal(a.active, b.active) &&
+		maps.EqualFunc(a.campus, b.campus, slices.Equal[[]string]) &&
+		maps.EqualFunc(a.original, b.original, slices.Equal[[]string]) &&
+		maps.Equal(a.listeners, b.listeners)
+}
+
+type publishedResources struct {
+	// Rules are immutable. Only the last encoded view is retained.
+	base     resourcesEnvelope
+	activity resourceActivity
+	data     []byte
+}
+
+func encodeResources(snapshot resourcesEnvelope) ([]byte, Status) {
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, Internal
+	}
+	if len(data) > MaxOutput {
+		return nil, Limit
+	}
+	return data, OK
+}
+
 func (s *Session) setResources(resources corelib.Resources) Status {
 	s.mu.Lock()
 	generation := s.generation
@@ -54,12 +87,12 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 	s.mu.Unlock()
 	snapshot := resourceSnapshot{
 		IPs:               make([]ipResource, len(resources.IPs)),
-		PrivateIPRanges:   resources.PrivateIPRanges,
+		PrivateIPRanges:   slices.Clone(resources.PrivateIPRanges),
 		Domains:           make(map[string][]resourcePermission, len(resources.Domains)),
 		DNSRecords:        make(map[string][]string, len(resources.DNSRecords)),
 		CampusDNS:         resources.CampusDNS,
 		CampusDNSEnabled:  resources.CampusDNSEnabled,
-		DomainDNSNames:    resources.DomainDNSNames,
+		DomainDNSNames:    slices.Clone(resources.DomainDNSNames),
 		UnderlayInterface: resources.UnderlayInterface,
 		Listeners:         resources.Listeners,
 	}
@@ -83,13 +116,8 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		}
 		snapshot.DNSRecords[domain] = values
 	}
-	data, err := json.Marshal(resourcesEnvelope{ABIVersion, generation, snapshot})
-	status := OK
-	if err != nil {
-		status = Internal
-	} else if len(data) > MaxOutput {
-		status = Limit
-	}
+	base := resourcesEnvelope{ABIVersion, generation, snapshot}
+	data, status := encodeResources(base)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running || s.stopping || s.generation != generation {
@@ -98,7 +126,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 	s.resourcesStatus = status
 	s.resources = nil
 	if status == OK {
-		s.resources = data
+		s.resources = &publishedResources{base: base, data: data}
 	}
 	return status
 }
@@ -125,38 +153,44 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 	if s.resourcesStatus != OK {
 		return nil, s.resourcesStatus
 	}
-	if s.protocol == nil {
-		return bytes.Clone(s.resources), OK
-	}
-	// A publication hold ends only after its DNS binding exists; read the hold side first.
-	active := s.protocol.ActiveTUNAddresses()
-	records := s.protocol.CampusDNSRecords()
-	original := s.protocol.OriginalDNSRecords()
-	listeners := s.protocol.OriginalDNSListeners()
-	if len(records) == 0 && len(original) == 0 && len(active) == 0 && len(listeners) == 0 {
-		return bytes.Clone(s.resources), OK
-	}
-	var snapshot resourcesEnvelope
-	if json.Unmarshal(s.resources, &snapshot) != nil {
-		return nil, Internal
-	}
-	snapshot.Resources.ActiveTUNAddresses = active
-	snapshot.Resources.OriginalDNSRecords = original
-	snapshot.Resources.OriginalDNSListeners = listeners
-	for host, addresses := range records {
-		for _, address := range addresses {
-			if !slices.Contains(snapshot.Resources.DNSRecords[host], address) {
-				snapshot.Resources.DNSRecords[host] = append(snapshot.Resources.DNSRecords[host], address)
-			}
+	var activity resourceActivity
+	if s.protocol != nil {
+		// A publication hold ends only after its DNS binding exists; read the hold side first.
+		activity = resourceActivity{
+			active:    s.protocol.ActiveTUNAddresses(),
+			campus:    s.protocol.CampusDNSRecords(),
+			original:  s.protocol.OriginalDNSRecords(),
+			listeners: s.protocol.OriginalDNSListeners(),
 		}
-		slices.Sort(snapshot.Resources.DNSRecords[host])
 	}
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return nil, Internal
+	return s.resources.snapshot(activity)
+}
+
+func (r *publishedResources) snapshot(activity resourceActivity) ([]byte, Status) {
+	if r.activity.equal(activity) {
+		return bytes.Clone(r.data), OK
 	}
-	if len(data) > MaxOutput {
-		return nil, Limit
+	view := r.base
+	view.Resources.ActiveTUNAddresses = activity.active
+	view.Resources.OriginalDNSRecords = activity.original
+	view.Resources.OriginalDNSListeners = activity.listeners
+	if len(activity.campus) != 0 {
+		view.Resources.DNSRecords = maps.Clone(view.Resources.DNSRecords)
+		for host, addresses := range activity.campus {
+			merged := slices.Clone(view.Resources.DNSRecords[host])
+			for _, address := range addresses {
+				if !slices.Contains(merged, address) {
+					merged = append(merged, address)
+				}
+			}
+			slices.Sort(merged)
+			view.Resources.DNSRecords[host] = merged
+		}
 	}
-	return data, OK
+	data, status := encodeResources(view)
+	if status != OK {
+		return nil, status
+	}
+	r.data, r.activity = data, activity
+	return bytes.Clone(data), OK
 }

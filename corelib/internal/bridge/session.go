@@ -98,7 +98,7 @@ type Session struct {
 	policyRevision   uint64
 	connectOperation bool
 	coexistence      []byte
-	resources        []byte
+	resources        *publishedResources
 	resourcesStatus  Status
 }
 
