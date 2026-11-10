@@ -23,13 +23,13 @@ QJsonArray subtract(QJsonArray rows,const QJsonArray &owned)
     for(const auto &value:owned){const auto at=std::find(rows.begin(),rows.end(),value);if(at!=rows.end())rows.erase(at);}
     return rows;
 }
-QJsonArray captures(const QJsonObject &configuration,const QJsonObject &peer)
+QSet<QJsonValue> captures(const QJsonObject &configuration,const QJsonObject &peer)
 {
-    QJsonArray rows{peer};
+    QSet<QJsonValue> rows{peer};
     for(const auto &prefix:configuration["capture_prefixes"].toArray()){
         if(prefix.toString()==peer["destination"].toString())continue;
         auto row=peer;row["destination"]=prefix;row["gateway"]=configuration["peer"];
-        if(!rows.contains(row))rows.append(row);
+        rows.insert(row);
     }
     return rows;
 }
@@ -180,8 +180,14 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
     return [owned=*this,required,configuration](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
         if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray() || !dns["interfaces"].isArray()
             || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
-        auto routes=network["routes"].toArray();
-        for(const auto &row:required){const auto at=std::find(routes.begin(),routes.end(),row);if(at==routes.end())return {};routes.erase(at);}
+        auto pending=required;
+        QJsonArray routes;
+        const auto index=owned.device["index"];
+        for(const auto &row:network["routes"].toArray()){
+            if(row.toObject().value("interface_index")==index && pending.remove(row))continue;
+            routes.append(row);
+        }
+        if(!pending.isEmpty())return {};
         network["routes"]=subtract(routes,owned.automaticRoutes);
         QJsonArray interfaces;
         for(const auto &item:network["interfaces"].toArray()){

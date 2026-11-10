@@ -116,6 +116,10 @@ int main(int argc,char **argv) try
     const auto attributes=filter(changedNetwork,dns);
     check(attributes && attributes->first["interfaces"].toArray().last().toObject()["external_attribute"]=="kept",
         "external interface attributes were hidden");
+    changedNetwork["routes"]=QJsonArray{originalRoute,target,foreign,target,peer,source};
+    const auto duplicate=filter(changedNetwork,dns);
+    check(duplicate && duplicate->first["routes"]==QJsonArray{originalRoute,foreign,target},
+        "one owned route may remove only one matching row and must preserve the order of the remainder");
     auto editedTarget=target;editedTarget["metric"]=9;changedNetwork["routes"]=QJsonArray{originalRoute,peer,editedTarget,source};
     check(!filter(changedNetwork,dns),"missing or edited capture was treated as active ownership");
     auto onLink=target;onLink["gateway"]="0.0.0.0";changedNetwork["routes"]=QJsonArray{originalRoute,peer,onLink,source};
