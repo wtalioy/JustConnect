@@ -167,6 +167,10 @@ func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Stat
 	if status != OK {
 		return 0, status
 	}
+	return copySnapshot(dst, data)
+}
+
+func copySnapshot(dst, data []byte) (int, Status) {
 	if len(dst) < len(data) {
 		return len(data), BufferTooSmall
 	}

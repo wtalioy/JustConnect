@@ -226,8 +226,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(api.jc_session_update_coexistence(handle,reinterpret_cast<const uint8_t *>(coexistence.constData()),uint32_t(coexistence.size()),&coexistenceApplied)==JC_OK
         && coexistenceApplied==generation,"formal protocol session refreshes ordinary exit facts");
     std::vector<uint8_t> coexistenceBytes(JC_MAX_OUTPUT+2,0x5a);uint32_t coexistenceLength=0;
+    uint32_t coexistenceRequired=0;
+    check(api.jc_session_coexistence(handle,generation,coexistenceBytes.data()+1,1,&coexistenceRequired)==JC_BUFFER_TOO_SMALL
+        && coexistenceBytes[1]==0x5a && coexistenceRequired>1,"short formal coexistence buffer retains its contents");
     check(api.jc_session_coexistence(handle,generation,coexistenceBytes.data()+1,JC_MAX_OUTPUT,&coexistenceLength)==JC_OK
-        && coexistenceBytes.front()==0x5a && coexistenceBytes.back()==0x5a,"bounded formal coexistence snapshot");
+        && coexistenceLength==coexistenceRequired && coexistenceBytes.front()==0x5a && coexistenceBytes.back()==0x5a,"bounded formal coexistence snapshot");
     const auto coexistenceState=json(coexistenceBytes,coexistenceLength);
     check(coexistenceState["generation"]==QString::number(generation) && coexistenceState["coexistence"].toObject()["active"].isBool()
         && coexistenceState["coexistence"].toObject()["endpoints"].isArray(),"coexistence facts retain generation and typed observations");

@@ -37,8 +37,18 @@ func TestCoexistenceRejectsUntrustedStateAndStaleGeneration(t *testing.T) {
 	if _, status := e.UpdateCoexistence(h, input("7", []string{})); status != Busy {
 		t.Fatal("detached protocol accepted routing change", status)
 	}
-	if _, status := e.Coexistence(h, 7); status != Busy {
+	if _, status := e.CopyCoexistence(h, 7, nil); status != Busy {
 		t.Fatal("unacknowledged state was exposed", status)
+	}
+	const snapshot = `{"generation":"7","coexistence":{"active":false}}`
+	s.coexistence = []byte(snapshot)
+	short := []byte{0x5a}
+	if n, status := e.CopyCoexistence(h, 7, short); status != BufferTooSmall || n != len(snapshot) || short[0] != 0x5a {
+		t.Fatal("short snapshot buffer was changed or reported the wrong size", n, status)
+	}
+	dst := make([]byte, len(snapshot))
+	if n, status := e.CopyCoexistence(h, 7, dst); status != OK || n != len(snapshot) || string(dst) != snapshot {
+		t.Fatal("coexistence snapshot was not copied", n, status)
 	}
 	s.protocol = nil
 	if _, status := e.UpdateCoexistence(h, input("7", []string{})); status != Unsupported {
@@ -48,7 +58,7 @@ func TestCoexistenceRejectsUntrustedStateAndStaleGeneration(t *testing.T) {
 	if _, status := e.UpdateCoexistence(h, input("7", []string{})); status != StaleRequest {
 		t.Fatal(status)
 	}
-	if _, status := e.Coexistence(h, 7); status != StaleRequest {
+	if _, status := e.CopyCoexistence(h, 7, nil); status != StaleRequest {
 		t.Fatal(status)
 	}
 }

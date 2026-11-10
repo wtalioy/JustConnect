@@ -339,11 +339,10 @@ func jc_go_session_coexistence(handle C.uint64_t, generation C.uint64_t, output 
 	if !outputValid(output, capacity, length) {
 		return C.int32_t(bridge.InvalidArgument)
 	}
-	data, status := engine.Coexistence(uint64(handle), uint64(generation))
-	if status != bridge.OK {
-		return C.int32_t(status)
-	}
-	return writeOutput(data, output, capacity, length)
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(output)), int(capacity))
+	size, status := engine.CopyCoexistence(uint64(handle), uint64(generation), dst)
+	*length = C.uint32_t(size)
+	return C.int32_t(status)
 }
 
 //export jc_go_session_prepare_original_dns

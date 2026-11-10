@@ -85,27 +85,28 @@ func (e *Engine) UpdateCoexistence(handle uint64, input []byte) (uint64, Status)
 	return request.Generation, OK
 }
 
-func (e *Engine) Coexistence(handle, generation uint64) ([]byte, Status) {
+// CopyCoexistence reports the required size without touching a short destination.
+func (e *Engine) CopyCoexistence(handle, generation uint64, dst []byte) (int, Status) {
 	if generation == 0 {
-		return nil, InvalidArgument
+		return 0, InvalidArgument
 	}
 	s := e.lookup(handle)
 	if s == nil {
-		return nil, InvalidHandle
+		return 0, InvalidHandle
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.destroyed {
-		return nil, InvalidHandle
+		return 0, InvalidHandle
 	}
 	if !s.running || s.stopping || s.generation != generation {
-		return nil, StaleRequest
+		return 0, StaleRequest
 	}
 	if !s.connectOperation || s.protocol == nil {
-		return nil, Unsupported
+		return 0, Unsupported
 	}
 	if s.coexistence == nil {
-		return nil, Busy
+		return 0, Busy
 	}
-	return append([]byte(nil), s.coexistence...), OK
+	return copySnapshot(dst, s.coexistence)
 }
