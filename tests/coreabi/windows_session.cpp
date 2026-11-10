@@ -144,10 +144,9 @@ int main(int argc,char **argv) try
     if(composed)coexistence.observe(engine);
     NetworkPolicySession policy(engine,observeSystemDnsSnapshot());
     SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
-    const auto mtu=EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
     std::atomic<bool> delayEffectiveDns=false;
     std::atomic<int> delayedReads=0;
-    auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
+    auto *access=new WindowsNetworkAccess(engine,&policy,nullptr,[&](const QUuid &id,auto ready){
         ++authorizations;
         if(authorizations<=2){const DWORD error=authorizations==1?ERROR_ACCESS_DENIED:ERROR_CANCELLED;QTimer::singleShot(0,&app,[ready,error]{ready(nullptr,error);});return;}
         check(++approvals<=1,"one approved helper process per GUI lifetime");

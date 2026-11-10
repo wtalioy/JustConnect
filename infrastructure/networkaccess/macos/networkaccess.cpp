@@ -14,9 +14,9 @@ using Status = Result::Status;
 using HelperState = MacNetworkHelperClient::State;
 using Operation = MacNetworkHelperClient::Operation;
 
-MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent,
+MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,QObject *parent,
     MacNetworkHelperClient::AuthorizationProvider authorization)
-    : NetworkAccess(parent),core(core),policy(policy),mtu(mtu),helper(nullptr,std::move(authorization))
+    : NetworkAccess(parent),core(core),policy(policy),helper(nullptr,std::move(authorization))
 {
     connect(&helper,&MacNetworkHelperClient::finished,this,&MacNetworkAccess::helperFinished);
     connect(&helper,&MacNetworkHelperClient::stateChanged,this,[this](HelperState state) {
@@ -113,6 +113,7 @@ void MacNetworkAccess::activate(const QUuid &id,const ConnectionOptions &connect
     if (id != attempt || stage != Stage::Prepared || !lock || !lock->isLocked()) {
         emit ready(id,{Status::Failed,QStringLiteral("Network preparation is incomplete.")}); return;
     }
+    mtu = core->tunnelMtu();
     stage = Stage::Activating; generation = policy->currentGeneration(); localDNS = connectionOptions.dns.localDnsServer;
     prepareConfiguration();
 }

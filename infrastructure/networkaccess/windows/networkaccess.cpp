@@ -16,9 +16,9 @@ using HelperState=WindowsNetworkHelperClient::State;
 using Operation=WindowsNetworkHelperClient::Operation;
 Q_LOGGING_CATEGORY(windowsNetworkAccessLog,"justconnect.networkaccess.windows",QtWarningMsg)
 
-WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent,
+WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,QObject *parent,
     WindowsNetworkHelperClient::AuthorizationProvider authorization,NetworkPolicySession::DnsReader readDns)
-    :NetworkAccess(parent),core(core),policy(policy),mtu(mtu),helper(nullptr,std::move(authorization)),
+    :NetworkAccess(parent),core(core),policy(policy),helper(nullptr,std::move(authorization)),
       readDns(readDns?std::move(readDns):readSystemDnsSnapshot)
 {
     connect(&helper,&WindowsNetworkHelperClient::finished,this,&WindowsNetworkAccess::helperFinished);
@@ -106,6 +106,7 @@ void WindowsNetworkAccess::activate(const QUuid &id,const ConnectionOptions &con
     if(id!=attempt || stage!=Stage::Prepared || !lock || !lock->isLocked()){
         emit ready(id,{Status::Failed,"Network preparation is incomplete."});return;
     }
+    mtu = core->tunnelMtu();
     stage=Stage::Activating;generation=policy->currentGeneration();localDNS=connectionOptions.dns.localDnsServer;prepareConfiguration();
 }
 void WindowsNetworkAccess::prepareConfiguration()

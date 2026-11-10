@@ -131,7 +131,7 @@ int main(int argc,char **argv)
     auto *engine = new EmbeddedCoreEngine;
     if (composed) coexistence.observe(engine);
     NetworkPolicySession policy(engine,[&] { return composed ? coexistence.readDNS() : readSystemDnsSnapshot(); });
-    auto *access = new MacNetworkAccess(engine,&policy,1400,nullptr,authorization);
+    auto *access = new MacNetworkAccess(engine,&policy,nullptr,authorization);
     SystemProxySession proxy(access->makeProxyBackend());
     NetworkAccess *network = access;
     if (composed) {

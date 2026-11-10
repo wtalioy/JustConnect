@@ -42,6 +42,7 @@
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
 #include "infrastructure/logging/applicationlogfile.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/i18n/applicationlanguage.h"
@@ -300,7 +301,7 @@ MainWindow::MainWindow(
     connect(ui->aboutAction, &QAction::triggered,
             [&]()
             {
-                PresentationHelpers::showAboutDialog(this, updateChecker->versionInfo().coreVersion);
+                PresentationHelpers::showAboutDialog(this, EmbeddedCoreEngine::versionDescription());
             });
 
     PresentationHelpers::connectCopyButton(ui->copyLogPushButton, [this] {

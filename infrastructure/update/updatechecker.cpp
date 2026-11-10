@@ -1,6 +1,6 @@
 #include "infrastructure/update/updatechecker.h"
 
-#include <QApplication>
+#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -11,7 +11,6 @@
 #include <QVersionNumber>
 
 #include "application/applicationconstants.h"
-#include "infrastructure/coreengine/embeddedcoreengine.h"
 
 namespace
 {
@@ -126,21 +125,11 @@ int compareSuffixes(const QString &currentSuffix, const QString &latestSuffix)
 
 UpdateChecker::UpdateChecker(QObject *parent)
     : QObject(parent),
-      versions{
-          QApplication::applicationVersion(),
-          QString(),
-          QString()
-      },
+      versions{QCoreApplication::applicationVersion(), {}},
       uiNetworkManager(new QNetworkAccessManager(this))
 {
     connect(uiNetworkManager, &QNetworkAccessManager::finished,
             this, &UpdateChecker::handleUiReply);
-    const auto info = EmbeddedCoreEngine::buildInfo();
-    const auto build = info["build"].toObject();
-    versions.coreVersion = info.isEmpty() ? QString()
-        : build["local_version"].toString() + " / ABI " + QString::number(info["abi_version"].toInt())
-            + " / " + build["os"].toString() + "-" + build["arch"].toString()
-            + " / " + build["go_version"].toString();
 }
 
 const VersionInfo &UpdateChecker::versionInfo() const

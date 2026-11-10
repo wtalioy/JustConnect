@@ -23,6 +23,7 @@ public:
     virtual bool start(const ConnectionOptions &connectionOptions, Operation operation = Operation::Connect) = 0;
     virtual void stop() = 0;
     virtual void respond(const QJsonObject &response) = 0;
+    virtual int tunnelMtu() const { return 0; }
     virtual void updatePolicy(const QJsonObject &policy) {
         emit policyUpdated(policy["generation"].toString(), policy["revision"].toString(), RequestStatus::Unavailable);
     }

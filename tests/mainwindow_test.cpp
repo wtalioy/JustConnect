@@ -15,6 +15,9 @@
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/savedconnectionstore.h"
+#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
+#include <windows.h>
+#endif
 
 #include <QApplication>
 #include <QAction>
@@ -833,9 +836,15 @@ int main(int argc,char **argv) {
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }
         if (app.arguments().size()==1) recoveryStatus(logger,log);
-        // UI preference tests retain the real core without requesting host network privileges.
-        MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
+        // The native home case constructs the real adapters but does not connect.
+        MainWindowCoordinator::NetworkFactory networkFactory;
+        if (!native) networkFactory=[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; };
+        MainWindow window(&logger,&log,nullptr,networkFactory);
         check(window.isVisible(),"normal startup must show the main window");
+#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
+        if (native) check(!GetModuleHandleW(QStringLiteral(JC_SHARED_LIBRARY).toStdWString().c_str()),
+            "showing the home window does not load the core DLL");
+#endif
         settings.sync();
         check(settings.value("JustConnect/ServerAddress")=="vpn.fudan.edu.cn"
             && settings.value("JustConnect/AuthType")=="httpsOauth2",

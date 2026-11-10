@@ -9,7 +9,7 @@
 class MacNetworkAccess final : public NetworkAccess
 {
 public:
-    MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent = nullptr,
+    MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,QObject *parent = nullptr,
         MacNetworkHelperClient::AuthorizationProvider authorization = {});
     ~MacNetworkAccess() override;
     void prepare(const QUuid &attempt) override;
@@ -26,7 +26,7 @@ private:
     void finishPolicy(CoreEngine::RequestStatus status);
     CoreEngine *core;
     NetworkPolicySession *policy;
-    const int mtu;
+    int mtu = 0;
     MacNetworkHelperClient helper;
     QFutureWatcher<MacHelperPreparation> worker;
     std::unique_ptr<QLockFile> lock;

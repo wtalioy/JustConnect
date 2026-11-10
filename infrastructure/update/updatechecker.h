@@ -15,7 +15,6 @@ struct VersionInfo
     enum class UpdateState { Checking, Disabled, Failed, Ready };
     QString uiVersion;
     QString uiLatest;
-    QString coreVersion;
     UpdateState updateState=UpdateState::Checking;
 };
 

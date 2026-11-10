@@ -14,6 +14,7 @@ public:
     bool start(const ConnectionOptions &connectionOptions, Operation operation = Operation::Connect) override;
     void stop() override;
     void respond(const QJsonObject &response) override;
+    int tunnelMtu() const override;
     void updatePolicy(const QJsonObject &policy) override;
     void updateCoexistence(const QString &generation, const QStringList &endpoints, bool managed = false) override;
     void readSnapshot(Snapshot kind, const QString &generation) override;
@@ -28,6 +29,7 @@ public:
     static ControllerDiscovery discoverControllers();
     static bool validControllerAddress(const QString &address);
     static QJsonObject buildInfo();
+    static QString versionDescription();
     static QJsonObject selfTest();
 
 private:

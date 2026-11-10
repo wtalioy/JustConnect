@@ -8,7 +8,7 @@
 
 class WindowsNetworkAccess final : public NetworkAccess {
 public:
-    WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent=nullptr,
+    WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,QObject *parent=nullptr,
         WindowsNetworkHelperClient::AuthorizationProvider authorization={},NetworkPolicySession::DnsReader readDns={});
     ~WindowsNetworkAccess() override;
     void prepare(const QUuid &attempt) override;
@@ -29,7 +29,7 @@ private:
     void finishPolicy(CoreEngine::RequestStatus status);
     CoreEngine *core;
     NetworkPolicySession *policy;
-    const int mtu;
+    int mtu = 0;
     WindowsNetworkHelperClient helper;
     NetworkPolicySession::DnsReader readDns;
     QFutureWatcher<WindowsHelperPreparation> preparation;

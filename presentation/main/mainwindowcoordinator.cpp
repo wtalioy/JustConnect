@@ -32,12 +32,11 @@ NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *polic
         proxy = new SystemProxySession(std::make_unique<ProxyRecoveryBackend>(),parent);
         return factory(core,policy);
     }
-    const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
 #if defined(Q_OS_MACOS)
-    auto *native = new MacNetworkAccess(core, policy, mtu);
+    auto *native = new MacNetworkAccess(core, policy);
     auto backend = native->makeProxyBackend();
 #else
-    auto *native = new WindowsNetworkAccess(core, policy, mtu);
+    auto *native = new WindowsNetworkAccess(core, policy);
     auto backend = std::make_unique<ProxyRecoveryBackend>();
 #endif
     proxy = new SystemProxySession(std::move(backend),parent);

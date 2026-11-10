@@ -289,8 +289,7 @@ if(BUILD_TESTING)
         tests/updatechecker_test.cpp
         infrastructure/update/updatechecker.cpp)
     target_include_directories(updatechecker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(updatechecker_test justconnect_engine Qt::Core Qt::Gui Qt::Widgets Qt::Network)
-    justconnect_core_runtime(updatechecker_test justconnect_core)
+    target_link_libraries(updatechecker_test Qt::Core Qt::Network)
     add_test(NAME updatechecker_test COMMAND updatechecker_test)
 
     add_executable(settingsmigrator_test
