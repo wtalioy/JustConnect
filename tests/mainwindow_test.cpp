@@ -817,6 +817,23 @@ int main(int argc,char **argv) {
     const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QTemporaryDir folder;
     ApplicationLogger logger;ApplicationLogFile log(folder.filePath("app.log"));
+#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
+    if (app.arguments().contains("--native-startup")) {
+        const auto module = QStringLiteral(JC_SHARED_LIBRARY).toStdWString();
+        const auto unloaded = [&] { return !GetModuleHandleW(module.c_str()); };
+        check(unloaded(),"startup fixture must begin without the core DLL");
+        {
+            MainWindow window(&logger,&log);
+            QCoreApplication::processEvents();
+            check(window.isVisible() && unloaded(),"showing the real home window does not load the core DLL");
+            QTimer::singleShot(0,&window,&MainWindow::gracefullyQuit);
+            QTimer::singleShot(5000,&window,[] {check(false,"idle startup fixture did not quit");});
+            check(app.exec()==0 && unloaded(),"idle shutdown does not load the core DLL");
+        }
+        check(QDir(configRoot).removeRecursively(),"isolated startup-test settings cleanup");
+        return 0;
+    }
+#endif
     {
         SavedConnectionStore manager;
         QSettings settings(manager.connectionPath(""),QSettings::IniFormat);
@@ -836,15 +853,9 @@ int main(int argc,char **argv) {
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }
         if (app.arguments().size()==1) recoveryStatus(logger,log);
-        // The native home case constructs the real adapters but does not connect.
-        MainWindowCoordinator::NetworkFactory networkFactory;
-        if (!native) networkFactory=[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; };
-        MainWindow window(&logger,&log,nullptr,networkFactory);
+        // Layout and preferences are isolated from real system watchers.
+        MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
-#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
-        if (native) check(!GetModuleHandleW(QStringLiteral(JC_SHARED_LIBRARY).toStdWString().c_str()),
-            "showing the home window does not load the core DLL");
-#endif
         settings.sync();
         check(settings.value("JustConnect/ServerAddress")=="vpn.fudan.edu.cn"
             && settings.value("JustConnect/AuthType")=="httpsOauth2",
