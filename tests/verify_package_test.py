@@ -182,6 +182,7 @@ class VerifyPackageTest(unittest.TestCase):
                 package.verify(root, host, 'revision', 'preview', output, archive)
                 report = json.loads(output.read_text())
                 self.assertEqual(report['size_bytes']['archive'], archive.stat().st_size)
+                self.assertEqual(report['archive_sha256'], hashlib.sha256(b'archive fixture').hexdigest())
                 self.assertEqual(report['size_bytes']['installed'], len(b'revision\r\nCGO_ENABLED=1\r\n'))
                 self.assertGreater(report['offline_self_test_wall_ms'], 0)
                 (notices / 'LICENSE.lucide').unlink()

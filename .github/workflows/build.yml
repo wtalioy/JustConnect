@@ -181,12 +181,24 @@ jobs:
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Upload install package
+        id: package
         uses: actions/upload-artifact@v7.0.2
         with:
           archive: false
           if-no-files-found: error
           retention-days: 14
           path: ${{ env.ARCHIVE_NAME }}.${{ runner.os == 'Windows' && 'zip' || 'dmg' }}
+
+      - name: Confirm the upload matches the verified install package
+        shell: python
+        env:
+          UPLOADED_DIGEST: ${{ steps.package.outputs.artifact-digest }}
+        run: |
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path(f"build/{os.environ['ARCHIVE_NAME']}.json").read_text(encoding='utf-8'))
+          if os.environ['UPLOADED_DIGEST'].removeprefix('sha256:') != report['archive_sha256']:
+              raise RuntimeError('Uploaded install package differs from the verified archive')
 
       - name: Upload package verification evidence
         if: always()

@@ -337,6 +337,8 @@ def verify(root, executable, revision, application_version, output, archive, bro
         'executable': executable.stat().st_size,
         'runtime_dll': runtime.stat().st_size if system == 'windows' else 0,
     }
+    with archive.open('rb') as stream:
+        report['archive_sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
     report['largest_files'] = sorted(installed_files, key=lambda item: item['bytes'], reverse=True)[:15]
     report['sha256'] = {}
     for path in [executable] + ([runtime, reader] if system == 'windows' else []):
