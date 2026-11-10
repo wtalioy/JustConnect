@@ -225,7 +225,7 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     dialog.setWindowFlag(Qt::WindowContextHelpButtonHint, false);
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(32, 24, 32, 30);
-    layout->setSpacing(6);
+    layout->setSpacing(4);
 
     auto *icon = new QLabel(&dialog);
     const QIcon artwork(":/resource/macos-app-icon.svg");
@@ -237,6 +237,11 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     name->setTextFormat(Qt::PlainText);
     layout->addWidget(name, 0, Qt::AlignHCenter);
 
+    layout->addSpacing(12);
+    auto *credit = new QLabel(QStringLiteral("Powered by wtalioy"), &dialog);
+    credit->setObjectName("aboutCredit");
+    layout->addWidget(credit, 0, Qt::AlignHCenter);
+
     auto *version = new QLabel(QCoreApplication::translate("PresentationHelpers", "Version %1")
         .arg(QApplication::applicationVersion()), &dialog);
     version->setObjectName("aboutVersion");
@@ -247,17 +252,13 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
 #ifdef PROJ_RELEASE_DATE
     const auto releaseDate = QDate::fromString(QStringLiteral(PROJ_RELEASE_DATE), Qt::ISODate);
     if (releaseDate.isValid()) {
-        const auto format = QCoreApplication::translate("PresentationHelpers", "MMM d, yyyy");
+        layout->addSpacing(10);
         auto *released = new QLabel(QCoreApplication::translate("PresentationHelpers", "Released %1")
-            .arg(QLocale().toString(releaseDate, format)), &dialog);
+            .arg(QLocale::c().toString(releaseDate, QStringLiteral("MMM d, yyyy"))), &dialog);
         released->setObjectName("aboutReleaseDate");
         layout->addWidget(released, 0, Qt::AlignHCenter);
     }
 #endif
-    layout->addSpacing(6);
-    auto *credit = new QLabel(QCoreApplication::translate("PresentationHelpers", "Powered by wtalioy"), &dialog);
-    credit->setProperty("secondary", true);
-    layout->addWidget(credit, 0, Qt::AlignHCenter);
 
     dialog.ensurePolished();
     dialog.setFixedSize(layout->totalSizeHint().expandedTo(QSize(300, 0)));
