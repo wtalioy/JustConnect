@@ -149,7 +149,7 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 	p.tun = i
 	i.pumps.Add(2)
 	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.readPackets(mtu) }()
-	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.writePackets() }()
+	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.writePackets(mtu) }()
 	if p.dnsReady != nil {
 		close(p.dnsReady)
 	}
@@ -292,25 +292,45 @@ func (i *tunIngress) readPackets(mtu uint32) {
 	}
 }
 
-func (i *tunIngress) writePackets() {
+func (i *tunIngress) writePackets(mtu uint32) {
+	scratch := make([]byte, mtu)
 	for {
 		packet := i.link.ReadContext(i.owner.ctx)
 		if packet == nil {
 			return
 		}
-		view := packet.ToView()
-		data := view.AsSlice()
-		n, err := i.device.Write(data)
-		if err == nil && n != len(data) {
-			err = io.ErrShortWrite
-		}
-		view.Release()
+		err := writeTUNPacket(i.device, packet, scratch)
 		packet.DecRef()
 		if err != nil {
 			i.deviceFailure("write", err)
 			return
 		}
 	}
+}
+
+func writeTUNPacket(device io.Writer, packet *stack.PacketBuffer, scratch []byte) error {
+	views, offset := packet.AsViewList()
+	view := views.Front()
+	for view != nil && offset >= view.Size() {
+		offset -= view.Size()
+		view = view.Next()
+	}
+	var data []byte
+	if view != nil {
+		// The synchronous Write borrows a contiguous packet while its reference is live.
+		data = view.AsSlice()[offset:]
+		if view.Next() != nil {
+			data = append(slices.Grow(scratch[:0], packet.Size()), data...)
+			for view = view.Next(); view != nil; view = view.Next() {
+				data = append(data, view.AsSlice()...)
+			}
+		}
+	}
+	n, err := device.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
+	return err
 }
 
 func (i *tunIngress) deviceFailure(operation string, err error) {
