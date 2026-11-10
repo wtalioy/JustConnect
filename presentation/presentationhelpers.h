@@ -19,7 +19,7 @@ namespace PresentationHelpers
 {
 QString credentialOperationMessage(CredentialStatus status);
 QString platformOperationMessage(const PlatformOperationResult &result);
-void showAboutDialog(QWidget *parent, const QString &coreVersion);
+void showAboutDialog(QWidget *parent);
 void activateWindow(QWidget *window);
 bool actionPrompt(QWidget *parent,const QString &title,const QString &body,
     QDialogButtonBox::StandardButton primary=QDialogButtonBox::Yes,

@@ -1789,8 +1789,8 @@ Wildcards and whole scopes are not accepted. Server authorization still applies.
         <translation>已复制到剪贴板</translation>
     </message>
     <message>
-        <source>Core version: %1</source>
-        <translation>核心版本：%1</translation>
+        <source>Version %1</source>
+        <translation>版本 %1</translation>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="105"/>
@@ -1888,11 +1888,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/presentationhelpers.cpp" line="64"/>
         <source>Show</source>
         <translation>显示</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/presentationhelpers.cpp" line="84"/>
-        <source>%1 %2&lt;br&gt;Campus network client&lt;br&gt;Maintainer: &lt;a href=&apos;https://github.com/wtalioy&apos;&gt;wtalioy&lt;/a&gt;&lt;br&gt;&lt;a href=&apos;https://github.com/%3&apos;&gt;Project website&lt;/a&gt;&lt;br&gt;Core: &lt;a href=&apos;https://github.com/Mythologyli/zju-connect&apos;&gt;zju-connect&lt;/a&gt;&lt;br&gt;&lt;br&gt;Upstream contributors: &lt;a href=&apos;https://github.com/chenx-dust&apos;&gt;Chenx Dust&lt;/a&gt;, &lt;a href=&apos;https://github.com/Mythologyli&apos;&gt;Myth&lt;/a&gt;, &lt;a href=&apos;https://github.com/lyc8503&apos;&gt;lyc8503&lt;/a&gt;</source>
-        <translation>%1 %2&lt;br&gt;校园网络访问客户端&lt;br&gt;维护者：&lt;a href=&apos;https://github.com/wtalioy&apos;&gt;wtalioy&lt;/a&gt;&lt;br&gt;&lt;a href=&apos;https://github.com/%3&apos;&gt;项目主页&lt;/a&gt;&lt;br&gt;核心：&lt;a href=&apos;https://github.com/Mythologyli/zju-connect&apos;&gt;zju-connect&lt;/a&gt;&lt;br&gt;&lt;br&gt;上游贡献者：&lt;a href=&apos;https://github.com/chenx-dust&apos;&gt;Chenx Dust&lt;/a&gt;、&lt;a href=&apos;https://github.com/Mythologyli&apos;&gt;Myth&lt;/a&gt;、&lt;a href=&apos;https://github.com/lyc8503&apos;&gt;lyc8503&lt;/a&gt;</translation>
     </message>
 </context>
 <context>

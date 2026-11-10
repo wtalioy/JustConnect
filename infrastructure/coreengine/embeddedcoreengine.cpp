@@ -657,15 +657,6 @@ int EmbeddedCoreEngine::tunnelMtu() const {
     return buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
 }
 
-QString EmbeddedCoreEngine::versionDescription() {
-    const auto info = buildInfo();
-    const auto build = info["build"].toObject();
-    return info.isEmpty() ? QString()
-        : build["local_version"].toString() + " / ABI " + QString::number(info["abi_version"].toInt())
-            + " / " + build["os"].toString() + "-" + build["arch"].toString()
-            + " / " + build["go_version"].toString();
-}
-
 QJsonObject EmbeddedCoreEngine::selfTest() {
     auto info = buildInfo();
     auto &api = library();

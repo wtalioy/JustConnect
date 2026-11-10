@@ -4,7 +4,6 @@
 #include <QAccessibleAnnouncementEvent>
 #include <QAccessibilityHints>
 #include <QClipboard>
-#include <QMessageBox>
 #include <QDialog>
 #include <QLabel>
 #include <QPushButton>
@@ -26,8 +25,6 @@
 #include <QTreeWidget>
 #include <QSignalBlocker>
 #include <utility>
-
-#include "application/applicationconstants.h"
 
 namespace {
 class ButtonIcon final : public QIconEngine {
@@ -218,23 +215,36 @@ void PresentationHelpers::activateWindow(QWidget *window)
     window->show();window->raise();window->activateWindow();
 }
 
-void PresentationHelpers::showAboutDialog(QWidget *parent, const QString &coreVersion)
+void PresentationHelpers::showAboutDialog(QWidget *parent)
 {
-    QMessageBox messageBox(parent);
-    messageBox.setWindowTitle(QCoreApplication::translate("PresentationHelpers","About"));
-    messageBox.setTextFormat(Qt::RichText);
-    messageBox.setText(QCoreApplication::translate("PresentationHelpers",
-        "%1 %2<br>Campus network client<br>Maintainer: <a href='https://github.com/wtalioy'>wtalioy</a>"
-        "<br><a href='https://github.com/%3'>Project website</a>"
-        "<br>Core: <a href='https://github.com/Mythologyli/zju-connect'>zju-connect</a>"
-        "<br><br>Upstream contributors: <a href='https://github.com/chenx-dust'>Chenx Dust</a>, "
-        "<a href='https://github.com/Mythologyli'>Myth</a>, <a href='https://github.com/lyc8503'>lyc8503</a>")
-        .arg(QApplication::applicationDisplayName().toHtmlEscaped(),QApplication::applicationVersion().toHtmlEscaped(),ApplicationConstants::RepositoryName));
-    if (!coreVersion.isEmpty())
-        messageBox.setInformativeText(QCoreApplication::translate("PresentationHelpers", "Core version: %1")
-            .arg(coreVersion.toHtmlEscaped()));
-    messageBox.setIconPixmap(QApplication::windowIcon().pixmap(QSize(80,80),messageBox.devicePixelRatioF()));
-    messageBox.exec();
+    QDialog dialog(parent);
+    dialog.setObjectName("aboutDialog");
+    dialog.setWindowTitle(QCoreApplication::translate("PresentationHelpers", "About"));
+    dialog.setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(32, 24, 32, 30);
+    layout->setSpacing(6);
+
+    auto *icon = new QLabel(&dialog);
+    const QIcon artwork(":/resource/macos-app-icon.svg");
+    icon->setPixmap(artwork.pixmap(QSize(80, 80), dialog.devicePixelRatioF()));
+    layout->addWidget(icon, 0, Qt::AlignHCenter);
+
+    auto *name = new QLabel(QApplication::applicationDisplayName(), &dialog);
+    name->setObjectName("aboutAppName");
+    name->setTextFormat(Qt::PlainText);
+    layout->addWidget(name, 0, Qt::AlignHCenter);
+
+    auto *version = new QLabel(QCoreApplication::translate("PresentationHelpers", "Version %1")
+        .arg(QApplication::applicationVersion()), &dialog);
+    version->setObjectName("aboutVersion");
+    version->setTextFormat(Qt::PlainText);
+    version->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    layout->addWidget(version, 0, Qt::AlignHCenter);
+
+    dialog.ensurePolished();
+    dialog.setFixedSize(layout->totalSizeHint().expandedTo(QSize(300, 0)));
+    dialog.exec();
 }
 
 QString PresentationHelpers::platformOperationMessage(const PlatformOperationResult &result)

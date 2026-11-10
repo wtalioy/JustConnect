@@ -29,7 +29,6 @@ public:
     static ControllerDiscovery discoverControllers();
     static bool validControllerAddress(const QString &address);
     static QJsonObject buildInfo();
-    static QString versionDescription();
     static QJsonObject selfTest();
 
 private:
