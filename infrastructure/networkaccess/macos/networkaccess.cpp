@@ -1,7 +1,7 @@
 #include "infrastructure/networkaccess/macos/networkaccess.h"
 #include "infrastructure/networkhelper/macos/networkownership.h"
 #include "infrastructure/routing/macos/tunroutes.h"
-#include "application/networkprotection.h"
+#include "application/campuscapture.h"
 #include "infrastructure/dns/dnsroutepublisher.h"
 #include <QDir>
 #include <QFileInfo>

@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/windows/networkhelperpreparation.h"
+#include "application/campuscapture.h"
 #include "application/networkprotection.h"
 #include "infrastructure/dns/windows/dnscontract.h"
 #include "infrastructure/dns/domainlimits.h"

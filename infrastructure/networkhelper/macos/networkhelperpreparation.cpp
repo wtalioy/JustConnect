@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/macos/networkhelperpreparation.h"
+#include "application/campuscapture.h"
 #include "application/networkprotection.h"
 #include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/dns/domainlimits.h"

@@ -1,3 +1,4 @@
+#include "application/campuscapture.h"
 #include "application/networkprotection.h"
 #include "infrastructure/routing/macos/proxyview.h"
 #include "infrastructure/networkhelper/windows/networkhelperpreparation.h"

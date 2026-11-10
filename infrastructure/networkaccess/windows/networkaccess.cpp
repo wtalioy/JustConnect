@@ -1,5 +1,5 @@
 #include "infrastructure/networkaccess/windows/networkaccess.h"
-#include "application/networkprotection.h"
+#include "application/campuscapture.h"
 #include "infrastructure/routing/originalexit.h"
 #include "infrastructure/dns/dnsroutepublisher.h"
 #include "infrastructure/dns/dnssnapshot.h"
