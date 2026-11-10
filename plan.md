@@ -22,7 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `96c6c09` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42603165942)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42603165961)通过，覆盖不可访问认证缓存的独立替换、助手无响应、授权复用、代理崩溃恢复及 TUN 切换时 DNS 上游更新。 |
+| 自动检查 | `e84efa97` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42756894703)和[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42756894926)通过；Windows 原生测试确认主窗口显示时未加载 Go DLL。 |
 | 实际包／源码 | 见 S8-04。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
@@ -241,7 +241,7 @@
 - [x] **S8-01**：两平台校园网页、普通 SSH、普通网络和连断主路径已通过日常实测。Windows 无 Clash 场景及同一 Tailscale 对端接管前／中／后的 MagicDNS 与直连对照通过。Clash 三种主组合和动态切换复用既有实测及自动回归。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [x] **S8-03**：实际包启动、正常认证和授权、连接状态及退出通过。Windows 复用 S7 UI 实测，Apple Silicon 已实测 Finder 安装、菜单栏恢复窗口、退出及认证缓存复用。取消、双语、偏好、键盘及异常流程复用已有回归。旧独立恢复工具保留用于已发布版本的待恢复记录。
-- [x] **S8-04**：`96c6c09` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42603167416)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/job/129120657414)。最终提交的发布附件随 S8-05 核对。
+- [x] **S8-04**：`e84efa97` 的[四组实际预览包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42756896154)通过。四组上传摘要与已验证归档一致，源码逐文件一致；[Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42756896154/job/129639748776)通过。正式发布附件随 S8-05 核对。
 - [ ] **S8-05**：当前预览尚未发布到 GitHub Release。按 [main／Release 交付流程](docs/DEVELOPMENT.md#分支与-actions)核对正式附件与来源，并验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」及按系统首次打开流程启动。
   - Windows 复用 Program Files 的同版助手。升级后清理旧副本，失败则保留原服务。`c703421` 已去除助手 EXE 哈希计算。Windows 双架构原生安装步骤和打包通过，已在本机核对 [x64 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42741118634/artifacts/13729787293)的实际助手版本。待真实桌面升级、退出重开及安全警告复测。
 
@@ -290,7 +290,7 @@ Tailscale 对照保持同一对端及网络，记录解析和实际直连。Wind
 | A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名通过会话补充解析器接入，普通子域保留原解析；`b86d167` Apple Silicon 实测关闭 Clash 代理与 TUN 时 Chrome 可访问 `zb`。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
 | A14 | 按职责与实际开销复查全仓 | **已收尾**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、两平台应用、四架构 ABI、四组实际包及 `b2fbdb3` Windows 合并实测通过；清理重复初验输出，保留当前构建／工具与关键报告。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 | A15 | 全仓性能、职责与清理复查 | **已收尾**。收敛数据面分配、域名与路由查询、Qt ABI、DNS 快照、助手 JSON 和资源构建，清理无调用代码、重复夹具与九项模块依赖。最终 `3f6ba6f` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42454884365)、[四架构 ABI](https://github.com/wtalioy/JustConnect/actions/runs/42454884394)及[四组实际包、源码和 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)通过。ARM64 竞态复验保留原时限，发布实机矩阵归 S8。[审查与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，证据 `build/reports/review-2026-11-08/`。 |
-| A16 | 全仓性能、职责、测试与本地产物复查 | **进行中**。[测量、清理和保留依据](docs/DEVELOPMENT.md#全仓性能复查-a16)。`d7c8da52` 的[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42752447688)通过。`d3ef422b` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42754589444)及[四组直传包、源码和 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42754590907)通过；Windows 原生首页和真实启动复验均通过。四个上传件抽验格式，Windows 另核对版本与 DNS 读取器哈希；[同版 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42754589192)在验。后续 DNS 绑定、接管职责拆分、DNS 重叠索引、上传摘要校验已通过相应本地检查，待原生和打包复验。 |
+| A16 | 全仓性能、职责、测试与本地产物复查 | **已收尾**。优化数据面、DNS、路由和启动，拆分接管与保护职责，精简重复夹具和包内插件。`e84efa97` 的本地检查、两平台 Tests、四架构 ABI、实际包和对应源码均通过，见当前验收基线。[测量、清理和保留依据](docs/DEVELOPMENT.md#全仓性能复查-a16)。 |
 
 ## 上游问题转化为库化验收
 
