@@ -1793,6 +1793,19 @@ Wildcards and whole scopes are not accepted. Server authorization still applies.
         <translation>版本 %1</translation>
     </message>
     <message>
+        <source>MMM d, yyyy</source>
+        <extracomment>Qt date format for the release date in About.</extracomment>
+        <translation>yyyy年M月d日</translation>
+    </message>
+    <message>
+        <source>Released %1</source>
+        <translation>发布于 %1</translation>
+    </message>
+    <message>
+        <source>Powered by wtalioy</source>
+        <translation>由 wtalioy 打造</translation>
+    </message>
+    <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="105"/>
         <source>Operation completed</source>
         <translation>操作成功</translation>

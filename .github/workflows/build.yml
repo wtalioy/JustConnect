@@ -8,6 +8,10 @@ on:
         type: string
         default: ''
         description: Version such as v0.0.1 (empty for preview; versioned main builds prepare a draft)
+      release_date:
+        type: string
+        default: ''
+        description: Release date shown in About (YYYY-MM-DD; optional for versioned builds)
       verify_macos_27:
         type: boolean
         default: false
@@ -40,6 +44,7 @@ jobs:
     env:
       ARCHIVE_NAME: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-${{ matrix.platform }}-${{ matrix.arch }}
       RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_DATE: ${{ inputs.release_date }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -87,6 +92,10 @@ jobs:
           BUILD_ARCH: ${{ matrix.native_arch }}
         run: |
           if [[ -z "$RELEASE_VERSION" ]]; then
+            if [[ -n "$RELEASE_DATE" ]]; then
+              echo 'A release date requires a version.' >&2
+              exit 1
+            fi
             short_revision=$(git rev-parse --short=7 HEAD)
             version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$short_revision")
             echo "APP_VERSION=$short_revision-nightly" >> "$GITHUB_ENV"
@@ -96,6 +105,13 @@ jobs:
               exit 1
             fi
             version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
+            if [[ -n "$RELEASE_DATE" ]]; then
+              if ! python -c 'from datetime import date; import os, sys; value = os.environ["RELEASE_DATE"]; sys.exit(date.fromisoformat(value).isoformat() != value)' 2>/dev/null; then
+                echo 'Use a valid release date in YYYY-MM-DD format.' >&2
+                exit 1
+              fi
+              version_args+=("-DREL_DATE=$RELEASE_DATE")
+            fi
             echo "APP_VERSION=${RELEASE_VERSION#v}" >> "$GITHUB_ENV"
           fi
           platform_args=()

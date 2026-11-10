@@ -105,7 +105,7 @@ QMenu::right-arrow { image: url(:/resource/chevron-right.svg); width: 16px; heig
 QMenu::separator { height: 1px; background: #e3e6eb; margin: 5px 8px; }
 QLabel#statusTitleLabel { font-size: 18pt; font-weight: 600; }
 QLabel#aboutAppName { font-size: 18pt; font-weight: 600; }
-QLabel#aboutVersion { color: #616b7c; }
+QLabel#aboutVersion, QLabel#aboutReleaseDate { color: #616b7c; }
 QLabel#statusHintLabel { color: #8c601b; font-size: 9.75pt; }
 QLabel#statusIndicator { background: transparent; border: none; }
 QLabel#statusDetailLabel { font-size: 9pt; color: #737c8b; }

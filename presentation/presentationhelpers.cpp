@@ -4,8 +4,10 @@
 #include <QAccessibleAnnouncementEvent>
 #include <QAccessibilityHints>
 #include <QClipboard>
+#include <QDate>
 #include <QDialog>
 #include <QLabel>
+#include <QLocale>
 #include <QPushButton>
 #include <QScreen>
 #include <QVBoxLayout>
@@ -241,6 +243,21 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     version->setTextFormat(Qt::PlainText);
     version->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     layout->addWidget(version, 0, Qt::AlignHCenter);
+
+#ifdef PROJ_RELEASE_DATE
+    const auto releaseDate = QDate::fromString(QStringLiteral(PROJ_RELEASE_DATE), Qt::ISODate);
+    if (releaseDate.isValid()) {
+        const auto format = QCoreApplication::translate("PresentationHelpers", "MMM d, yyyy");
+        auto *released = new QLabel(QCoreApplication::translate("PresentationHelpers", "Released %1")
+            .arg(QLocale().toString(releaseDate, format)), &dialog);
+        released->setObjectName("aboutReleaseDate");
+        layout->addWidget(released, 0, Qt::AlignHCenter);
+    }
+#endif
+    layout->addSpacing(6);
+    auto *credit = new QLabel(QCoreApplication::translate("PresentationHelpers", "Powered by wtalioy"), &dialog);
+    credit->setProperty("secondary", true);
+    layout->addWidget(credit, 0, Qt::AlignHCenter);
 
     dialog.ensurePolished();
     dialog.setFixedSize(layout->totalSizeHint().expandedTo(QSize(300, 0)));
