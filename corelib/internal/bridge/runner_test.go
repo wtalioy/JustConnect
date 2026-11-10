@@ -27,33 +27,26 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+type hostLogProbe struct{ written atomic.Bool }
+
+func (p *hostLogProbe) Write(data []byte) (int, error) {
+	p.written.Store(true)
+	return len(data), nil
+}
+
 func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
-	const childMarker = "JC_PROTOCOL_LOGGER_CHILD"
-	if os.Getenv(childMarker) != "1" {
-		// Isolate the process logger while retaining the complete parallel data-plane regression.
-		t.Parallel()
-		ctx := t.Context()
-		if deadline, bounded := t.Deadline(); bounded {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(ctx, deadline)
-			defer cancel()
-		}
-		executable, err := os.Executable()
-		if err != nil {
-			t.Fatal(err)
-		}
-		command := exec.CommandContext(ctx, executable, "-test.v", "-test.run=^"+t.Name()+"$")
-		command.Env = append(os.Environ(), childMarker+"=1")
-		output, err := command.CombinedOutput()
-		if err != nil || !bytes.Contains(output, []byte("--- PASS: "+t.Name()+" ")) {
-			t.Fatalf("isolated protocol/logging regression did not pass: %v\n%s", err, output)
-		}
-		return
-	}
-	var logs bytes.Buffer
+	// This test runs serially while observing the process-wide logger.
+	const trafficTimeout = 5 * time.Second
+	var logs hostLogProbe
 	previous := stdlog.Writer()
 	stdlog.SetOutput(&logs)
-	defer stdlog.SetOutput(previous)
+	t.Cleanup(func() {
+		current := stdlog.Writer()
+		stdlog.SetOutput(previous)
+		if current != &logs || logs.written.Load() {
+			t.Error("protocol wrote to or replaced host logger")
+		}
+	})
 	g := newGateway(t)
 	e := New(RunProtocol)
 	h := create(t, e)
@@ -108,7 +101,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), trafficTimeout)
 		connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
 		cancel()
 		if err != nil {
@@ -116,11 +109,14 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		}
 		defer connection.Close()
 		echo(t, connection)
-		tunnel, err := net.Dial("tcp", listeners.HTTP)
+		tunnel, err := net.DialTimeout("tcp", listeners.HTTP, trafficTimeout)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer tunnel.Close()
+		if err := tunnel.SetDeadline(time.Now().Add(trafficTimeout)); err != nil {
+			t.Fatal(err)
+		}
 		_, err = io.WriteString(tunnel, "CONNECT 192.0.2.10:80 HTTP/1.1\r\nHost: 192.0.2.10:80\r\n\r\n")
 		if err != nil {
 			t.Fatal(err)
@@ -132,7 +128,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		echo(t, tunnel)
 		proxyURL, _ := url.Parse("http://" + listeners.HTTP)
 		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
-		client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+		client := &http.Client{Transport: transport, Timeout: trafficTimeout}
 		response, err := client.Get("http://campus.test/resource")
 		if err != nil {
 			t.Fatal(err)
@@ -167,9 +163,6 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 	}
 	if g.authCount.Load() != 2 || g.tcpCount.Load() != 6 || g.udpCount.Load() != 2 {
 		t.Fatalf("gateway exchanges: auth=%d, TCP=%d, UDP=%d", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load())
-	}
-	if stdlog.Writer() != &logs || logs.Len() != 0 {
-		t.Fatalf("protocol wrote to or replaced host logger: %q", logs.String())
 	}
 }
 
