@@ -12,6 +12,23 @@
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 
+static void originalDnsScopeOverlaps()
+{
+    const auto rule = [](const char *kind,const char *value) { return QJsonObject{{"kind",kind},{"value",value}}; };
+    const auto parent = rule("suffix","campus.test");
+    const auto child = rule("exact","student.dept.campus.test");
+    const auto nested = rule("suffix","sub.dept.campus.test");
+    const auto prefix = rule("prefix","lab");
+    const auto single = rule("single_label","");
+    const QJsonObject resources{{"campus_dns_enabled",true},{"domain_resources",QJsonObject{}},
+        {"dns_records",QJsonObject{{"dept.campus.test",QJsonArray{}},{"intranet",QJsonArray{}}}}};
+    const QJsonObject policy{{"campus_names",QJsonArray{"skip.dept.campus.test"}},
+        {"protected_names",QJsonArray{parent,rule("exact","campus.test"),child,rule("exact","baddept.campus.test"),
+            rule("exact","skip.dept.campus.test"),nested,prefix,single}}};
+    check(requiredOriginalDnsNames(resources,policy)==QJsonArray{parent,child,nested,prefix,single},
+        "Original DNS overlap keeps suffix direction, label boundaries, campus exceptions and rule order");
+}
+
 static void macProxyTunnelView()
 {
     const auto physical = QJsonObject{{"index",2},{"name","en0"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"192.0.2.5/24"}}};
@@ -403,6 +420,7 @@ int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     captureTargets();
+    originalDnsScopeOverlaps();
     tailscaleAddressPools();
     macProxyTunnelView();
     auto network = QJsonDocument::fromJson(R"({

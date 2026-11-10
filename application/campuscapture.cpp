@@ -4,6 +4,7 @@
 #include "infrastructure/dns/dnsdomains.h"
 #include <QRegularExpression>
 #include <QSet>
+#include <QStringView>
 #include <QUrl>
 #include <algorithm>
 
@@ -140,6 +141,25 @@ std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources,
     const auto domains = campusDnsDomains(resources);
     if (!domains || !policy["protected_names"].isArray() || !policy["campus_names"].isArray()
         || policy["protected_names"].toArray().size() > MaxModelItems || policy["campus_names"].toArray().size() > MaxModelItems) return {};
+    // The validated domain list owns these names for the whole lookup.
+    QSet<QStringView> campus, parents;
+    bool singleLabel = false;
+    for (const auto &domain : *domains) {
+        const QStringView name(domain);
+        campus.insert(name);
+        auto dot = name.indexOf(u'.');
+        singleLabel |= dot < 0;
+        for (; dot >= 0; dot = name.indexOf(u'.',dot+1))
+            parents.insert(name.sliced(dot+1));
+    }
+    const auto covered = [&campus](QStringView name) {
+        for (;;) {
+            if (campus.contains(name)) return true;
+            const auto dot = name.indexOf(u'.');
+            if (dot < 0) return false;
+            name = name.sliced(dot+1);
+        }
+    };
     QJsonArray result;
     const auto choices = policy["campus_names"].toArray();
     for (const auto &entry : policy["protected_names"].toArray()) {
@@ -148,12 +168,11 @@ std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources,
         const auto kind = rule["kind"].toString(), value = rule["value"].toString();
         if (kind != "exact" && kind != "suffix" && kind != "prefix" && kind != "single_label") return {};
         if (kind == "exact" && choices.contains(value)) continue;
-        for (const auto &domain : *domains) {
-            const bool overlap = kind == "prefix" || (kind == "single_label" && !domain.contains('.'))
-                || ((kind == "exact" || kind == "suffix") && (value == domain || value.endsWith('.'+domain)))
-                || (kind == "suffix" && domain.endsWith('.'+value));
-            if (overlap) { result.append(rule); break; }
-        }
+        if ((kind == "prefix" && !campus.isEmpty())
+            || (kind == "single_label" && singleLabel)
+            || ((kind == "exact" || kind == "suffix") && covered(value))
+            || (kind == "suffix" && parents.contains(value)))
+            result.append(rule);
     }
     return result;
 }
