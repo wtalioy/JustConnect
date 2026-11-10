@@ -59,6 +59,12 @@ class VerifyPackageTest(unittest.TestCase):
                                 package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
                             self.assertFalse(output.exists())
 
+                plugin = root / 'generic' / 'qtuiotouchplugin.dll'
+                plugin.parent.mkdir()
+                plugin.touch()
+                with self.assertRaisesRegex(RuntimeError, 'Unused TUIO plugin'):
+                    package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
+
     def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
         layout = package.WINDOWS_HELPER
         facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],

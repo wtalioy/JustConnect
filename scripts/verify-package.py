@@ -291,6 +291,8 @@ def verify(root, executable, revision, application_version, output, archive, bro
         raise RuntimeError('Missing WebView2 loader license')
     files = []
     for path in root.rglob('*'):
+        if system == 'windows' and path.name.casefold() == 'qtuiotouchplugin.dll':
+            raise RuntimeError(f'Unused TUIO plugin in package: {path}')
         if 'webengine' in path.name.casefold() or path.name.casefold() == 'icudtl.dat':
             raise RuntimeError(f'Obsolete bundled browser in package: {path}')
         if (path.name.casefold() in ('zju-connect', 'zju-connect.exe', 'core-provenance')

@@ -310,7 +310,7 @@ Windows 的三次 DNS 查询应返回同一设备地址。若连接前已稳定�
 
 后续包的来源、摘要和文件体积见[当前验收基线](../plan.md#当前验收基线)。历史对照 `85c5064` 的包报告归 `build/reports/ui-feedback/verification.json`。外层 Actions artifact 封装体积与安装归档分别记录。
 
-不再分发 WebEngine、Chromium 资源、QML 或 Quick。历史 macOS 动态包包含 QtDBus，当前静态包仅加载系统动态库。翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。历史报告在 `build/reports/s7-native-browser-packages/ca16758/`。
+不再分发 WebEngine、Chromium 资源、QML 或 Quick。历史 macOS 动态包包含 QtDBus，当前静态包仅加载系统动态库。翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。Windows 包通过 [Qt 部署工具](https://doc.qt.io/qt-6/windows-deployment.html#the-windows-deployment-tool)排除须显式启用的 TUIO 输入插件。历史报告在 `build/reports/s7-native-browser-packages/ca16758/`。
 
 ## 不需申请签名的开发与发行
 
@@ -322,7 +322,7 @@ macOS 27.0.1 实机曾在启动时因 Team ID 拒绝加载动态 QtSvg，即使�
 
 ### 无外部证书的 Windows 助手部署
 
-Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装组件将助手、官方签名 Wintun DLL 与许可证放在应用旁；普通应用使用动态 Qt CRT。固定 SDK 归档及驱动／许可证 SHA-256 由构建传入，`--version` 的 `identity_ready` 只表示载荷配置完整，不表示已获得管理员授权或发行签名。管理员通过系统 UAC 批准本次助手，安装器固定当前运行映像与源文件身份，核对载荷哈希后复制到管理员／SYSTEM 控制的 Program Files 目录，再注册独立恢复服务。源文件、已安装文件及父目录的句柄、重解析点、所有者与写权限校验保持；同哈希但普通用户所有的文件仍拒绝接管。GUI／Go 不整体提权，控制端点继续绑定 PID／创建时间／SID／连接 UUID。
+Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装组件将助手、官方签名 Wintun DLL 与许可证放在应用旁；普通应用使用动态 Qt CRT。固定 SDK 归档及驱动／许可证 SHA-256 由构建传入，`--version` 的 `identity_ready` 表示载荷配置完整。启动器核验服务注册和 Program Files 内助手的文件权限、映像及 Wintun 载荷，逐字节相同的助手优先复用，随后由 UAC 完成管理员授权。首次安装或升级由包内助手部署，升级成功后只留当前一份，失败则恢复上个服务映像。只有验证旧哈希目录的迁移路径仍计算助手哈希。GUI／Go 保持普通权限，控制端点绑定 PID／创建时间／SID／连接 UUID。
 
 本地无需生成证书、导入根证书或配置 Secrets。CI 使用实际未签名助手验收受保护安装／复用、驱动与许可证被篡改时写入前拒绝、普通用户不可修改、授权拒绝／取消、独立 SCM 恢复和普通 Qt／Go 数据路径。包验证仍检查官方驱动签名、来源、哈希和依赖；Windows 自有程序允许未签名，已有签名损坏仍拒绝。无证书不消除系统首次打开／未知发布者提示，真实 UAC 交互与实际安装包仍须验收。浏览器、已有终端与 Codex 的普通 SSH 通过同一透明接管访问校园，不要求额外代理或 SSH 配置。
 

@@ -24,8 +24,8 @@ if ($LASTEXITCODE -ne 0) { throw "Embedded runtime installation failed" }
 cmake --install "../$BuildDir/windows-helper" --config Release --component WindowsNetworkHelper --prefix (Get-Location).Path
 if ($LASTEXITCODE -ne 0) { throw "Native network helper installation failed" }
 
-# Run windeployqt
-& windeployqt.exe --release --no-translations "$TargetName.exe"
+# TUIO input requires an explicitly enabled generic plugin.
+& windeployqt.exe --release --no-translations --exclude-plugins qtuiotouchplugin "$TargetName.exe"
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
