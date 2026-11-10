@@ -106,7 +106,7 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
     check(observed && accepted==(primary!=QDialogButtonBox::Yes),"Return dismisses a deletion and the settings button accepts");
 }
 
-static void checkboxAlignment(const QString &caption) {
+static void checkboxAlignment(const QString &caption, bool checked = true) {
     AlignedCheckBox checkbox(caption);
     checkbox.resize(240, 36);
     checkbox.ensurePolished();
@@ -118,7 +118,7 @@ static void checkboxAlignment(const QString &caption) {
     check(!indicator.isEmpty() && checkbox.rect().contains(indicator) && !checkboxCaption.isEmpty()
         && qAbs(indicator.center().y()-checkboxCaption.center().y())<=1,
         "the indicator and caption share the vertical center of the checkbox");
-    checkbox.setChecked(true);
+    checkbox.setChecked(checked);
     const auto mark = checkbox.grab();
     const auto pixels = mark.toImage();
     QRect squarePixels;
@@ -128,7 +128,8 @@ static void checkboxAlignment(const QString &caption) {
     for (int y = 0; y < pixels.height(); ++y) {
         for (int x = 0; x < pixels.width(); ++x) {
             const auto color = pixels.pixelColor(x, y);
-            if (x < checkboxCaption.left() * mark.devicePixelRatio() && color == QColor("#5362df"))
+            if (x < checkboxCaption.left() * mark.devicePixelRatio()
+                && (checked ? color == QColor("#5362df") : qGray(color.rgb()) < 220))
                 squarePixels = squarePixels.united(QRect(x, y, 1, 1));
             // Subpixel text can be dark even when one color channel stays bright.
             if (x >= checkboxCaption.left() * mark.devicePixelRatio() && qGray(color.rgb()) < 115) {
@@ -142,14 +143,16 @@ static void checkboxAlignment(const QString &caption) {
     const auto captionCenter = double(captionRowSum) / captionInk;
     const auto squareCenter = (squarePixels.top() + squarePixels.bottom()) / 2.0;
     const auto captionBoundsCenter = (captionPixels.top() + captionPixels.bottom()) / 2.0;
-    if (qAbs(squareCenter - captionBoundsCenter) > mark.devicePixelRatio()
+    if (squareCenter != captionBoundsCenter
         || qAbs(squareCenter - captionCenter) > 2 * mark.devicePixelRatio())
         std::cerr << caption.toStdString() << ": checkbox center " << squareCenter
                   << ", caption bounds center " << captionBoundsCenter << ", ink center " << captionCenter << '\n';
-    check(qAbs(squareCenter - captionBoundsCenter) <= mark.devicePixelRatio(),
-        "the checkbox and visible caption bounds align to within one logical pixel");
+    check(squareCenter == captionBoundsCenter,
+        "the checkbox and visible caption bounds have the same pixel center");
     check(qAbs(squareCenter - captionCenter) <= 2 * mark.devicePixelRatio(),
         "the painted checkbox square is vertically centered on its visible caption");
+    if (!checked)
+        return;
     bool checkMarkPainted = false;
     const auto insideSquare = squarePixels.adjusted(3, 3, -3, -3);
     for (int y = insideSquare.top(); y <= insideSquare.bottom(); ++y)
@@ -162,6 +165,8 @@ int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
     if (app.arguments().contains("--checkbox-only")) {
+        checkboxAlignment(QStringLiteral("Launch at sign-in"), false);
+        checkboxAlignment(QStringLiteral("后台启动"), false);
         checkboxAlignment(QStringLiteral("Remember authentication"));
         checkboxAlignment(QStringLiteral("Check for updates at startup"));
         checkboxAlignment(QStringLiteral("Start in the background"));
