@@ -1,33 +1,24 @@
 name: Build packages
-run-name: ${{ github.ref == 'refs/heads/develop' && 'Development preview' || 'Build packages' }} (${{ github.ref_name }})
+run-name: Build ${{ inputs.version || 'preview' }} (${{ github.ref_name }})
 
 on:
-  push:
-    branches: [main]
-
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      nightly:
-        type: boolean
-        default: true
-        description: Nightly build (develop previews always use this mode)
       version:
         type: string
         default: ''
-        description: Version for a non-nightly main build (e.g. v0.1.0)
+        description: Version such as v0.0.1 (empty for preview; versioned main builds prepare a draft)
       verify_macos_27:
         type: boolean
         default: false
-        description: Open the Apple Silicon DMG preview on macOS 27
+        description: Open the Apple Silicon DMG on macOS 27 (always checked before drafting a release)
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name != 'release' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/develop' }}
 
 env:
   TARGET_NAME: JustConnect
@@ -36,7 +27,7 @@ env:
 jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.arch }}
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -47,9 +38,8 @@ jobs:
           - {os: macos-15-intel, platform: macos, arch: x64, native_arch: x86_64, qt_host: mac, qt_arch: clang_64}
           - {os: macos-26, platform: macos, arch: arm64, native_arch: arm64, qt_host: mac, qt_arch: clang_64}
     env:
-      ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
-      NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
-      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-${{ matrix.platform }}-${{ matrix.arch }}
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -96,13 +86,13 @@ jobs:
         env:
           BUILD_ARCH: ${{ matrix.native_arch }}
         run: |
-          if [[ "$NIGHTLY_BUILD" == 'true' ]]; then
+          if [[ -z "$RELEASE_VERSION" ]]; then
             short_revision=$(git rev-parse --short=7 HEAD)
             version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$short_revision")
             echo "APP_VERSION=$short_revision-nightly" >> "$GITHUB_ENV"
           else
-            if [[ ! "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
-              echo 'A release version such as v0.1.0 is required.' >&2
+            if [[ ! "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo 'Use a version tag such as v0.0.1.' >&2
               exit 1
             fi
             version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
@@ -148,13 +138,45 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
         run: |
-          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:PACKAGE_ARCH
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
           Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
           $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
           python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json" --browser-probe "build/Release/signinbrowser_test.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
+
+      - name: Build and test Windows installer
+        if: runner.os == 'Windows'
+        id: windows-installer
+        shell: pwsh
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          ./scripts/package-windows-installer.ps1 -Payload "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME" -Version $env:APP_VERSION -Architecture $env:PACKAGE_ARCH -OutputName "$env:ARCHIVE_NAME-setup"
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        id: installer-upload
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ env.ARCHIVE_NAME }}-setup.exe
+
+      - name: Confirm the upload matches the verified Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERIFIED_DIGEST: ${{ steps.windows-installer.outputs.sha256 }}
+          UPLOADED_DIGEST: ${{ steps.installer-upload.outputs.artifact-digest }}
+        run: |
+          if (!$env:VERIFIED_DIGEST -or ($env:UPLOADED_DIGEST -replace '^sha256:', '') -ne $env:VERIFIED_DIGEST) {
+            throw 'Uploaded installer differs from the verified executable'
+          }
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
@@ -210,15 +232,15 @@ jobs:
             build/${{ env.ARCHIVE_NAME }}.json
 
   macos_preview_launch:
-    name: Open macOS 27 Apple Silicon preview
-    if: ${{ !cancelled() && github.ref == 'refs/heads/develop' && inputs.verify_macos_27 }}
+    name: Open macOS 27 Apple Silicon DMG
+    if: inputs.verify_macos_27 || (github.ref == 'refs/heads/main' && inputs.version != '')
     needs: build
     runs-on: xcode-27
     timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v8.0.2
         with:
-          name: JustConnect-preview-${{ github.sha }}-macos-arm64.dmg
+          name: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-macos-arm64.dmg
           path: ${{ runner.temp }}/preview
 
       - name: Open an installed DMG app after simulated first-open approval
@@ -269,10 +291,10 @@ jobs:
           "$RUNNER_TEMP/quit-preview" "$pid"
 
   source:
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-26.04
     env:
-      ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-source
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-source
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -292,29 +314,44 @@ jobs:
             ${{ env.ARCHIVE_NAME }}.tar.gz.sha256
 
   release:
-    if: github.event_name == 'release'
-    needs: [build, source]
+    name: Prepare release draft
+    if: github.ref == 'refs/heads/main' && inputs.version != ''
+    needs: [build, source, macos_preview_launch]
     runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7.0.1
+
       - name: Download packages
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: JustConnect-${{ github.event.release.tag_name }}-*.{zip,dmg}
+          pattern: JustConnect-${{ inputs.version }}-*.{zip,dmg,exe}
           skip-decompress: true
           merge-multiple: true
           path: packages
 
-      - name: Download source and verification reports
+      - name: Download corresponding source
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: JustConnect-${{ github.event.release.tag_name }}-{source,*-checks}
-          merge-multiple: true
+          name: JustConnect-${{ inputs.version }}-source
           path: packages
 
-      - name: Upload to this repository's release
+      - name: Attach verified files to an unpublished draft
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" packages/* --repo "$GITHUB_REPOSITORY"
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          existing=$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")
+          test -z "$existing"
+          notes="$PWD/docs/releases/$RELEASE_TAG.md"
+          test -s "$notes"
+          cd packages
+          prefix="JustConnect-$RELEASE_TAG"
+          sha256sum --check "$prefix-source.tar.gz.sha256"
+          assets=("$prefix"-windows-{x64,arm64}.zip "$prefix"-windows-{x64,arm64}-setup.exe
+                  "$prefix"-macos-{x64,arm64}.dmg "$prefix-source.tar.gz")
+          sha256sum -- "${assets[@]}" > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" "${assets[@]}" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
+            --draft --target "$GITHUB_SHA" --title "JustConnect $RELEASE_TAG" --notes-file "$notes"

@@ -4,7 +4,8 @@
 param(
     [string]$TargetName = "JustConnect",
     [string]$DisplayName = "JustConnect",
-    [string]$BuildDir = "build"
+    [string]$BuildDir = "build",
+    [ValidateSet('x64', 'arm64')][string]$Architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,12 +26,19 @@ cmake --install "../$BuildDir/windows-helper" --config Release --component Windo
 if ($LASTEXITCODE -ne 0) { throw "Native network helper installation failed" }
 
 # TUIO input requires an explicitly enabled generic plugin.
-& windeployqt.exe --release --no-translations --exclude-plugins qtuiotouchplugin "$TargetName.exe"
+& windeployqt.exe --release --no-translations --no-compiler-runtime --exclude-plugins qtuiotouchplugin "$TargetName.exe"
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
 Copy-Item -Path "../resource/qt.conf" -Destination .
-Get-ChildItem -Filter 'vc_redist.*.exe' | Remove-Item
+
+# Ship the native app-local CRT with both the ZIP and the installer.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$crt = & $vswhere -latest -products '*' -find "VC\Redist\MSVC\*\$Architecture\Microsoft.VC*.CRT\msvcp140.dll" |
+    Sort-Object { [version](Get-Item -LiteralPath $_).Directory.Parent.Parent.Name } -Descending |
+    Select-Object -First 1
+if (!$crt) { throw "Missing Visual C++ redistributable files for $Architecture" }
+Copy-Item -Path (Join-Path (Split-Path -Parent $crt) '*.dll') -Destination .
 
 Pop-Location

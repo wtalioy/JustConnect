@@ -2,7 +2,7 @@
 
 面向 Windows 和 macOS 的 aTrust 校园网络客户端，支持 x64／ARM64。校园浏览器与终端访问共用连接，保留原网络及 Tailscale 等已有网络的选择。
 
-当前可按 [预览包实测步骤](docs/DEVELOPMENT.md#s8-实测步骤) 安装。Windows 完整解压 ZIP 后运行 `JustConnect.exe`，macOS 从 DMG 将应用拖到「应用程序」。
+从 [GitHub Releases](https://github.com/wtalioy/JustConnect/releases) 选择对应架构。Windows 推荐运行 `-setup.exe`，也可完整解压 ZIP 后运行 `JustConnect.exe`；macOS 从 DMG 将应用拖到「应用程序」。尚无正式发布时可使用 [Actions 预览包](docs/DEVELOPMENT.md#s8-实测步骤)。
 
 在主窗口选择 Fudan 或自己的 aTrust 连接，点击连接，按需完成学校登录和系统授权。显示已连接后，直接用现有浏览器和终端访问校园网页或运行普通 `ssh`。断开时，应用只撤销自己管理的网络设置。
 
