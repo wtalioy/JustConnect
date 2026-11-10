@@ -200,7 +200,7 @@ func (p *Listeners) readOriginalDNS(socket *net.UDPConn, source string, local ne
 				return
 			}
 			answer, err := p.exchangeOriginalDNS(request, "udp", source)
-			data, err := dnsDatagram(request, dnsResponse(request, answer, err))
+			data, err := dnsDatagram(request, dnsResponse(request, answer, err), nil)
 			if err == nil {
 				_, _ = socket.WriteToUDPAddrPort(data, peer)
 			}

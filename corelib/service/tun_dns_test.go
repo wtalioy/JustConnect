@@ -401,10 +401,12 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	peer := tunPeer(t, device.packetDevice)
 	target := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{198, 18, 0, 2}), Port: resolve.DNSPort}
-	var ownedDNS net.Conn
+	var ownedTCP, ownedUDP net.Conn
 	t.Cleanup(func() {
-		if ownedDNS != nil {
-			_ = ownedDNS.Close()
+		for _, conn := range []net.Conn{ownedTCP, ownedUDP} {
+			if conn != nil {
+				_ = conn.Close()
+			}
 		}
 	})
 	exchange := func(transport string, destination tcpip.FullAddress, message *dns.Msg) (*dns.Msg, error) {
@@ -413,19 +415,24 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		var conn net.Conn
 		var err error
 		if transport == "tcp" && destination == target {
-			if ownedDNS == nil {
-				ownedDNS, err = gonet.DialContextTCP(ctx, peer, destination, ipv4.ProtocolNumber)
+			if ownedTCP == nil {
+				ownedTCP, err = gonet.DialContextTCP(ctx, peer, destination, ipv4.ProtocolNumber)
 			}
-			conn = ownedDNS
+			conn = ownedTCP
 		} else if transport == "tcp" {
 			conn, err = gonet.DialContextTCP(ctx, peer, destination, ipv4.ProtocolNumber)
+		} else if destination == target {
+			if ownedUDP == nil {
+				ownedUDP, err = gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)
+			}
+			conn = ownedUDP
 		} else {
 			conn, err = gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)
 		}
 		if err != nil {
 			return nil, err
 		}
-		if conn != ownedDNS {
+		if conn != ownedTCP && conn != ownedUDP {
 			defer conn.Close()
 		}
 		reply, err := exchangeTUNDNS(ctx, transport, message, &dns.Conn{Conn: conn, UDPSize: 4096})

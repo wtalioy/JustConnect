@@ -11,12 +11,13 @@ import (
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 func (i *tunIngress) dnsFlow(id stack.TransportEndpointID) bool {
-	return i.peer.IsValid() && id.LocalAddress.String() == i.peer.String() && id.LocalPort == resolve.DNSPort &&
-		id.RemoteAddress.String() == i.local.String()
+	return id.LocalPort == resolve.DNSPort && i.peer.Is4() && i.local.Is4() &&
+		id.LocalAddress == tcpip.AddrFrom4(i.peer.As4()) && id.RemoteAddress == tcpip.AddrFrom4(i.local.As4())
 }
 
 func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
@@ -38,7 +39,7 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 			continue
 		}
 		answer, err := i.exchangeDNS(request, transport)
-		data, err := dnsDatagram(request, dnsResponse(request, answer, err))
+		data, err := dnsDatagram(request, dnsResponse(request, answer, err), buffer)
 		if err != nil {
 			return
 		}
@@ -84,13 +85,13 @@ func dnsResponse(request, answer *dns.Msg, err error) *dns.Msg {
 	return reply
 }
 
-func dnsDatagram(request, reply *dns.Msg) ([]byte, error) {
+func dnsDatagram(request, reply *dns.Msg, buffer []byte) ([]byte, error) {
 	size := dns.MinMsgSize
 	if option := request.IsEdns0(); option != nil {
 		size = max(size, min(int(option.UDPSize()), maxUDPPacket))
 	}
 	reply.Truncate(size)
-	return reply.Pack()
+	return reply.PackBuffer(buffer)
 }
 
 func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, error) {
