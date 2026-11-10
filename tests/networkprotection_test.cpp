@@ -490,6 +490,23 @@ int main(int argc, char **argv) try
         if (conflict["kind"] == "campus_dns") dns = prefix == "100.74.12.3/32";
     }
     check(range && record && dns, "Conflict lost original scope or resource role");
+    const QJsonArray boundaryTargets{QJsonObject{{"prefix","2001:db8:0:1:8000::/65"}},
+        QJsonObject{{"prefix","255.255.255.254/31"}}, QJsonObject{{"prefix","2001:db8:0:2::/127"}}};
+    const auto boundaryResources = QJsonDocument::fromJson(R"({
+        "ip_resources":[
+            {"ip_min":"2001:db8:0:1:7fff:ffff:ffff:ffff","ip_max":"2001:db8:0:1:8000::"},
+            {"ip_min":"2001:db8:0:2::2","ip_max":"2001:db8:0:2::3"},
+            {"ip_min":"255.255.255.255","ip_max":"255.255.255.255"},
+            {"ip_min":"2001:db8:0:1:ffff:ffff:ffff:ffff","ip_max":"2001:db8:0:2::"}
+        ], "dns_records":{}, "campus_dns":""
+    })").object();
+    const auto boundaries = campusProtectionConflicts(boundaryTargets,boundaryResources);
+    check(boundaries && *boundaries == QJsonArray{
+        QJsonObject{{"kind","ip_resource"},{"resource",0},{"target",0}},
+        QJsonObject{{"kind","ip_resource"},{"resource",2},{"target",1}},
+        QJsonObject{{"kind","ip_resource"},{"resource",3},{"target",0}},
+        QJsonObject{{"kind","ip_resource"},{"resource",3},{"target",2}}
+    }, "Overlap endpoints are inclusive for both families and never mix IPv4 with IPv6");
     for (const auto &bad : {QJsonObject{{"ip_min", "10.42.1.1"}, {"ip_max", "10.41.1.1"}},
                            QJsonObject{{"ip_min", "::1"}, {"ip_max", "127.0.0.1"}},
                            QJsonObject{{"ip_min", "::ffff:127.0.0.1"}, {"ip_max", "::ffff:127.0.0.1"}}}) {

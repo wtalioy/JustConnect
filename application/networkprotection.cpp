@@ -5,6 +5,8 @@
 #include <QSet>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QtEndian>
+#include <cstring>
 #include <limits>
 #include <algorithm>
 #include <utility>
@@ -126,22 +128,41 @@ std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, c
 {
     if (!resources["ip_resources"].isArray() || !resources["dns_records"].isObject()
         || !resources["campus_dns"].isString()) return std::nullopt;
-    QList<std::pair<QHostAddress, int>> subnets;
+    struct Range {
+        QAbstractSocket::NetworkLayerProtocol family;
+        Q_IPV6ADDR first, last;
+    };
+    // Network byte order lets the overlap scan compare bounds without parsing addresses again.
+    const auto bytes = [](const QHostAddress &address) {
+        if (address.protocol() == QAbstractSocket::IPv6Protocol) return address.toIPv6Address();
+        Q_IPV6ADDR value{};
+        qToBigEndian(address.toIPv4Address(), value.c);
+        return value;
+    };
+    QList<Range> subnets;
+    subnets.reserve(targets.size());
     for (const auto &target : targets) {
         const auto subnet = QHostAddress::parseSubnet(target.toObject().value("prefix").toString());
         if (subnet.second <= 1 || mapped(subnet.first) || !subnet.first.scopeId().isEmpty()) return std::nullopt;
-        subnets.append(subnet);
+        const auto family = subnet.first.protocol();
+        const auto first = bytes(subnet.first);
+        auto last = first;
+        const auto width = family == QAbstractSocket::IPv4Protocol ? 4 : 16;
+        for (int i = subnet.second / 8; i < width; ++i)
+            last[i] |= 0xff >> (i == subnet.second / 8 ? subnet.second % 8 : 0);
+        subnets.append({family, first, last});
     }
     QJsonArray conflicts;
     auto add = [&](const QString &first, const QString &last, const QJsonObject &source) {
         const QHostAddress low(first), high(last);
         if (low.isNull() || high.isNull() || low.protocol() != high.protocol() || mapped(low) || mapped(high)
             || !low.scopeId().isEmpty() || !high.scopeId().isEmpty() || compare(low, high) > 0) return false;
+        const auto family = low.protocol();
+        const auto firstBytes = bytes(low), lastBytes = bytes(high);
         for (int i = 0; i < subnets.size(); ++i) {
-            const auto &subnet = subnets[i];
-            if (low.protocol() != subnet.first.protocol()) continue;
-            if (low.isInSubnet(subnet) || high.isInSubnet(subnet)
-                || (compare(subnet.first, low) >= 0 && compare(subnet.first, high) <= 0)) {
+            const auto &subnet = subnets.at(i);
+            if (family == subnet.family && std::memcmp(firstBytes.c, subnet.last.c, sizeof firstBytes.c) <= 0
+                && std::memcmp(subnet.first.c, lastBytes.c, sizeof lastBytes.c) <= 0) {
                 if (conflicts.size() == MaxModelItems) return false;
                 auto conflict = source;
                 conflict["target"] = i;
