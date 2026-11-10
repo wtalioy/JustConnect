@@ -1,5 +1,6 @@
 """Verify Windows device ownership and the ordinary Qt/core packet path on disposable runners."""
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -12,18 +13,32 @@ from windows_system_dns import verify as verify_system_dns
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
-def stage_sdk(output):
+def stage_sdk(output, *, prepared=False):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
         raise RuntimeError('Native Windows network mutation requires a disposable runner')
     sdk = output / 'wintun-probe'
-    sdk.mkdir(parents=True, exist_ok=True)
-    spec = importlib.util.spec_from_file_location('windows_helper_sdk', pathlib.Path('scripts/windows_helper_sdk.py').resolve())
+    spec = importlib.util.spec_from_file_location('windows_helper_sdk', ROOT / 'scripts/windows_helper_sdk.py')
     sdk_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sdk_module)
     contract = json.loads(sdk_module.CONTRACT.read_text(encoding='utf-8'))
     arch = {'X64': 'amd64', 'ARM64': 'arm64'}[os.environ['RUNNER_ARCH']]
+    native = output / 'windows-device'
+    if prepared:
+        metadata = json.loads((output / 'windows-device.json').read_text(encoding='utf-8'))
+        if (metadata.get('source') != os.environ['GITHUB_SHA'] or metadata.get('arch') != arch
+                or metadata.get('archive_sha256') != contract['sdk']['archive_sha256']
+                or pathlib.Path(metadata['native_build']) != native):
+            raise RuntimeError('Staged Windows SDK does not belong to this build')
+        for key, filename in (('driver', contract['driver_library']), ('license', contract['driver_license']),
+                              ('header', contract['sdk']['header_file'])):
+            path = sdk / filename
+            with path.open('rb') as stream:
+                digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+            if pathlib.Path(metadata[key]) != path or digest != metadata[f'{key}_sha256']:
+                raise RuntimeError(f'Staged Windows SDK {key} differs from the verified archive')
+        return contract, arch, metadata
     metadata = sdk_module.stage(contract, sdk, arch)
-    metadata['native_build'] = str(output / 'windows-device')
+    metadata['native_build'] = str(native)
     return contract, arch, metadata
 
 
@@ -47,9 +62,9 @@ def verify_native_dns(native, output, arch):
     print('PASS: native DNS reader and source facts verified before Qt/Go setup', flush=True)
 
 
-def device():
+def device(*, prepared=False):
     output = pathlib.Path('build/coreabi').resolve()
-    contract, arch, metadata = stage_sdk(output)
+    contract, arch, metadata = stage_sdk(output, prepared=prepared)
     dll = pathlib.Path(metadata['driver'])
     (output / 'windows-device-license.txt').write_bytes(pathlib.Path(metadata['license']).read_bytes())
     host = shutil.which('pwsh')
@@ -140,7 +155,7 @@ def device():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--device-only', action='store_true')
+    mode.add_argument('--device-only', action='store_true', help='Run the device probe with the inputs from --build-only')
     mode.add_argument('--core-only', action='store_true', help='Use the native inputs exported by the device step')
     mode.add_argument('--build-only', action='store_true', help='Build and check native Windows DNS and recovery before installing Qt/Go')
     args = parser.parse_args()
@@ -169,7 +184,7 @@ def main():
             if not path.is_absolute() or not path.is_file():
                 raise RuntimeError(f'Device step did not export a built native input: {key}')
     else:
-        env = device()
+        env = device(prepared=args.device_only)
     if args.device_only:
         return
     env.pop('CGO_ENABLED', None)

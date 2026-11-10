@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import os
@@ -19,6 +20,32 @@ spec.loader.exec_module(helper)
 
 
 class WindowsPacketRunnerTest(unittest.TestCase):
+    def test_device_step_reuses_only_the_verified_inputs_for_its_build(self):
+        contract = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory).resolve()
+            sdk = output / 'wintun-probe'
+            sdk.mkdir()
+            metadata = dict(source='verified-commit', arch='arm64', native_build=str(output / 'windows-device'),
+                archive_sha256=contract['sdk']['archive_sha256'])
+            for key, filename in (('driver', contract['driver_library']), ('license', contract['driver_license']),
+                                  ('header', contract['sdk']['header_file'])):
+                path = sdk / filename
+                path.write_bytes(key.encode())
+                metadata[key] = str(path)
+                metadata[f'{key}_sha256'] = hashlib.sha256(key.encode()).hexdigest()
+            record = output / 'windows-device.json'
+            record.write_text(json.dumps(metadata), encoding='utf-8')
+            with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'Windows', 'RUNNER_ARCH': 'ARM64',
+                                         'GITHUB_SHA': 'verified-commit'}, clear=True):
+                self.assertEqual(runner.stage_sdk(output, prepared=True), (contract, 'arm64', metadata))
+                with patch.dict(os.environ, {'GITHUB_SHA': 'different-commit'}):
+                    with self.assertRaisesRegex(RuntimeError, 'does not belong to this build'):
+                        runner.stage_sdk(output, prepared=True)
+                Path(metadata['driver']).write_bytes(b'changed')
+                with self.assertRaisesRegex(RuntimeError, 'driver differs from the verified archive'):
+                    runner.stage_sdk(output, prepared=True)
+
     def test_helper_payloads_are_private_and_cleaned_after_success_or_failure(self):
         contract = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
         with tempfile.TemporaryDirectory() as directory:
