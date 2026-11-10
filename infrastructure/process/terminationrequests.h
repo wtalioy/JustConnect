@@ -1,8 +1,12 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
 #include <csignal>
+#ifdef Q_OS_WIN
+#include <QWinEventNotifier>
+#else
+#include <QSocketNotifier>
+#endif
 
 class TerminationRequests : public QObject
 {
@@ -13,12 +17,13 @@ public:
 signals:
     void requested();
 private:
-    QTimer poll;
-#ifdef Q_OS_UNIX
+#ifdef Q_OS_WIN
+    QWinEventNotifier notifier;
+    using SignalHandler = void (*)(int);
+    SignalHandler previousTerm = SIG_ERR;
+#else
+    QSocketNotifier notifier{QSocketNotifier::Read};
     struct sigaction previous[3]{};
     bool installed[3]{};
-#else
-    using SignalHandler = void (*)(int);
-    SignalHandler previousTerm = SIG_DFL;
 #endif
 };
