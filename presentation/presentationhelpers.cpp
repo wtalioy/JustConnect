@@ -228,7 +228,7 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     layout->setSpacing(4);
 
     auto *icon = new QLabel(&dialog);
-    const QIcon artwork(":/resource/macos-app-icon.svg");
+    const QIcon artwork(":/resource/app-icon.svg");
     icon->setPixmap(artwork.pixmap(QSize(80, 80), dialog.devicePixelRatioF()));
     layout->addWidget(icon, 0, Qt::AlignHCenter);
 

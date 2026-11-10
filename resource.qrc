@@ -1,7 +1,7 @@
 <RCC>
     <qresource>
         <file>resource/icon.svg</file>
-        <file>resource/macos-app-icon.svg</file>
+        <file>resource/app-icon.svg</file>
         <file>resource/appearance.qss</file>
         <file>resource/settings.svg</file>
         <file>resource/connection.svg</file>
