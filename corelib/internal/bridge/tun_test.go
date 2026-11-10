@@ -84,7 +84,7 @@ func exchangeProtocolTUN(t *testing.T, peer *net.UDPConn, address *net.UDPAddr, 
 	return data.Payload()
 }
 
-func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64, publish bool) *net.UDPConn {
+func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64) *net.UDPConn {
 	t.Helper()
 	device, peer := tunDatagram(t)
 	for _, test := range []struct {
@@ -99,7 +99,7 @@ func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64, publish 
 		}
 	}
 	address := device.LocalAddr().(*net.UDPAddr)
-	if status := e.AttachTUN(h, generation, device, 1400, publish); status != OK {
+	if status := e.AttachTUN(h, generation, device, 1400, false); status != OK {
 		t.Fatal(status)
 	}
 	extra, extraPeer := tunDatagram(t)

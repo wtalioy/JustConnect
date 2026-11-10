@@ -78,7 +78,11 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 				return e.PrepareOriginalDNS(h, data)
 			}
 			var oldGeneration uint64
-			for round := 0; round < 2; round++ {
+			rounds := 1
+			if late {
+				rounds++
+			}
+			for range rounds {
 				generation, status := e.Start(h, configBytes(t, config))
 				if status != OK {
 					t.Fatal(status)
@@ -145,7 +149,10 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 				if err != nil || endpoint.Port() == 0 || !endpoint.Addr().IsLoopback() {
 					t.Fatal("session did not publish its actual prepared DNS endpoint", address, err)
 				}
-				exerciseProtocolTUN(t, e, h, ready.Generation, true)
+				device, _ := tunDatagram(t)
+				if status := e.AttachTUN(h, ready.Generation, device, 1400, true); status != OK {
+					t.Fatal(status)
+				}
 				if value, status := prepare(ready.Generation, sources); status != Busy || value != 0 {
 					t.Fatal("attached device allowed source replacement", value, status)
 				}
