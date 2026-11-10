@@ -39,11 +39,13 @@ $crt = & $vswhere -latest -products '*' -find "VC\Redist\MSVC\*\$Architecture\Mi
     Sort-Object { [version](Get-Item -LiteralPath $_).Directory.Parent.Parent.Name } -Descending |
     Select-Object -First 1
 if (!$crt) { throw "Missing Visual C++ redistributable files for $Architecture" }
-$machine = @{ x64 = 'AMD64'; arm64 = 'ARM64' }[$Architecture]
+$machine = @{ x64 = 0x8664; arm64 = 0xaa64 }[$Architecture]
 foreach ($dll in Get-ChildItem -LiteralPath (Split-Path -Parent $crt) -Filter '*.dll' -File) {
-    $header = & llvm-readobj --file-headers $dll.FullName
-    if ($LASTEXITCODE -ne 0) { throw "Could not inspect $($dll.Name)" }
-    if ($header -match "^\s*Machine: IMAGE_FILE_MACHINE_${machine} ") {
+    $bytes = [IO.File]::ReadAllBytes($dll.FullName)
+    $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+    if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550) { throw "Invalid PE image: $($dll.Name)" }
+    # A hybrid CRT image can have a different display name; use the PE machine field.
+    if ([BitConverter]::ToUInt16($bytes, $offset + 4) -eq $machine) {
         Copy-Item -LiteralPath $dll.FullName -Destination .
     }
 }
