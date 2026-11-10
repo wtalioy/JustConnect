@@ -286,7 +286,7 @@ def verify(root, executable, revision, application_version, output, archive, bro
     data = revisions[0].parent
     if 'CGO_ENABLED=1' not in (data / 'core-toolchain.txt').read_text():
         raise RuntimeError('Missing cgo toolchain evidence')
-    for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'LICENSE.lucide', 'UPSTREAM.md'):
+    for name in ('LICENSE', 'LICENSE.ping', 'LICENSE.lucide', 'ThirdPartyNotices.txt'):
         if not (data / 'licenses' / name).is_file():
             raise RuntimeError(f'Missing license/source notice: {name}')
     if system == 'windows' and not (data / 'licenses/LICENSE.WebView2').is_file():

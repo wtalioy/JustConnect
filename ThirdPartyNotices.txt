@@ -1,3 +1,8 @@
+Third-Party Notices
+
+JustConnect's Go core includes code from zju-connect and its contributors, licensed under the GNU Affero General Public License, version 3.
+Upstream source and credits: https://github.com/Mythologyli/zju-connect/blob/c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63/README.md
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 

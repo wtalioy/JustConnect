@@ -15,4 +15,4 @@ Windows installers are unsigned, and macOS builds are not notarized. Your system
 
 Choose the Fudan University profile or add your own aTrust gateway, then select **Connect**. Follow the campus sign-in and system permission prompts. When you disconnect, JustConnect removes the network settings it applied.
 
-[Release notes](docs/releases) · [License](LICENSE)
+[Release notes](docs/releases) · [License](LICENSE) · [Third-party notices](ThirdPartyNotices.txt)

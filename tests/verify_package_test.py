@@ -48,7 +48,7 @@ class VerifyPackageTest(unittest.TestCase):
             (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1')
             notices = root / 'licenses'
             notices.mkdir()
-            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'LICENSE.lucide', 'UPSTREAM.md', 'LICENSE.WebView2'):
+            for name in ('LICENSE', 'LICENSE.ping', 'LICENSE.lucide', 'ThirdPartyNotices.txt', 'LICENSE.WebView2'):
                 (notices / name).touch()
             output = root / 'report.json'
             def self_test(*args, **kwargs):
@@ -181,7 +181,7 @@ class VerifyPackageTest(unittest.TestCase):
             (root / 'core-toolchain.txt').write_bytes(b'CGO_ENABLED=1\r\n')
             notices = root / 'licenses'
             notices.mkdir()
-            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'LICENSE.lucide', 'UPSTREAM.md', 'LICENSE.WebView2'):
+            for name in ('LICENSE', 'LICENSE.ping', 'LICENSE.lucide', 'ThirdPartyNotices.txt', 'LICENSE.WebView2'):
                 (notices / name).touch()
             nested = root / 'nested'
             nested.mkdir()
@@ -202,10 +202,12 @@ class VerifyPackageTest(unittest.TestCase):
                 self.assertEqual(report['archive_sha256'], hashlib.sha256(b'archive fixture').hexdigest())
                 self.assertEqual(report['size_bytes']['installed'], len(b'revision\r\nCGO_ENABLED=1\r\n'))
                 self.assertGreater(report['offline_self_test_wall_ms'], 0)
-                (notices / 'LICENSE.lucide').unlink()
-                with self.assertRaisesRegex(RuntimeError, 'Missing license/source notice: LICENSE.lucide'):
-                    package.verify(root, host, 'revision', 'preview', output, archive)
-                (notices / 'LICENSE.lucide').touch()
+                for name in ('LICENSE.lucide', 'ThirdPartyNotices.txt'):
+                    with self.subTest(missing_notice=name):
+                        (notices / name).unlink()
+                        with self.assertRaisesRegex(RuntimeError, f'Missing license/source notice: {name}'):
+                            package.verify(root, host, 'revision', 'preview', output, archive)
+                        (notices / name).touch()
                 archive.rename(archive.with_suffix('.hidden'))
                 with self.assertRaises(FileNotFoundError):
                     package.verify(root, host, 'revision', 'preview', output, archive)
