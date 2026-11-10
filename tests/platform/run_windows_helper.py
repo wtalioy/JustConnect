@@ -118,7 +118,9 @@ try {
         if (-not $failed.WaitForExit(30000) -or $null -eq $failed.ExitCode -or $failed.ExitCode -eq 0) { throw 'Broken replacement unexpectedly started or exceeded its deadline' }
         $rolledBack = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
         if ($rolledBack.PathName -ne $previousService.PathName -or $rolledBack.ProcessId -eq $previousService.ProcessId -or $rolledBack.State -ne 'Running' -or
-            (Get-Process -Id $rolledBack.ProcessId).Path -ne $previousInstalled) { throw 'Failed replacement did not restore the actual previous service image' }
+            (Get-Process -Id $rolledBack.ProcessId).Path -ne $previousInstalled -or (Test-Path -LiteralPath $alternate)) {
+            throw 'Failed replacement did not restore a single previous service image'
+        }
         Write-Host 'PASS: new image startup failure rolls back the original service and restarts its actual protected image'
         $firstLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-upgrade-first.txt'
         $secondLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-upgrade-second.txt'
@@ -141,7 +143,8 @@ try {
         }
         Write-Host 'PASS: two concurrent installers replace a previous protected image with one current running service'
 
-        $legacyName = (Get-FileHash -LiteralPath $expectedInstalled -Algorithm SHA256).Hash.ToLowerInvariant()
+        # Only the old directory format matters. The protected executable is not hashed.
+        $legacyName = 'a' * 64
         $legacyDirectory = Join-Path $installRoot $legacyName
         if (Test-Path -LiteralPath $legacyDirectory) { throw 'Refuse pre-existing legacy payload directory in fixture' }
         $ownedDirectories += $legacyDirectory
@@ -166,6 +169,8 @@ try {
     if ($LASTEXITCODE -ne 0 -or $installed -isnot [string]) { throw 'Recovery service installation failed' }
     $reused = & $env:JC_HELPER_SERVICE_IMAGE --install
     if ($LASTEXITCODE -ne 0 -or $reused -ne $installed) { throw 'Recovery service reuse changed its identity' }
+    $reused = & $installed --install
+    if ($LASTEXITCODE -ne 0 -or $reused -ne $installed) { throw 'Protected helper could not reuse its own installation' }
     $directory = Split-Path -Parent $installed
     if (-not $qtOnly) {
         $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <optional>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -41,19 +42,13 @@ Sha256 decode(std::string_view value)
     for(size_t i=0;i<result.size();++i) result[i]=static_cast<unsigned char>((digit(value[i*2])<<4)|digit(value[i*2+1]));
     return result;
 }
-std::wstring hex(const Sha256 &value)
-{
-    constexpr wchar_t digits[]=L"0123456789abcdef";
-    std::wstring result;
-    for (const auto byte:value) { result+=digits[byte>>4];result+=digits[byte&15]; }
-    return result;
-}
 bool fixedSlot(const std::wstring &slot)
 {
     return slot==InstallPrimary || slot==InstallAlternate;
 }
 bool legacySlot(const std::wstring &slot)
 {
+    // Recognize old installations by layout. Ownership is checked on the pinned objects.
     return slot.size()==64 && slot.find_first_not_of(L"0123456789abcdef")==std::wstring::npos;
 }
 bool missing(int error) { return error==ERROR_FILE_NOT_FOUND || error==ERROR_PATH_NOT_FOUND; }
@@ -213,15 +208,15 @@ std::wstring currentImage()
     return path;
 }
 
-struct Source {
-    std::wstring executable=currentImage();
-    File image{executable};
+struct DriverPayload {
     Sha256 driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
-    std::filesystem::path directory=std::filesystem::path(executable).parent_path();
-    File driver{(directory/WindowsNetworkContract::DriverLibrary).wstring()},license{(directory/WindowsNetworkContract::DriverLicense).wstring()};
-    Source(){
-        runningImage(image);
-        if(driver.hash()!=driverHash || license.hash()!=licenseHash)fail("untrusted helper driver or license",ERROR_INVALID_DATA);
+    File driver,license;
+    explicit DriverPayload(const std::filesystem::path &directory)
+        : driver((directory/WindowsNetworkContract::DriverLibrary).wstring()),
+          license((directory/WindowsNetworkContract::DriverLicense).wstring())
+    {
+        if (driver.hash()!=driverHash || license.hash()!=licenseHash)
+            fail("untrusted helper driver or license",ERROR_INVALID_DATA);
     }
 };
 }
@@ -272,7 +267,6 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstal
     if (_wcsicmp(executable.c_str(),result->image().c_str())!=0) fail("recovery must run from its protected installation",ERROR_ACCESS_DENIED);
     File image(executable);immutable(image.value,false);
     if(_wcsicmp(executable.c_str(),currentImage().c_str())==0)runningImage(image);
-    if (legacySlot(slot) && hex(image.hash())!=slot) fail("legacy recovery image differs from its installation",ERROR_ACCESS_DENIED);
     installed(result->library,decode(WindowsNetworkContract::DriverSHA256));
     installed((std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring(),decode(WindowsNetworkContract::LicenseSHA256));
     result->pins.push_back(image.value);image.value=nullptr;
@@ -285,19 +279,22 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare(co
     TOKEN_ELEVATION elevation{};DWORD size=0;
     if (!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size)) fail("read installation privilege");
     if (!elevation.TokenIsElevated) fail("installation requires elevation",ERROR_ACCESS_DENIED);
-    Source source;
+    const auto sourcePath=currentImage();
+    File source(sourcePath);
+    runningImage(source);
     std::wstring slot=InstallPrimary;
     if (!previous.empty()) {
         auto active=openInstalledImage(previous);
         const auto oldSlot=std::filesystem::path(previous).parent_path().filename().wstring();
-        if (fixedSlot(oldSlot) && source.image.matches(File(previous))) return active;
+        if (fixedSlot(oldSlot) && (_wcsicmp(sourcePath.c_str(),previous.c_str())==0 || source.matches(File(previous)))) return active;
         if (oldSlot==InstallPrimary) slot=InstallAlternate;
     }
+    const DriverPayload payload(std::filesystem::path(sourcePath).parent_path());
     auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
     result->pinInstallation(slot,true);
     const auto license=(std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring();
     const auto publish=[&] {
-        install(source.image,result->executable);install(source.driver,result->library);install(source.license,license);
+        install(source,result->executable);install(payload.driver,result->library);install(payload.license,license);
     };
     try { publish(); }
     catch (const std::system_error &error) {
@@ -319,8 +316,6 @@ void WindowsHelperInstallation::removeSlot(const std::wstring &slot) const
     for (const auto &path:{pinned.image(),pinned.driver(),license}) {
         try {
             File file(path);immutable(file.value,false);
-            if (path==pinned.image() && legacySlot(slot) && hex(file.hash())!=slot)
-                fail("unrecognized legacy recovery image",ERROR_ACCESS_DENIED);
         } catch (const std::system_error &error) { if (!missing(error.code().value())) throw; }
     }
     for (const auto &path:{pinned.image(),pinned.driver(),license})
@@ -369,14 +364,19 @@ int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,
         TOKEN_ELEVATION elevation{};DWORD size=0;
         if(!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size))fail("read launcher elevation");
         if(elevation.TokenIsElevated)fail("authorization launcher must remain ordinary",ERROR_ACCESS_DENIED);
-        Source source;
+        const auto sourcePath=currentImage();
+        const File source(sourcePath);
+        runningImage(source);
         const auto registeredImage=installedWindowsRecoveryImage();
-        auto target=source.executable;
+        auto target=sourcePath;
         std::unique_ptr<WindowsHelperInstallation> installed;
         if(!registeredImage.empty()){
             installed=openInstalledImage(registeredImage);
-            if(source.image.matches(File(installed->image())))target=installed->image();
+            if(fixedSlot(std::filesystem::path(registeredImage).parent_path().filename().wstring())
+                && source.matches(File(installed->image())))target=installed->image();
         }
+        std::optional<DriverPayload> payload;
+        if(target==sourcePath)payload.emplace(std::filesystem::path(sourcePath).parent_path());
         const auto parameters=L"--control "+std::to_wstring(pid)+L" "+std::to_wstring(created)+L" "+id;
         if(elevate)approved.value=elevate(target,parameters);
         else{
@@ -389,7 +389,7 @@ int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,
             std::wstring launched(32768,L'\0');DWORD length=static_cast<DWORD>(launched.size());
             if(!QueryFullProcessImageNameW(approved.value,0,launched.data(),&length))fail("identify approved helper image");
             launched.resize(length);File running(launched);
-            if(!running.matches(source.image))
+            if(!running.matches(source))
                 fail("approved process differs from the verified helper",ERROR_ACCESS_DENIED);
         }
         if(!approved.value)fail("network permission was not granted",GetLastError()?GetLastError():ERROR_INVALID_HANDLE);
