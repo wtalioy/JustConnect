@@ -42,18 +42,14 @@ func ParseDomainDNSRules(text string) (map[string]string, error) {
 	return rules, nil
 }
 
-func (r *Resolver) domainDNSServer(host string) (string, bool) {
-	server, configured := r.DomainDNS[host]
-	if !configured {
-		return "", false
+func (r *Resolver) domainDNSEndpoint(server string) string {
+	if server != "" {
+		return net.JoinHostPort(server, strconv.Itoa(DNSPort))
 	}
-	if server == "" {
-		if endpoint, valid := r.CampusDNSEndpoint(); valid {
-			return endpoint.String(), true
-		}
-		return "", true
+	if endpoint, valid := r.CampusDNSEndpoint(); valid {
+		return endpoint.String()
 	}
-	return net.JoinHostPort(server, strconv.Itoa(DNSPort)), true
+	return ""
 }
 
 func (r *Resolver) lookupDomainDNS(ctx context.Context, host, server string) (net.IP, error) {

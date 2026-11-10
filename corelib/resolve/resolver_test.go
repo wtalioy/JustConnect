@@ -682,14 +682,22 @@ func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
 }
 
 func BenchmarkDNSCacheHit(b *testing.B) {
-	r := NewResolver(nil, "", "", 60, nil, nil, false)
-	defer r.Close()
-	r.setDNSCache("campus.test", net.IPv4(192, 0, 2, 1), true)
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, found := r.getDNSCache("campus.test", true); !found {
-			b.Fatal("cached answer was lost")
-		}
+	for _, name := range []string{"default", "domain-specific"} {
+		b.Run(name, func(b *testing.B) {
+			r := NewResolver(nil, "", "", 60, nil, nil, false)
+			defer r.Close()
+			if name == "domain-specific" {
+				r.DomainDNS = map[string]string{"campus.test": "192.0.2.53"}
+			}
+			r.setDNSCache("campus.test", net.IPv4(192, 0, 2, 1), true)
+			ctx := b.Context()
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, ip, err := r.Resolve(ctx, "campus.test"); err != nil || ip == nil {
+					b.Fatal("cached answer was lost", err)
+				}
+			}
+		})
 	}
 }
 
@@ -738,5 +746,32 @@ func TestAuthorizedDomainResolutionDoesNotFallBackToSecondaryDNS(t *testing.T) {
 	ctx, ip, err := r.Resolve(t.Context(), "campus.test")
 	if !errors.Is(err, ErrCampusDNSUnavailable) || ip != nil || calls != 0 || ctx.Value(ContextKeyDomainResource) == nil {
 		t.Fatalf("campus domain used unknown cache/public DNS: IP=%v, calls=%d, error=%v", ip, calls, err)
+	}
+}
+
+func TestDomainDNSCacheRequiresCampusAnswer(t *testing.T) {
+	const host = "campus.test"
+	r := NewResolver(nil, "", "", 60, nil, nil, false)
+	defer r.Close()
+	r.DomainDNS = map[string]string{host: "192.0.2.53"}
+	unavailable := errors.New("campus resolver unreachable")
+	var transports []string
+	r.DomainDNSDial = func(_ context.Context, network, address string) (net.Conn, error) {
+		transports = append(transports, network)
+		if address != "192.0.2.53:53" {
+			t.Errorf("unexpected DNS destination %s %s", network, address)
+		}
+		return nil, unavailable
+	}
+	answer := net.IPv4(192, 0, 2, 1)
+	r.setDNSCache(host, answer, false)
+	if _, ip, err := r.Resolve(t.Context(), " CAMPUS.TEST. "); ip != nil || !errors.Is(err, unavailable) {
+		t.Fatalf("domain DNS accepted an untrusted cache answer: %v, %v", ip, err)
+	}
+	r.setDNSCache(host, answer, true)
+	ctx, ip, err := r.Resolve(t.Context(), " CAMPUS.TEST. ")
+	if err != nil || !ip.Equal(answer) || ctx.Value(ContextKeyDomainDNS) != true ||
+		len(transports) != 2 || transports[0] != "udp" || transports[1] != "tcp" {
+		t.Fatalf("domain DNS cache or transport selection changed: %v, %v, %v", ip, err, transports)
 	}
 }

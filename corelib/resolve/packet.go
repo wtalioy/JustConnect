@@ -105,12 +105,13 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, false) }
 	}
 	ips, known := r.dnsResource[host]
-	server, override := r.domainDNSServer(host)
+	server, override := r.DomainDNS[host]
 	_, _, granted := r.domainIndex.Match(host)
 	if override {
 		if !campusOnly && question.Qtype == dns.TypeAAAA {
 			return nil, ErrCampusIPv6Unsupported
 		}
+		server = r.domainDNSEndpoint(server)
 		if server == "" || dial == nil {
 			return nil, ErrCampusDNSUnavailable
 		}

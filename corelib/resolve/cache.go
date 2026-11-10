@@ -13,8 +13,8 @@ type cachedDNSAnswer struct {
 	expires int64
 }
 
+// Cache keys are normalized by the resolver before selecting a DNS source.
 func (r *Resolver) getDNSCache(host string, campusOnly bool) (net.IP, bool) {
-	host = normalizeHostname(host)
 	r.cacheMu.RLock()
 	answer, found := r.dnsCache[host]
 	r.cacheMu.RUnlock()
@@ -25,7 +25,6 @@ func (r *Resolver) getDNSCache(host string, campusOnly bool) (net.IP, bool) {
 }
 
 func (r *Resolver) setDNSCache(host string, ip net.IP, campus bool) {
-	host = normalizeHostname(host)
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 	now := time.Now().UnixNano()

@@ -112,7 +112,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 	if closed {
 		return ctx, nil, net.ErrClosed
 	}
-	nativeHost := strings.TrimSpace(host)
+	nativeHost := host
 	host = normalizeHostname(host)
 	defer func() {
 		if resErr == nil {
@@ -128,7 +128,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 					if campusOnly {
 						return ctx, nil, policy.ErrProtectedTarget
 					}
-					host = nativeHost
+					host = strings.TrimSpace(nativeHost)
 					ip, err := r.resolveCoordinated(ctx, "original:"+host, func(ctx context.Context) (net.IP, error) {
 						ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 						if err != nil {
@@ -150,16 +150,17 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 		campusOnly = true
 	}
 
-	if server, configured := r.domainDNSServer(host); configured {
+	if server, configured := r.DomainDNS[host]; configured {
 		ctx = context.WithValue(ctx, ContextKeyDomainDNS, true)
 		if ip, found := r.getDNSCache(host, true); found {
 			return ctx, ip, nil
 		}
 		ip, err := r.resolveCoordinated(ctx, host, func(lookupCtx context.Context) (net.IP, error) {
-			if server == "" || r.DomainDNSDial == nil {
+			endpoint := r.domainDNSEndpoint(server)
+			if endpoint == "" || r.DomainDNSDial == nil {
 				return nil, ErrCampusDNSUnavailable
 			}
-			return r.lookupDomainDNS(lookupCtx, host, server)
+			return r.lookupDomainDNS(lookupCtx, host, endpoint)
 		})
 		return ctx, ip, err
 	}
