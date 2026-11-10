@@ -229,45 +229,33 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		}
 		return d.dialOrdinary(ctx, network, ipAddr)
 	}
-	target := &net.IPAddr{IP: net.IP(address.AsSlice())}
-
 	if !matchedResource {
 		index := d.scopedIndex
 		if useVPN || address.IsPrivate() {
 			index = d.resourceIndex
 		}
-		if resource, matched := matchIPResourceForTunnel(index, target.IP, network, port); matched {
+		ip := address.As4()
+		if resource, matched := matchIPResourceForTunnel(index, ip[:], network, port); matched {
 			ctx = context.WithValue(ctx, resolve.ContextKeyIPResource, resource)
 			useVPN = true
 			matchedResource = true
 		}
 	}
 
+	if !useVPN {
+		return d.dialOrdinary(ctx, network, ipAddr)
+	}
 	// Refuse before an ungranted flow can terminate the shared tunnel.
-	if useVPN && !matchedResource {
-
+	if !matchedResource {
 		return nil, ErrACLDenied
 	}
-
-	if useVPN {
-		if network == "tcp" {
-
-			return d.stack.DialTCP(ctx, &net.TCPAddr{
-				IP:   target.IP,
-				Port: port,
-			})
-		} else if network == "udp" {
-
-			return d.stack.DialUDP(ctx, &net.UDPAddr{
-				IP:   target.IP,
-				Port: port,
-			})
-		} else {
-
-			return nil, ErrACLDenied
-		}
-	} else {
-		return d.dialOrdinary(ctx, network, ipAddr)
+	switch network {
+	case "tcp":
+		return d.stack.DialTCP(ctx, &net.TCPAddr{IP: address.AsSlice(), Port: port})
+	case "udp":
+		return d.stack.DialUDP(ctx, &net.UDPAddr{IP: address.AsSlice(), Port: port})
+	default:
+		return nil, ErrACLDenied
 	}
 }
 

@@ -73,7 +73,7 @@ type sharedResolution struct {
 
 type contextKey string
 
-var (
+const (
 	ContextKeyResolveHost      = contextKey("RESOLVE_HOST")
 	ContextKeyDomainResource   = contextKey("DOMAIN_RESOURCE")
 	ContextKeyIPResource       = contextKey("IP_RESOURCE")

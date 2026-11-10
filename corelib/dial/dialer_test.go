@@ -531,6 +531,22 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 	}
 }
 
+func BenchmarkDialIPPortOrdinary(b *testing.B) {
+	dialer := NewDialer(nil, nil, []client.IPResource{
+		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 1), PortMin: 443, PortMax: 443, Protocol: "tcp"},
+	}, false)
+	dialer.Upstream = func() client.DialContextFunc {
+		return func(context.Context, string, string) (net.Conn, error) { return nil, nil }
+	}
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := dialer.DialIPPort(ctx, "tcp", "192.0.2.2:443"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 type capturingStack struct {
 	resolvedHost   string
 	domainResource client.DomainResource
