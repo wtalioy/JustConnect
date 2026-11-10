@@ -101,8 +101,10 @@ void WindowsPacketPipe::accept(const WindowsProcess &caller,DWORD timeout)
     if (pid!=caller.identity().pid || !caller.identity().alive()) fail("unexpected packet pipe client",ERROR_ACCESS_DENIED);
 }
 
-void WindowsPacketPipe::transfer(void *data,DWORD size,bool writing,DWORD timeout)
+DWORD WindowsPacketPipe::transfer(void *data,DWORD size,Transfer kind,DWORD timeout)
 {
+    const bool writing=kind==Transfer::Write;
+    const auto requested=size;
     std::lock_guard<std::mutex> serial(writing?writeLock:readLock);
     std::shared_lock<std::shared_mutex> active(lifetime);
     if (closed) fail("packet pipe stopped",ERROR_OPERATION_ABORTED);
@@ -122,12 +124,15 @@ void WindowsPacketPipe::transfer(void *data,DWORD size,bool writing,DWORD timeou
         const auto started=writing?WriteFile(pipe,bytes,size,&count,&operation):ReadFile(pipe,bytes,size,&count,&operation);
         complete(operation,count,started,writing?"write packet pipe":"read packet pipe",nullptr,remaining);
         if (!count) fail("closed packet pipe",ERROR_BROKEN_PIPE);
+        if (kind==Transfer::ReadSome) return count;
         bytes+=count;
         size-=count;
     }
+    return requested;
 }
-void WindowsPacketPipe::read(void *data,DWORD size,DWORD timeout) { transfer(data,size,false,timeout); }
-void WindowsPacketPipe::write(const void *data,DWORD size,DWORD timeout) { transfer(const_cast<void *>(data),size,true,timeout); }
+void WindowsPacketPipe::read(void *data,DWORD size,DWORD timeout) { transfer(data,size,Transfer::Read,timeout); }
+DWORD WindowsPacketPipe::readSome(void *data,DWORD capacity) { return transfer(data,capacity,Transfer::ReadSome,INFINITE); }
+void WindowsPacketPipe::write(const void *data,DWORD size,DWORD timeout) { transfer(const_cast<void *>(data),size,Transfer::Write,timeout); }
 void WindowsPacketPipe::close()
 {
     std::call_once(closedOnce,[&] {

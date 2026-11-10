@@ -19,14 +19,17 @@ public:
     WindowsPacketPipe(const WindowsPacketPipe &) = delete;
     WindowsPacketPipe &operator=(const WindowsPacketPipe &) = delete;
     void read(void *data,DWORD size,DWORD timeout=INFINITE);
+    DWORD readSome(void *data,DWORD capacity);
     void write(const void *data,DWORD size,DWORD timeout=INFINITE);
     void accept(const WindowsProcess &caller,DWORD timeout);
     HANDLE handle() const{return pipe;}
+    bool isClosed() const { return closed.load(); }
     void close();
 private:
     WindowsPacketPipe() = default;
     void initialize();
-    void transfer(void *data,DWORD size,bool write,DWORD timeout);
+    enum class Transfer {Read,ReadSome,Write};
+    DWORD transfer(void *data,DWORD size,Transfer kind,DWORD timeout);
     void complete(OVERLAPPED &operation,DWORD &size,BOOL started,const char *stage,HANDLE caller = nullptr,DWORD timeout=INFINITE);
     HANDLE pipe = INVALID_HANDLE_VALUE,stop = nullptr,readReady = nullptr,writeReady = nullptr;
     std::mutex readLock,writeLock;
