@@ -131,6 +131,32 @@ func (s *partialStream) Write(data []byte) (int, error) {
 }
 func (*partialStream) Close() error { return nil }
 
+func TestCloseDiscardsBufferedPackets(t *testing.T) {
+	stream := new(partialStream)
+	device, err := New(stream, 1400, testLocal, testPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []int{28, 29, 30} {
+		if _, err := device.Write(testPacket(size)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packet := make([]byte, 1400)
+	for _, size := range []int{28, 29} {
+		n, err := device.Read(packet)
+		if err != nil || !bytes.Equal(packet[:n], testPacket(size)) {
+			t.Fatalf("receive: size=%d n=%d err=%v", size, n, err)
+		}
+	}
+	if err := device.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := device.Read(packet); n != 0 || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("read after close: %d %v", n, err)
+	}
+}
+
 func TestPartialWritesAndInvalidOutput(t *testing.T) {
 	stream := new(partialStream)
 	device, _ := New(stream, 1400, testLocal, testPeer)

@@ -3,17 +3,18 @@
 package packetpipe
 
 import (
+	"bytes"
 	"fmt"
-	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/namedpipe/windows"
 	"testing"
 	"time"
 
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/namedpipe/windows"
 	"golang.org/x/sys/windows"
 )
 
 type pipePair struct{ server, client windows.Handle }
 
-func nativePair(t *testing.T, synchronous bool) *pipePair {
+func nativePair(t testing.TB, synchronous bool) *pipePair {
 	t.Helper()
 	name := windows.StringToUTF16Ptr(fmt.Sprintf(`\\.\pipe\JustConnect-packet-test-%d-%d`, windows.GetCurrentProcessId(), time.Now().UnixNano()))
 	server, err := windows.CreateNamedPipe(name, windows.PIPE_ACCESS_DUPLEX|windows.FILE_FLAG_OVERLAPPED|windows.FILE_FLAG_FIRST_PIPE_INSTANCE,
@@ -170,5 +171,56 @@ func TestNativeCloseReleasesPendingAndQueuedReaders(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("pending or queued reader survived close")
 		}
+	}
+}
+
+func BenchmarkNativePacketRead(b *testing.B) {
+	for _, size := range []int{40, 1400} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			pair := nativePair(b, false)
+			receiver, err := Duplicate(uint64(pair.client), windows.GetCurrentProcessId(), 1400, testLocal, testPeer)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer receiver.Close()
+			stream, err := nativepipe.OwnNative(pair.server)
+			if err != nil {
+				b.Fatal(err)
+			}
+			pair.server = 0
+			sender, err := New(stream, 1400, testLocal, testPeer)
+			if err != nil {
+				stream.Close()
+				b.Fatal(err)
+			}
+			defer sender.Close()
+			packet, out := testPacket(size), make([]byte, 1400)
+			sent := make(chan error, 1)
+			b.ReportAllocs()
+			b.SetBytes(int64(size))
+			b.ResetTimer()
+			go func() {
+				for range b.N {
+					if _, err := sender.Write(packet); err != nil {
+						_ = sender.Close()
+						sent <- err
+						return
+					}
+				}
+				sent <- nil
+			}()
+			for range b.N {
+				if n, err := receiver.Read(out); n != size || err != nil {
+					b.Fatalf("native receive: %d %v", n, err)
+				}
+			}
+			if err := <-sent; err != nil {
+				b.Fatal(err)
+			}
+			b.StopTimer()
+			if !bytes.Equal(out[:size], packet) {
+				b.Fatal("native packet content changed")
+			}
+		})
 	}
 }

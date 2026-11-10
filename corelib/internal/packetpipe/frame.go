@@ -2,23 +2,30 @@
 package packetpipe
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 
 	deviceaddr "github.com/wtalioy/JustConnect/corelib/internal/tundevice/address"
 )
 
 var ErrFrame = errors.New("invalid helper IPv4 packet frame")
 
+const framePrefixSize = 4
+
 type Device struct {
 	stream      io.ReadWriteCloser
+	reader      *bufio.Reader
+	prefix      [framePrefixSize]byte
 	local, peer netip.Addr
 	mtu         uint32
 	read, write sync.Mutex
 	close       sync.Once
+	closed      atomic.Bool
 	closeErr    error
 	frame       []byte
 }
@@ -27,7 +34,11 @@ func New(stream io.ReadWriteCloser, mtu uint32, local, peer netip.Addr) (*Device
 	if stream == nil || mtu < 68 || mtu > 65535 || !deviceaddr.ValidIPv4Pair(local, peer) {
 		return nil, ErrFrame
 	}
-	return &Device{stream: stream, mtu: mtu, local: local, peer: peer, frame: make([]byte, 4+mtu)}, nil
+	frameSize := framePrefixSize + int(mtu)
+	return &Device{
+		stream: stream, reader: bufio.NewReaderSize(stream, frameSize),
+		mtu: mtu, local: local, peer: peer, frame: make([]byte, frameSize),
+	}, nil
 }
 
 func (d *Device) TUNAddresses() (netip.Addr, netip.Addr) { return d.local, d.peer }
@@ -40,17 +51,19 @@ func valid(packet []byte) bool {
 func (d *Device) Read(packet []byte) (int, error) {
 	d.read.Lock()
 	defer d.read.Unlock()
-	var header [4]byte
-	if _, err := io.ReadFull(d.stream, header[:]); err != nil {
+	if d.closed.Load() {
+		return 0, io.ErrClosedPipe
+	}
+	if _, err := io.ReadFull(d.reader, d.prefix[:]); err != nil {
 		_ = d.Close()
 		return 0, err
 	}
-	size := binary.BigEndian.Uint32(header[:])
+	size := binary.BigEndian.Uint32(d.prefix[:])
 	if size < 20 || size > d.mtu || uint64(size) > uint64(len(packet)) {
 		_ = d.Close()
 		return 0, ErrFrame
 	}
-	if _, err := io.ReadFull(d.stream, packet[:size]); err != nil {
+	if _, err := io.ReadFull(d.reader, packet[:size]); err != nil {
 		_ = d.Close()
 		return 0, err
 	}
@@ -67,9 +80,9 @@ func (d *Device) Write(packet []byte) (int, error) {
 	}
 	d.write.Lock()
 	defer d.write.Unlock()
-	frame := d.frame[:4+len(packet)]
+	frame := d.frame[:framePrefixSize+len(packet)]
 	binary.BigEndian.PutUint32(frame, uint32(len(packet)))
-	copy(frame[4:], packet)
+	copy(frame[framePrefixSize:], packet)
 	for len(frame) != 0 {
 		n, err := d.stream.Write(frame)
 		if err == nil && n == 0 {
@@ -85,6 +98,9 @@ func (d *Device) Write(packet []byte) (int, error) {
 }
 
 func (d *Device) Close() error {
-	d.close.Do(func() { d.closeErr = d.stream.Close() })
+	d.close.Do(func() {
+		d.closed.Store(true)
+		d.closeErr = d.stream.Close()
+	})
 	return d.closeErr
 }
