@@ -2,9 +2,9 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -60,12 +60,6 @@ class ArchiveSourceTest(unittest.TestCase):
 
 
 class PackageIdentityTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        workflow = (source.ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
-        step = workflow.split('      - name: Resolve package identity\n', 1)[1].split('\n      - ', 1)[0]
-        cls.script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
@@ -81,7 +75,8 @@ class PackageIdentityTest(unittest.TestCase):
         outputs = self.root / 'outputs'
         outputs.unlink(missing_ok=True)
         result = subprocess.run(
-            ['bash', '-c', self.script], cwd=self.root, text=True, capture_output=True,
+            [sys.executable, str(source.ROOT / 'scripts/resolve-package-identity.py')],
+            cwd=self.root, text=True, capture_output=True,
             env={**os.environ, 'GITHUB_REF': ref, 'GITHUB_SHA': revision,
                  'GITHUB_REF_TYPE': 'tag' if ref.startswith('refs/tags/') else 'branch',
                  'GITHUB_ENV': 'github-env', 'GITHUB_OUTPUT': 'outputs',
@@ -111,7 +106,7 @@ class PackageIdentityTest(unittest.TestCase):
         main = self.git('rev-parse', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', main)
         self.git('tag', '-am', 'Release v0.0.2', 'v0.0.2')
-        self.assertEqual(self.resolve('refs/tags/v0.0.2', main, 'v0.0.2'),
+        self.assertEqual(self.resolve('refs/tags/v0.0.2', main, 'v0.0.9'),
                          {'prefix': 'JustConnect-v0.0.2', 'version': 'v0.0.2', 'date': '2026-11-11'})
 
         self.git('tag', 'v0.0.3')

@@ -319,40 +319,10 @@ jobs:
           python-version: '3.14'
       - name: Resolve package identity
         id: identity
-        shell: bash
         env:
-          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_DATE: ${{ inputs.release_date }}
-        run: |
-          set -euo pipefail
-          if [[ -n "$RELEASE_VERSION" && ! "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo 'Use a version such as v0.0.1.' >&2
-            exit 1
-          fi
-          if [[ "$GITHUB_REF_TYPE" == 'tag' ]]; then
-            if [[ "$(git rev-parse "$GITHUB_REF^{commit}")" != "$GITHUB_SHA" ]] || ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
-              echo 'The release tag must point to a commit on main.' >&2
-              exit 1
-            fi
-            if [[ ! -s "docs/releases/$RELEASE_VERSION.md" ]]; then
-              echo "Missing release notes: docs/releases/$RELEASE_VERSION.md" >&2
-              exit 1
-            fi
-            RELEASE_DATE=$(git for-each-ref --format='%(creatordate:short)' "$GITHUB_REF")
-          fi
-          if [[ -n "$RELEASE_DATE" ]]; then
-            if [[ -z "$RELEASE_VERSION" ]]; then
-              echo 'A release date requires a version.' >&2
-              exit 1
-            fi
-            if ! python -c 'from datetime import date; import os, sys; value = os.environ["RELEASE_DATE"]; sys.exit(date.fromisoformat(value).isoformat() != value)' 2>/dev/null; then
-              echo 'Use a valid release date in YYYY-MM-DD format.' >&2
-              exit 1
-            fi
-          fi
-          prefix="JustConnect-${RELEASE_VERSION:-preview-$GITHUB_SHA}"
-          printf 'prefix=%s\nversion=%s\ndate=%s\n' "$prefix" "$RELEASE_VERSION" "$RELEASE_DATE" >> "$GITHUB_OUTPUT"
-          printf 'ARCHIVE_NAME=%s-source\n' "$prefix" >> "$GITHUB_ENV"
+        run: python scripts/resolve-package-identity.py
       - name: Verify package identity and corresponding-source export
         run: python -m unittest discover -s tests -p archive_source_test.py
       - name: Export maintained source tree
