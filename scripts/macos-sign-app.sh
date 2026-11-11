@@ -21,8 +21,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 password=$(uuidgen)
-p12_password=''
 if [[ -n "${JC_MAC_SIGNING_P12:-}" ]]; then
+  # Keychain import needs a non-empty transport password; the Actions secret protects the key.
+  p12_password=JustConnect
   printf '%s' "$JC_MAC_SIGNING_P12" | python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read(),validate=True))' > "$signing_directory/identity.p12"
   unset JC_MAC_SIGNING_P12
 else

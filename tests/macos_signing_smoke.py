@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
             input=b'[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=JustConnect local build\n'
                   b'[ext]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=codeSigning\n')
         run('/usr/bin/openssl', 'pkcs12', '-export', '-inkey', key, '-in', certificate,
-            '-out', bundle, '-passout', 'pass:')
+            '-out', bundle, '-passout', 'pass:JustConnect')
         identity = base64.b64encode(bundle.read_bytes()).decode()
         cache_keychain = root / 'cache.keychain-db'
         run('/usr/bin/security', 'create-keychain', '-p', 'fixture', cache_keychain)
