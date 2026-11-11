@@ -1,5 +1,8 @@
 Third-Party Notices
 
+JustConnect's initial desktop code drew on EZ4Connect by chenx-dust and its contributors. JustConnect has since been developed independently.
+Upstream project: https://github.com/chenx-dust/EZ4Connect (GNU General Public License, version 3; see LICENSE).
+
 JustConnect's Go core includes code from zju-connect and its contributors, licensed under the GNU Affero General Public License, version 3.
 Upstream source and credits: https://github.com/Mythologyli/zju-connect/blob/c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63/README.md
 
