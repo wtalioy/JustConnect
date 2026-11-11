@@ -2,6 +2,12 @@ name: Build packages
 run-name: Build ${{ inputs.version || 'preview' }} (${{ github.ref_name }})
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - '.github/screenshots/**'
+      - 'docs/releases/**'
   workflow_dispatch:
     inputs:
       version:
@@ -21,8 +27,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/develop' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.ref == 'refs/heads/develop' }}
 
 env:
   TARGET_NAME: JustConnect
@@ -251,7 +257,7 @@ jobs:
 
   macos_preview_launch:
     name: Open macOS 27 Apple Silicon DMG
-    if: inputs.verify_macos_27 || (github.ref == 'refs/heads/main' && inputs.version != '')
+    if: github.event_name == 'workflow_dispatch' && (inputs.verify_macos_27 || (github.ref == 'refs/heads/main' && inputs.version != ''))
     needs: build
     runs-on: xcode-27
     timeout-minutes: 5
@@ -333,7 +339,7 @@ jobs:
 
   release:
     name: Prepare release draft
-    if: github.ref == 'refs/heads/main' && inputs.version != ''
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.version != ''
     needs: [build, source, macos_preview_launch]
     runs-on: ubuntu-26.04
     permissions:
