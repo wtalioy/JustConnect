@@ -8,6 +8,7 @@
 #include <QContextMenuEvent>
 #include <QDialog>
 #include <QDir>
+#include <QFile>
 #include <QMainWindow>
 #include <QPushButton>
 #include <QToolButton>
@@ -29,6 +30,7 @@
 #include <QStyleOption>
 #include <QStyle>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
 #include <cstdlib>
 #include <iostream>
@@ -167,6 +169,13 @@ static void checkboxAlignment(const QString &caption, bool checked = true) {
 
 static void textContextMenus()
 {
+    QTemporaryDir icons;
+    check(icons.isValid() && QFile::copy(":/resource/copy.svg", icons.filePath("edit-copy.svg")),
+        "provide a themed action icon even on platforms without a native theme");
+    const auto oldIconPaths = QIcon::fallbackSearchPaths();
+    QIcon::setFallbackSearchPaths({icons.path()});
+    check(!QIcon::fromTheme("edit-copy").isNull(), "the standard menu can find a Copy icon");
+
     QDialog dialog;
     QVBoxLayout layout(&dialog);
     QLabel label("Version 0.0.1");
@@ -194,14 +203,21 @@ static void textContextMenus()
             for (auto *action : menu->actions()) {
                 if (action->objectName() == "select-all" || action->shortcut().matches(QKeySequence::SelectAll) == QKeySequence::ExactMatch)
                     selectAll = action;
-                check(!action->isIconVisibleInMenu(), "text menus omit the action icons and their gutter");
+                check(action->icon().isNull(), "text menus omit the action icons and their gutter");
             }
             check(copy && selectAll && selectAll->isEnabled(), "standard Copy and Select All are preserved");
             const auto row = menu->actionGeometry(selectAll);
             check(row.left() == 6 && row.height() <= menu->fontMetrics().height() + 16,
                 "text menu has a compact inset and no oversized row");
+            const auto image = menu->grab().toImage();
+            const auto scale = image.devicePixelRatio();
+            bool inkAtTextInset = false;
+            for (int x = qCeil((row.left() + 9) * scale); x < (row.left() + 18) * scale; ++x)
+                for (int y = qCeil(row.top() * scale); y < row.bottom() * scale; ++y)
+                    inkAtTextInset |= image.pixelColor(x, y).lightness() < 120;
+            check(inkAtTextInset, "visible menu text starts at the normal inset without an icon gutter");
             const auto report = qEnvironmentVariable("JC_UI_REPORT_DIR");
-            if (!report.isEmpty()) check(menu->grab().save(QDir(report).filePath(reportName)), "save text menu layout");
+            if (!report.isEmpty()) check(image.save(QDir(report).filePath(reportName)), "save text menu layout");
             menu->setActiveAction(selectAll);
             QKeyEvent activate(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
             QApplication::sendEvent(menu, &activate);
@@ -220,6 +236,7 @@ static void textContextMenus()
     check(port.findChild<QLineEdit *>()->selectedText() == port.text(), "the number menu selects its value");
     openMenu(*log.viewport(), QContextMenuEvent::Mouse, "log-context-menu.png");
     check(log.textCursor().selectedText() == log.toPlainText(), "the read-only log menu selects its text");
+    QIcon::setFallbackSearchPaths(oldIconPaths);
 }
 
 int main(int argc,char **argv) {

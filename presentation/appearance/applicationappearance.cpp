@@ -30,7 +30,8 @@ void styleTextMenu(QMenu *menu)
             return action->objectName() == "edit-copy" || action->objectName() == "link-copy";
         })) return;
     menu->setObjectName("textContextMenu");
-    for (auto *action : actions) action->setIconVisibleInMenu(false);
+    // QMenu reserves a column even for icons hidden with setIconVisibleInMenu(false).
+    for (auto *action : actions) action->setIcon({});
 }
 
 class WindowAppearance final : public QObject {
