@@ -2,8 +2,10 @@
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/profilemenubutton.h"
 #include "tests/uiwait.h"
+#include <QAction>
 #include <QApplication>
 #include <QBackingStore>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QDir>
 #include <QMainWindow>
@@ -16,6 +18,8 @@
 #include <QLabel>
 #include <QWindow>
 #include <QLineEdit>
+#include <QMenu>
+#include <QPlainTextEdit>
 #include <QComboBox>
 #include "presentation/widgets/alignedcheckbox.h"
 #include <QAbstractItemView>
@@ -161,6 +165,63 @@ static void checkboxAlignment(const QString &caption, bool checked = true) {
     check(checkMarkPainted, "the checked square paints its contrasting check mark");
 }
 
+static void textContextMenus()
+{
+    QDialog dialog;
+    QVBoxLayout layout(&dialog);
+    QLabel label("Version 0.0.1");
+    label.setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    label.setSelection(0, 7);
+    QLineEdit line("example.edu");
+    QPlainTextEdit log("Connection details");
+    log.setReadOnly(true);
+    QSpinBox port;
+    port.setRange(1, 65535);
+    port.setValue(443);
+    layout.addWidget(&label);
+    layout.addWidget(&line);
+    layout.addWidget(&port);
+    layout.addWidget(&log);
+    dialog.show();
+
+    const auto openMenu = [&](QWidget &target, QContextMenuEvent::Reason reason, const QString &reportName) {
+        bool checked = false;
+        QTimer::singleShot(0, &target, [&] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            check(menu, "text still opens its standard context menu");
+            auto *copy = menu->findChild<QAction *>("edit-copy");
+            QAction *selectAll = nullptr;
+            for (auto *action : menu->actions()) {
+                if (action->objectName() == "select-all" || action->shortcut().matches(QKeySequence::SelectAll) == QKeySequence::ExactMatch)
+                    selectAll = action;
+                check(!action->isIconVisibleInMenu(), "text menus omit the action icons and their gutter");
+            }
+            check(copy && selectAll && selectAll->isEnabled(), "standard Copy and Select All are preserved");
+            const auto row = menu->actionGeometry(selectAll);
+            check(row.left() == 6 && row.height() <= menu->fontMetrics().height() + 16,
+                "text menu has a compact inset and no oversized row");
+            const auto report = qEnvironmentVariable("JC_UI_REPORT_DIR");
+            if (!report.isEmpty()) check(menu->grab().save(QDir(report).filePath(reportName)), "save text menu layout");
+            menu->setActiveAction(selectAll);
+            QKeyEvent activate(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            QApplication::sendEvent(menu, &activate);
+            checked = true;
+        });
+        const auto point = target.rect().center();
+        QContextMenuEvent event(reason, point, target.mapToGlobal(point));
+        QApplication::sendEvent(&target, &event);
+        UiWait::until(__FILE__, __LINE__, [&] { return checked; });
+    };
+    openMenu(label, QContextMenuEvent::Keyboard, "label-context-menu.png");
+    check(label.selectedText() == label.text(), "the label menu selects its text");
+    openMenu(line, QContextMenuEvent::Mouse, "input-context-menu.png");
+    check(line.selectedText() == line.text(), "the input menu selects its text");
+    openMenu(port, QContextMenuEvent::Mouse, "number-context-menu.png");
+    check(port.findChild<QLineEdit *>()->selectedText() == port.text(), "the number menu selects its value");
+    openMenu(*log.viewport(), QContextMenuEvent::Mouse, "log-context-menu.png");
+    check(log.textCursor().selectedText() == log.toPlainText(), "the read-only log menu selects its text");
+}
+
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
@@ -184,6 +245,7 @@ int main(int argc,char **argv) {
         "Allow JustConnect under Login Items & Extensions, then connect again.",
         "Open System Settings","background-prompt.png");
     promptParent.hide();
+    textContextMenus();
     checkboxAlignment(QStringLiteral("Launch at sign-in"));
     QMainWindow dialog;
     QPushButton disconnect("Disconnect",&dialog);

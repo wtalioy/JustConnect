@@ -103,6 +103,9 @@ QMenu::indicator:checked { image: url(:/resource/check.svg); }
 QMenu::indicator:unchecked { image: none; }
 QMenu::right-arrow { image: url(:/resource/chevron-right.svg); width: 16px; height: 16px; right: 4px; }
 QMenu::separator { height: 1px; background: #e3e6eb; margin: 5px 8px; }
+QMenu#textContextMenu { padding: 5px; }
+QMenu#textContextMenu::item { padding: 5px 12px; }
+QMenu#textContextMenu::separator { margin: 3px 6px; }
 QLabel#statusTitleLabel { font-size: 18pt; font-weight: 600; }
 QLabel#aboutAppName { font-size: 18pt; font-weight: 600; }
 QLabel#aboutCredit, QLabel#aboutVersion, QLabel#aboutReleaseDate { color: #616b7c; }

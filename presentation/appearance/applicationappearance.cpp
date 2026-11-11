@@ -1,4 +1,5 @@
 #include "applicationappearance.h"
+#include <QAction>
 #include <QApplication>
 #include <QEvent>
 #include <QFile>
@@ -11,13 +12,27 @@
 #include <QWidget>
 #include <QAbstractSpinBox>
 #include <QLineEdit>
+#include <QMenu>
 #include <QStyleOptionFrame>
 #include <QPushButton>
 #include <QToolButton>
 #include <QComboBox>
 #include <QStyledItemDelegate>
+#include <algorithm>
 
 namespace {
+void styleTextMenu(QMenu *menu)
+{
+    const auto actions = menu->actions();
+    // Qt's line editor names the menu; its shared text control names only the actions.
+    if (menu->objectName() != "qt_edit_menu"
+        && std::none_of(actions.cbegin(), actions.cend(), [](const QAction *action) {
+            return action->objectName() == "edit-copy" || action->objectName() == "link-copy";
+        })) return;
+    menu->setObjectName("textContextMenu");
+    for (auto *action : actions) action->setIconVisibleInMenu(false);
+}
+
 class WindowAppearance final : public QObject {
 public:
     using QObject::QObject;
@@ -25,6 +40,7 @@ public:
         if (event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
         if(event->type()==QEvent::Polish) {
+            if (auto *menu = qobject_cast<QMenu *>(window)) styleTextMenu(menu);
             // Use the same inset item rendering instead of platform-specific combo menu delegates.
             if(auto *combo=qobject_cast<QComboBox *>(window)) {
                 if(!qobject_cast<QStyledItemDelegate *>(combo->itemDelegate()))
