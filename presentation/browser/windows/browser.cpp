@@ -235,7 +235,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
         if (FAILED(result)) fail();
     });
 }
-SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
+SignInBrowser::~SignInBrowser() {blockSignals(true);}
 void SignInBrowser::load(const QUrl &target) {
     qCDebug(browserLog)<<"load requested"<<bool(native->view)<<target.isEmpty();
     native->pending=target;native->htmlPending=false;

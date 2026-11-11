@@ -736,7 +736,13 @@ static void browserValidatesCallbackNavigation() {
     visit("/redirect-oauth");until([&]{return responses==1;});
     check(responses==1,"valid OAuth redirect is delivered once");
     check(callback==base+"/passport/v1/auth/httpsOauth2?code=fixture","OAuth returns the exact callback URL");
-    check(callbackRequests==0,"the OAuth callback is intercepted before HTTP submission");delete dialog;
+    check(callbackRequests==0,"the OAuth callback is intercepted before HTTP submission");
+    bool browserDestroyed=false;
+    QObject::connect(view,&QObject::destroyed,&logger,[&]{browserDestroyed=true;});
+    delete dialog;
+    check(browserDestroyed,"closing the sign-in dialog preserves the browser's destruction notification");
+    check(!logs.contains("QObject::disconnect: wildcard call disconnects from destroyed signal of SignInBrowser"),
+          "closing the sign-in dialog does not log a wildcard disconnect warning");
     dialog=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->show();view=dialog->findChild<SignInBrowser *>();responses=0;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");

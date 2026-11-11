@@ -157,7 +157,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
             else if(!self->native->pending.isEmpty())self->load(self->native->pending);
         }];
 }
-SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
+SignInBrowser::~SignInBrowser() {blockSignals(true);}
 void SignInBrowser::load(const QUrl &target) {
     native->pending=target;native->htmlPending=false;
     if(native->failed){QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;}
