@@ -1,23 +1,37 @@
-#ifndef SYSTEMPROXYBACKEND_H
-#define SYSTEMPROXYBACKEND_H
-
-#include <QString>
+#pragma once
+#include "platformoperationresult.h"
+#include <QStringList>
 
 struct SystemProxyConfig
 {
     int httpPort = 0;
     int socksPort = 0;
     QString bypass;
+    // Verified original local listeners are required for a new browser handoff.
+    QStringList upstream;
+};
+
+struct SystemProxyCheck
+{
+    PlatformOperationResult result;
+    bool conflict = false;
+    bool active = false;
+    bool managed = false;
+    QStringList endpoints;
 };
 
 class SystemProxyBackend
 {
 public:
     virtual ~SystemProxyBackend() = default;
-
-    virtual bool hasConflict(const SystemProxyConfig &config) = 0;
-    virtual bool apply(const SystemProxyConfig &config) = 0;
-    virtual bool clear() = 0;
+    virtual SystemProxyCheck check(const SystemProxyConfig &config) = 0;
+    virtual SystemProxyCheck inspect() { return {{PlatformOperationResult::Status::Unsupported, "Proxy observation is unavailable"}}; }
+    virtual PlatformOperationResult apply(const SystemProxyConfig &config) = 0;
+    virtual PlatformOperationResult clear() = 0;
+    virtual PlatformOperationResult clearAfterDisconnect() { return clear(); }
+    virtual PlatformOperationResult beginRecovery(const QString &, bool resume)
+    {
+        return resume ? PlatformOperationResult{PlatformOperationResult::Status::Unsupported,
+            "This backend cannot confirm a previous recovery owner"} : PlatformOperationResult{};
+    }
 };
-
-#endif // SYSTEMPROXYBACKEND_H

@@ -1,0 +1,515 @@
+package atrust
+
+import (
+	"container/list"
+	"encoding/binary"
+	"errors"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
+)
+
+const (
+	defaultConntrackMaxEntries = 16384
+	defaultPendingPacketLimit  = 1024
+	tcpOutboundSynTTL          = 60 * time.Second
+	tcpInboundSynTTL           = 120 * time.Second
+	tcpSynAckTTL               = 60 * time.Second
+	tcpResetTTL                = 90 * time.Second
+	tcpInboundFirstClosedTTL   = 120 * time.Second
+	tcpOutboundFirstClosedTTL  = 30 * time.Second
+	tcpEstablishedTTL          = 6 * time.Hour
+	udpConntrackTTL            = 120 * time.Second
+	icmpConntrackTTL           = 30 * time.Second
+	defaultConntrackTTL        = 60 * time.Second
+)
+
+const (
+	tcpStateReset               = 0
+	tcpStateInboundSyn          = 1
+	tcpStateOutboundSyn         = 2
+	tcpStateSynAck              = 3
+	tcpStateEstablished         = 4
+	tcpStateInboundFin          = 5
+	tcpStateInboundFirstClosed  = 7
+	tcpStateOutboundFin         = 9
+	tcpStateOutboundFirstClosed = 10
+)
+
+var errConntrackEvicted = errors.New("l3-tunnel conntrack evicted")
+var errPendingPacketCacheFull = errors.New("l3-tunnel pending packet cache full")
+
+type conntrackAuthJob struct {
+	conntrack *conntrack
+	meta      packetMeta
+}
+
+type conntrack struct {
+	key          conntrackKey
+	authID       uint64
+	connectToken string
+	appID        string
+	nodeGroupID  string
+	authCh       chan struct{}
+	authErr      error
+	authStarted  uint32
+	authTimeouts int
+	authMeta     packetMeta
+	authDeadline time.Time
+	authRetryAt  time.Time
+	sendMu       sync.Mutex
+	pending      [][]byte
+	expiresAt    time.Time
+	tcpState     uint8
+	tcpSeq       uint32
+	tcpTTL       time.Duration
+	lruElement   *list.Element
+}
+
+type conntrackMgr struct {
+	mu         sync.Mutex
+	nextAuthID uint64
+	byKey      map[conntrackKey]*conntrack
+	byID       map[uint64]*conntrack
+	lru        list.List
+	nextExpiry time.Time
+	nextAuth   time.Time
+	authWake   chan struct{}
+	maxEntries int
+	now        func() time.Time
+	closed     bool
+}
+
+func newConntrackMgr() *conntrackMgr {
+	return &conntrackMgr{
+		byKey:      make(map[conntrackKey]*conntrack),
+		byID:       make(map[uint64]*conntrack),
+		authWake:   make(chan struct{}, 1),
+		maxEntries: defaultConntrackMaxEntries,
+		now:        time.Now,
+	}
+}
+
+func (m *conntrackMgr) getByID(authID uint64) *conntrack {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.byID[authID]
+}
+
+func (m *conntrackMgr) getByAuthResponseIP(ip authIP) *conntrack {
+	meta := packetMeta{proto: ip.Protocol, srcPort: ip.SrcPort, dstPort: ip.DestPort,
+		srcIP: net.ParseIP(ip.SrcAddr), dstIP: net.ParseIP(ip.DestAddr)}
+	if meta.srcIP == nil || meta.dstIP == nil {
+		return nil
+	}
+	switch ip.Atype {
+	case authIPType(4):
+		meta.atype = 4
+	case authIPType(6):
+		meta.atype = 6
+	default:
+		return nil
+	}
+	key := makeConntrackKey(meta)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ct := m.byKey[key]; ct != nil && ct.authMeta.key == key && ct.authMeta.proto == ip.Protocol {
+		return ct
+	}
+	return nil
+}
+
+func (m *conntrackMgr) getOrCreate(key conntrackKey, appID, nodeGroupID string) *conntrack {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	m.removeExpiredLocked(now)
+	if ct := m.byKey[key]; ct != nil {
+		m.lru.MoveToBack(ct.lruElement)
+		return ct
+	}
+	m.nextAuthID++
+	ct := &conntrack{
+		key:         key,
+		authID:      m.nextAuthID,
+		appID:       appID,
+		nodeGroupID: nodeGroupID,
+		authCh:      make(chan struct{}),
+		expiresAt:   now.Add(defaultConntrackTTL),
+	}
+	if m.closed {
+		ct.authErr = net.ErrClosed
+		close(ct.authCh)
+		return ct
+	}
+	if len(m.byKey) >= m.maxEntries {
+		m.removeOldestLocked()
+	}
+	ct.lruElement = m.lru.PushBack(ct)
+	m.byKey[key] = ct
+	m.byID[ct.authID] = ct
+	m.setExpiryLocked(ct, ct.expiresAt)
+	return ct
+}
+
+func (m *conntrackMgr) observePacket(key conntrackKey, packet []byte, incoming bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ct := m.byKey[key]
+	if ct == nil {
+		return false
+	}
+	now := m.now()
+	m.lru.MoveToBack(ct.lruElement)
+	ipPacket := zctcpip.IPv4Packet(packet)
+	if !ipPacket.Valid() {
+		m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
+		return true
+	}
+	ct.authMeta.proto = int(ipPacket.Protocol())
+	switch ipPacket.Protocol() {
+	case zctcpip.TCP:
+		tcpPacket := zctcpip.TCPPacket(ipPacket.Payload())
+		if !tcpPacket.Valid() {
+			m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
+			return true
+		}
+		direction := 0
+		if incoming {
+			direction = 1
+		}
+		ct.observeTCP(tcpPacket, direction)
+		m.setExpiryLocked(ct, now.Add(ct.tcpTTL))
+	case zctcpip.UDP:
+		m.setExpiryLocked(ct, now.Add(udpConntrackTTL))
+	case zctcpip.ICMP:
+		m.setExpiryLocked(ct, now.Add(icmpConntrackTTL))
+	default:
+		m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
+	}
+	return true
+}
+
+func (ct *conntrack) observeTCP(packet zctcpip.TCPPacket, direction int) {
+	flags := packet.Flags()
+	if flags&zctcpip.TCPRst != 0 {
+		ct.tcpState = tcpStateReset
+		ct.tcpTTL = tcpResetTTL
+		return
+	}
+	if ct.tcpTTL == 0 {
+		ct.tcpTTL = defaultConntrackTTL
+	}
+	sequence := binary.BigEndian.Uint32(packet[4:8])
+	acknowledgment := binary.BigEndian.Uint32(packet[8:12])
+
+	switch ct.tcpState {
+	case tcpStateReset:
+		if flags&zctcpip.TCPSyn == 0 {
+			return
+		}
+		ct.tcpSeq = sequence
+		if direction == 1 {
+			ct.tcpState = tcpStateInboundSyn
+			ct.tcpTTL = tcpInboundSynTTL
+		} else {
+			ct.tcpState = tcpStateOutboundSyn
+			ct.tcpTTL = tcpOutboundSynTTL
+		}
+	case tcpStateInboundSyn:
+		if direction != 0 || flags&zctcpip.TCPSyn == 0 {
+			return
+		}
+		if flags&zctcpip.TCPAck != 0 && acknowledgment == ct.tcpSeq+1 {
+			ct.tcpState = tcpStateEstablished
+			ct.tcpTTL = tcpEstablishedTTL
+			return
+		}
+		ct.tcpState = tcpStateSynAck
+		ct.tcpSeq = sequence
+		ct.tcpTTL = tcpSynAckTTL
+	case tcpStateOutboundSyn:
+		if direction == 1 && flags&(zctcpip.TCPSyn|zctcpip.TCPAck) == zctcpip.TCPSyn|zctcpip.TCPAck && acknowledgment == ct.tcpSeq+1 {
+			ct.tcpState = tcpStateSynAck
+			ct.tcpSeq = sequence
+			ct.tcpTTL = tcpSynAckTTL
+		}
+	case tcpStateSynAck:
+		if direction == 0 && flags&zctcpip.TCPAck != 0 && acknowledgment == ct.tcpSeq+1 {
+			ct.tcpState = tcpStateEstablished
+			ct.tcpTTL = tcpEstablishedTTL
+			return
+		}
+		ct.observeTCPFin(flags, direction)
+	case tcpStateEstablished:
+		ct.observeTCPFin(flags, direction)
+	case tcpStateInboundFin:
+		if direction == 0 && flags&zctcpip.TCPFin != 0 {
+			ct.tcpState = tcpStateInboundFirstClosed
+			ct.tcpTTL = tcpInboundFirstClosedTTL
+		}
+	case tcpStateOutboundFin:
+		if direction == 1 && flags&zctcpip.TCPFin != 0 {
+			ct.tcpState = tcpStateOutboundFirstClosed
+			ct.tcpTTL = tcpOutboundFirstClosedTTL
+		}
+	}
+}
+
+func (ct *conntrack) observeTCPFin(flags uint16, direction int) {
+	if flags&zctcpip.TCPFin == 0 {
+		return
+	}
+	if direction == 1 {
+		ct.tcpState = tcpStateInboundFin
+	} else {
+		ct.tcpState = tcpStateOutboundFin
+	}
+}
+
+func (m *conntrackMgr) markAuth(authID uint64, token string, err error) {
+	m.completeAuth(authID, token, err)
+}
+
+func (m *conntrackMgr) completeAuth(authID uint64, token string, err error) (*conntrack, [][]byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ct := m.byID[authID]
+	if ct == nil {
+		return nil, nil
+	}
+	select {
+	case <-ct.authCh:
+		return nil, nil
+	default:
+	}
+	packets := ct.pending
+	ct.pending = nil
+	ct.authDeadline = time.Time{}
+	if token != "" {
+		ct.connectToken = token
+	}
+	ct.authErr = err
+	close(ct.authCh)
+	if err != nil {
+		m.removeIndexesLocked(ct)
+		return ct, nil
+	}
+	return ct, packets
+}
+
+func (m *conntrackMgr) cachePacket(ct *conntrack, meta packetMeta, packet []byte) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.byKey[ct.key] != ct {
+		select {
+		case <-ct.authCh:
+			return false, ct.authErr
+		default:
+			return false, errConntrackEvicted
+		}
+	}
+	select {
+	case <-ct.authCh:
+		return false, ct.authErr
+	default:
+	}
+	if len(ct.pending) >= defaultPendingPacketLimit {
+		return false, errPendingPacketCacheFull
+	}
+	ct.authMeta = meta
+	copyOfPacket := append([]byte(nil), packet...)
+	ct.pending = append(ct.pending, copyOfPacket)
+	return true, nil
+}
+
+func (m *conntrackMgr) authResult(ct *conntrack) (string, error, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case <-ct.authCh:
+		return ct.connectToken, ct.authErr, true
+	default:
+		return "", nil, false
+	}
+}
+
+func (m *conntrackMgr) nextAuthBatch(limit int) ([]conntrackAuthJob, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var jobs []conntrackAuthJob
+	more := false
+	now := m.now()
+	for element := m.lru.Front(); element != nil; element = element.Next() {
+		ct := element.Value.(*conntrack)
+		if ct.authStarted != 0 || len(ct.pending) == 0 {
+			continue
+		}
+		if now.Before(ct.authRetryAt) {
+			m.scheduleAuthCheckLocked(ct.authRetryAt)
+			continue
+		}
+		if len(jobs) >= limit {
+			more = true
+			break
+		}
+		ct.authStarted = 1
+		if jobs == nil {
+			jobs = make([]conntrackAuthJob, 0, min(limit, len(m.byKey)))
+		}
+		jobs = append(jobs, conntrackAuthJob{conntrack: ct, meta: ct.authMeta})
+	}
+	return jobs, more
+}
+
+func (m *conntrackMgr) markAuthSent(authID uint64, deadline time.Time) {
+	m.mu.Lock()
+	if ct := m.byID[authID]; ct != nil && ct.authStarted != 0 {
+		select {
+		case <-ct.authCh:
+		default:
+			ct.authDeadline = deadline
+			m.scheduleAuthCheckLocked(deadline)
+		}
+	}
+	m.mu.Unlock()
+}
+
+func (m *conntrackMgr) authCheck() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nextAuth
+}
+
+func (m *conntrackMgr) notifyAuth() {
+	select {
+	case m.authWake <- struct{}{}:
+	default:
+	}
+}
+
+func (m *conntrackMgr) scheduleAuthCheckLocked(deadline time.Time) {
+	if m.nextAuth.IsZero() || deadline.Before(m.nextAuth) {
+		m.nextAuth = deadline
+	}
+}
+
+func (m *conntrackMgr) expireAuth(now time.Time, err error) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// A stale early deadline is harmless after an auth completes or a flow is removed.
+	if m.nextAuth.IsZero() || now.Before(m.nextAuth) {
+		return 0
+	}
+	m.nextAuth = time.Time{}
+	expired := 0
+	for element := m.lru.Front(); element != nil; {
+		next := element.Next()
+		ct := element.Value.(*conntrack)
+		if !ct.authDeadline.IsZero() && now.Before(ct.authDeadline) {
+			m.scheduleAuthCheckLocked(ct.authDeadline)
+		} else if !ct.authDeadline.IsZero() {
+			ct.authTimeouts++
+			if ct.authTimeouts < defaultAuthMaxAttempts {
+				ct.authStarted = 0
+				ct.authDeadline = time.Time{}
+				ct.authRetryAt = now
+			} else {
+				m.removeLocked(ct, err)
+				expired++
+			}
+		}
+		element = next
+	}
+	return expired
+}
+
+func (m *conntrackMgr) retryAuth(authID uint64, delay time.Duration) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ct := m.byID[authID]
+	if ct == nil {
+		return false
+	}
+	select {
+	case <-ct.authCh:
+		return false
+	default:
+	}
+	ct.authStarted = 0
+	ct.authDeadline = time.Time{}
+	ct.authRetryAt = m.now().Add(delay)
+	return true
+}
+
+func (m *conntrackMgr) removeExpired() {
+	m.mu.Lock()
+	m.removeExpiredLocked(m.now())
+	m.mu.Unlock()
+}
+
+func (m *conntrackMgr) setExpiryLocked(ct *conntrack, deadline time.Time) {
+	ct.expiresAt = deadline
+	if m.nextExpiry.IsZero() || deadline.Before(m.nextExpiry) {
+		m.nextExpiry = deadline
+	}
+}
+
+func (m *conntrackMgr) removeExpiredLocked(now time.Time) {
+	// A stale earlier bound only causes an extra sweep after a flow is refreshed or removed.
+	if m.nextExpiry.IsZero() || now.Before(m.nextExpiry) {
+		return
+	}
+	m.nextExpiry = time.Time{}
+	for element := m.lru.Front(); element != nil; {
+		next := element.Next()
+		ct := element.Value.(*conntrack)
+		if !now.Before(ct.expiresAt) {
+			m.removeLocked(ct, errConntrackEvicted)
+		} else {
+			m.setExpiryLocked(ct, ct.expiresAt)
+		}
+		element = next
+	}
+}
+
+func (m *conntrackMgr) removeOldestLocked() {
+	if element := m.lru.Front(); element != nil {
+		m.removeLocked(element.Value.(*conntrack), errConntrackEvicted)
+	}
+}
+
+func (m *conntrackMgr) removeLocked(ct *conntrack, err error) {
+	m.removeIndexesLocked(ct)
+	ct.pending = nil
+	select {
+	case <-ct.authCh:
+	default:
+		ct.authErr = err
+		close(ct.authCh)
+	}
+}
+
+func (m *conntrackMgr) removeIndexesLocked(ct *conntrack) {
+	if m.byKey[ct.key] == ct {
+		delete(m.byKey, ct.key)
+	}
+	if m.byID[ct.authID] == ct {
+		delete(m.byID, ct.authID)
+	}
+	if ct.lruElement != nil {
+		m.lru.Remove(ct.lruElement)
+		ct.lruElement = nil
+	}
+}
+
+func (m *conntrackMgr) close() {
+	m.mu.Lock()
+	m.closed = true
+	for _, ct := range m.byKey {
+		m.removeLocked(ct, net.ErrClosed)
+	}
+	m.mu.Unlock()
+}

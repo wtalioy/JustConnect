@@ -19,28 +19,25 @@ public:
         return m_pointsPx;
     }
     void clearAll();
-    void undoLast();
-    void setMaxPoints(int n)
-    {
-        m_maxPoints = n;
-    }
 
     QSize sizeHint() const override
     {
         return m_img.size();
     }
 
-signals:
-    void pointCountChanged(int count);
-
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *ev) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 private:
     QRectF imageRect() const;
+    void addPoint(const QPointF &point);
 
     QPixmap m_img;
     QVector<QPointF> m_pointsPx;
-    int m_maxPoints = -1;
+    QPoint m_keyboardPoint;
+    bool m_keyboardCursor=false;
 };

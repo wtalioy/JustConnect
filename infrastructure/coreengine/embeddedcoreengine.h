@@ -1,0 +1,42 @@
+#pragma once
+
+#include <QThread>
+#include "application/coreengine.h"
+
+class CoreEventPump;
+
+class EmbeddedCoreEngine final : public CoreEngine
+{
+    Q_OBJECT
+public:
+    explicit EmbeddedCoreEngine(QObject *parent = nullptr);
+    ~EmbeddedCoreEngine() override;
+    bool start(const ConnectionOptions &connectionOptions, Operation operation = Operation::Connect) override;
+    void stop() override;
+    void respond(const QJsonObject &response) override;
+    int tunnelMtu() const override;
+    void updatePolicy(const QJsonObject &policy) override;
+    void updateCoexistence(const QString &generation, const QStringList &endpoints, bool managed = false) override;
+    void readSnapshot(Snapshot kind, const QString &generation) override;
+    void attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes = false) override;
+    void attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,
+        const QString &source, const QString &peer, bool publishDNSRoutes = false) override;
+    void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
+    void prepareOriginalDNS(const QString &generation, const QJsonArray &sources, bool replaceFallbacks = false) override;
+    static ConnectionError validateConfiguration(const ConnectionOptions &connectionOptions);
+    struct ControllerDiscovery { RequestStatus status = RequestStatus::Unavailable; QJsonArray candidates; };
+    // Blocking read-only query; call from a worker.
+    static ControllerDiscovery discoverControllers();
+    static bool validControllerAddress(const QString &address);
+    static QJsonObject buildInfo();
+    static QJsonObject selfTest();
+
+private:
+    void startWorker();
+    void deliver(quint64 serial, const QJsonObject &event, const QJsonObject &initialPolicy);
+    QThread thread;
+    CoreEventPump *pump = nullptr;
+    quint64 serial = 0;
+    bool active = false;
+    bool stopping = false;
+};

@@ -1,157 +1,155 @@
 #include "connectionuicontroller.h"
+#include "application/networkpolicysession.h"
+#include "authenticationcachecoordinator.h"
+#include "controllerselectioncoordinator.h"
+#include "presentation/presentationhelpers.h"
+#include "presentation/widgets/applicationpreferenceswidget.h"
 
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QDebug>
 #include <QMessageBox>
+#if defined(Q_OS_MACOS)
+#include "infrastructure/networkhelper/macos/helperregistration.h"
+#endif
 #include <QPushButton>
 #include <QSettings>
 #include <QWidget>
+#include <QUrl>
+#include <QtConcurrent>
 
 #include <utility>
 
 #include "application/applicationlogger.h"
 #include "application/connectionsession.h"
+#include "application/applicationshutdown.h"
+#include "application/authmethodsquery.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/coreprocess/coreexecutable.h"
-#include "infrastructure/platform/privileges.h"
-#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/savedconnectionservice.h"
+#include "application/settingsmigrator.h"
+#include "application/defaultsettings.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/process/running.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
 ConnectionUiController::ConnectionUiController(
     QWidget *parentWidget,
     QPushButton *connectButton,
-    QPushButton *proxyButton,
     QAction *trayConnectAction,
     ConnectionSession *connectionSession,
     SystemProxySession *systemProxySession,
+    NetworkPolicySession *networkPolicy,
     AuthDialogCoordinator *authenticationDialogs,
     ApplicationLogger *applicationLogger,
+    CredentialAccess *credentials,
     SettingsProvider settingsProvider,
-    ProfileIdProvider profileIdProvider,
+    CredentialSourceProvider credentialSourceProvider,
     NotificationHandler notificationHandler,
-    QObject *parent
+    QObject *parent,
+    OfficialClientProbe officialClientProbe
 )
     : QObject(parent),
       parentWidget(parentWidget),
       connectButton(connectButton),
-      proxyButton(proxyButton),
       trayConnectAction(trayConnectAction),
       connectionSession(connectionSession),
-      systemProxySession(systemProxySession),
+      networkPolicy(networkPolicy),
       authenticationDialogs(authenticationDialogs),
-      settingsProvider(std::move(settingsProvider)),
-      profileIdProvider(std::move(profileIdProvider)),
-      notificationHandler(std::move(notificationHandler))
+      settingsProvider(std::move(settingsProvider)),credentials(credentials),credentialSourceProvider(std::move(credentialSourceProvider)),
+      notificationHandler(std::move(notificationHandler)),
+      officialClientProbe(officialClientProbe?std::move(officialClientProbe):[] {return isProcessRunning(QStringLiteral("aTrustAgent"));})
 {
-    connectButton->setText("连接服务器");
-    trayConnectAction->setText("连接服务器");
-    proxyButton->setText("设置系统代理");
-    proxyButton->hide();
+    refreshActions();
 
-    connect(
-        connectionSession,
-        &ConnectionSession::outputRead,
-        applicationLogger,
-        &ApplicationLogger::appendCoreOutput
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::savedSudoPasswordRejected,
-        this,
-        []() { qWarning().noquote() << "sudo 密码可能有误，不使用记住的密码"; }
-    );
-    connect(
-        authenticationDialogs,
-        &AuthDialogCoordinator::loginSubmitted,
-        this,
-        [this](const QString &username, const QString &password, bool saveDetails)
-        {
-            if (saveDetails)
-            {
-                settings()->setValue("Credential/Username", username);
-                settings()->setValue(
-                    "Credential/Password",
-                    QString(password.toUtf8().toBase64())
-                );
-                settings()->sync();
-            }
-            startConnection(username, password);
-        }
-    );
-    connect(
-        authenticationDialogs,
-        &AuthDialogCoordinator::phoneNumberSubmitted,
-        this,
-        [this](
-            const QString &countryCode,
-            const QString &phoneNumber,
-            bool saveDetails
-        )
-        {
-            if (saveDetails)
-            {
-                settings()->setValue("ZJUConnect/PhoneCountryCode", countryCode);
-                settings()->setValue("ZJUConnect/PhoneNumber", phoneNumber);
-                settings()->sync();
-            }
-
-            const QString username =
-                settings()->value("Credential/Username", "").toString();
-            const QString password = QByteArray::fromBase64(
-                settings()->value("Credential/Password", "").toString().toUtf8()
-            );
-            startConnection(
-                username,
-                password,
-                countryCode + "-" + phoneNumber
-            );
-        }
-    );
+    connect(connectionSession, &ConnectionSession::diagnostic, this,
+        [this,applicationLogger](const QString &code) {
+            applicationLogger->appendCoreOutput("[core] " + code);
+            if (code == "browser_proxy_changed_externally")
+                this->notificationHandler(tr("Browser proxy changed"),tr("New proxy settings were detected. JustConnect will preserve them."),QSystemTrayIcon::Information);
+        });
+    authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
+    controllerSelection=new ControllerSelectionCoordinator(parentWidget,this);
+    shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {
+        if (this->credentials->isBusy() || authenticationCache->isBinding() || controllerSelection->isReading()) return true;
+        if (this->networkPolicy && this->networkPolicy->isBusy()) return true;
+        for (auto *query:this->parentWidget->findChildren<AuthMethodsQuery *>()) if (query->isActive()) return true;
+        for (auto *preferences : this->parentWidget->findChildren<ApplicationPreferencesWidget *>())
+            if (preferences->isSavingStartup()) return true;
+        return false;
+    },this);
+    connect(shutdown,&ApplicationShutdown::ready,this,&ConnectionUiController::readyToQuit);
+    connect(shutdown,&ApplicationShutdown::failed,this,&ConnectionUiController::quitFailed);
+    connect(authenticationCache,&AuthenticationCacheCoordinator::warning,this,[this](const QString &message) {
+        this->notificationHandler(tr("Authentication cache was not saved"),message,QSystemTrayIcon::Warning);
+    });
+    connect(authenticationCache,&AuthenticationCacheCoordinator::forgotten,this,[this] { cacheCredentialsRequired=false; });
+    connect(authenticationDialogs,&AuthDialogCoordinator::loginSubmitted,this,&ConnectionUiController::submitLogin);
+    connect(authenticationDialogs,&AuthDialogCoordinator::phoneNumberSubmitted,this,&ConnectionUiController::submitPhone);
+    connect(authenticationDialogs,&AuthDialogCoordinator::credentialInputCancelled,this,&ConnectionUiController::cancelPendingCredentials);
     connect(
         connectionSession,
         &ConnectionSession::reconnectScheduled,
         this,
-        [](int) { qInfo().noquote() << "正在尝试重新连接..."; }
+        [this](int delayMs) {
+            qInfo().noquote() << tr("Reconnect %1/%2 in %3 seconds")
+                .arg(this->connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts).arg(delayMs / 1000.0);
+        }
     );
     connect(
         connectionSession,
         &ConnectionSession::finished,
         this,
-        [this](ZJU_ERROR error)
+        [this](ConnectionError error)
         {
-            qInfo().noquote() << "VPN 断开！";
-            if (error != ZJU_ERROR::NONE)
+            qInfo().noquote() << tr("VPN disconnected");
+            if (quitting) return;
+            if (error==ConnectionError::CREDENTIALS_REQUIRED && cacheCredentialsRequired && authenticationCache->source()
+                && sourceStillCurrent(*authenticationCache->source()) && CredentialAccess::matches(*authenticationCache->source(),*settings())) {
+                cacheCredentialsRequired=false;
+                promptSource=this->credentialSourceProvider();
+                refreshActions();
+                this->authenticationDialogs->requestLogin(promptSource->connectionOptions.credentials.username,{});
+                return;
+            }
+            promptCredentials={};cacheCredentialsRequired=false;
+            if (error != ConnectionError::NONE)
             {
                 this->notificationHandler(
                     "VPN",
-                    "VPN 意外断开！",
+                    tr("VPN disconnected unexpectedly"),
                     QSystemTrayIcon::MessageIcon::Warning
                 );
             }
-            this->connectButton->setText("连接服务器");
-            this->trayConnectAction->setText("连接服务器");
-            this->proxyButton->hide();
+            refreshActions();
             if (this->connectionSession->state() != ConnectionState::Interrupted)
             {
                 showConnectionError(error);
             }
         }
     );
+    connect(connectionSession,&ConnectionSession::stateChanged,this,[this] { refreshActions(); });
+    connect(connectionSession,&ConnectionSession::progressChanged,this,[this] { refreshActions(); });
     connect(
         connectButton,
         &QPushButton::clicked,
         this,
-        &ConnectionUiController::handleConnectClicked
+        &ConnectionUiController::toggleCampusAccess
     );
-    connect(
-        proxyButton,
-        &QPushButton::clicked,
-        this,
-        &ConnectionUiController::handleProxyClicked
-    );
+    connect(trayConnectAction,&QAction::triggered,this,&ConnectionUiController::toggleCampusAccess);
 
+}
+
+void ConnectionUiController::refreshActions()
+{
+    const auto action=connectionSession->networkRecoveryFailed()?tr("Retry recovery")
+        : connectionSession->state()==ConnectionState::Stopping?tr("Disconnecting…")
+        : connectionSession->state()==ConnectionState::Starting || connectionSession->state()==ConnectionState::Reconnecting?tr("Cancel")
+        : connectionSession->isActive()?tr("Disconnect")
+        : credentialsPending?tr("Cancel"):tr("Connect");
+    connectButton->setText(action);trayConnectAction->setText(action);
+    const bool enabled=!quitting && (connectionSession->state()!=ConnectionState::Stopping || connectionSession->networkRecoveryFailed());
+    connectButton->setEnabled(enabled);trayConnectAction->setEnabled(enabled);
 }
 
 QSettings *ConnectionUiController::settings() const
@@ -159,254 +157,265 @@ QSettings *ConnectionUiController::settings() const
     return settingsProvider();
 }
 
-void ConnectionUiController::handleConnectClicked()
+bool ConnectionUiController::sourceStillCurrent(const CredentialSource &source) const
 {
-    if (connectionSession->isActive())
-    {
-        connectionSession->stop();
-        return;
+    return settings()->fileName()==source.path
+        && SavedConnectionService::load(*settings()).authenticationIdentity()==source.connectionOptions.authenticationIdentity();
+}
+
+bool ConnectionUiController::isConfigurationSaving() const
+{
+    return credentials->isSaving(settings()->fileName())
+        || authenticationCache->isBindingFor(settings()->fileName());
+}
+
+void ConnectionUiController::cancelPendingCredentials()
+{
+    ++credentialGeneration;credentialsPending=false;promptSource.reset();promptCredentials={};
+    controllerSelection->cancel();
+    authenticationDialogs->closeCredentialPrompts();
+    if (!connectionSession->isActive()) {refreshActions();}
+}
+void ConnectionUiController::toggleCampusAccess()
+{
+    if (quitting) return;
+    if (connectionSession->isActive()) {cancelPendingCredentials();connectionSession->stop();return;}
+    if (credentialsPending) {cancelPendingCredentials();return;}
+    enableCampusAccess();
+}
+void ConnectionUiController::enableCampusAccess()
+{
+    if (quitting || connectionSession->isActive() || credentialsPending) return;
+    if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
+    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before connecting."));return;}
+    cancelPendingCredentials();
+    const auto connectionOptions=SavedConnectionService::load(*settings());
+    if (settings()->value("Common/NeedsConfiguration",false).toBool() || connectionOptions.endpoint.server.isEmpty() || connectionOptions.endpoint.authType.isEmpty()) {
+        emit configurationRequested();return;
     }
-
-    if (settings()->contains("ZJUConnect/ServerAddress") &&
-        settings()->value("ZJUConnect/ServerAddress").toString().isEmpty())
-    {
-        QMessageBox::critical(parentWidget, "错误", "服务器地址不能为空");
-        return;
+    const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
+    if (!SettingsMigrator::readableFile(source.path)) {
+        QMessageBox::warning(parentWidget,tr("Connection unavailable"),tr("The current connection settings could not be read. Check the file permissions and contents, then reopen the connection."));return;
     }
-
-    const QString username = settings()->value("Credential/Username", "").toString();
-    const QString password = QByteArray::fromBase64(
-        settings()->value("Credential/Password", "").toString().toUtf8()
-    );
-    const QString protocol =
-        settings()->value("ZJUConnect/Protocol", "easyconnect").toString();
-    const QString authType =
-        settings()->value("ZJUConnect/AuthType", "psw").toString();
-    const QString easyconnectAuthType = settings()->value(
-        "ZJUConnect/EasyConnectAuthType",
-        settings()->value("Credential/CertFile", "").toString().isEmpty()
-            ? "password"
-            : "certificate"
-    ).toString();
-
-    if (protocol == "easyconnect"
-        && easyconnectAuthType == "certificate"
-        && settings()->value("Credential/CertFile", "").toString().isEmpty())
-    {
-        QMessageBox::information(
-            parentWidget,
-            "需要配置证书",
-            "当前配置选择了证书认证。\n"
-            "请通过“文件 → 配置引导”选择证书文件。"
-        );
-        return;
-    }
-
-#if defined(Q_OS_WIN)
-    if (settings()->value("ZJUConnect/TUNMode").toBool() &&
-        !Privileges::isElevated())
-    {
-        if (Privileges::relaunchElevated())
-        {
-            QApplication::quit();
+    credentialsPending=true;refreshActions();
+    // The vendor's three desktop clients use aTrustAgent; this is advisory, never ownership or authentication evidence.
+    QtConcurrent::run(officialClientProbe).then(this,[this,generation](std::optional<bool> running) {
+        if(quitting || generation!=credentialGeneration)return;
+        if(!running){qWarning()<<"Cannot inspect the official aTrust core process.";return;}
+        if(*running)notificationHandler(tr("aTrust background agent detected"),
+            tr("If aTrust is connected, disconnect it first to avoid routing or DNS conflicts."),QSystemTrayIcon::Warning);
+    });
+    credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
+        if (generation!=credentialGeneration) return;
+        if (!sourceStillCurrent(source) || (loaded.result.succeeded() && !CredentialAccess::matches(source,*settings()))) {cancelPendingCredentials();return;}
+        if (!loaded.result.succeeded() && loaded.result.status!=CredentialStatus::NotFound) {
+            QMessageBox::warning(parentWidget,tr("Saved credentials unavailable"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou can sign in manually for this connection."));
         }
-        else
-        {
-            QMessageBox::warning(
-                parentWidget,
-                "提升失败",
-                "无法以管理员权限重新启动，请手动以管理员方式运行。"
-            );
-        }
-        return;
-    }
-#endif
-
-    const bool passwordLogin =
-        (protocol == "atrust" && authType == "psw") ||
-        (protocol == "easyconnect" && easyconnectAuthType != "certificate");
-    if (protocol == "atrust" && authType == "smsCheckCode")
-    {
-        QString countryCode = settings()
-            ->value("ZJUConnect/PhoneCountryCode", "86")
-            .toString()
-            .trimmed();
-        const QString phoneNumber = settings()
-            ->value("ZJUConnect/PhoneNumber", "")
-            .toString()
-            .trimmed();
-        if (countryCode.isEmpty() || phoneNumber.isEmpty())
-        {
-            if (countryCode.isEmpty())
-            {
-                countryCode = "86";
-            }
-            authenticationDialogs->requestPhoneNumber(countryCode, phoneNumber);
+        if (generation!=credentialGeneration) return;
+        const auto current=credentialSourceProvider();
+        if (current.path!=source.path || current.connectionOptions.authenticationIdentity()!=source.connectionOptions.authenticationIdentity()
+            || (loaded.result.succeeded() && current.scope!=source.scope)) {
+            cancelPendingCredentials();
             return;
         }
+        auto connectionOptions=current.connectionOptions;
+        if (loaded.result.succeeded()) connectionOptions.credentials=loaded.credentials;
+        if (connectionOptions.behavior.rememberAuthentication && !current.scope.isEmpty()) loadAuthenticationCache(current,connectionOptions,generation);
+        else {
+            credentialsPending=false;
+            refreshActions();
+            requestConnection(current,connectionOptions,credentials->authenticationCacheRevision(current));
+        }
+    });
+}
+void ConnectionUiController::loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation)
+{
+    credentials->loadAuthenticationCache(source).then(this,[this,source,connectionOptions,generation](const AuthenticationCacheLoadResult &loaded) mutable {
+        if (generation!=credentialGeneration) return;
+        if (!sourceStillCurrent(source) || !CredentialAccess::matches(source,*settings())
+            || source.publicValues!=DefaultSettings::publicValues(*settings())
+            || loaded.revision!=credentials->authenticationCacheRevision(source)) {cancelPendingCredentials();return;}
+        credentialsPending=false;
+        if (loaded.result.succeeded()) connectionOptions.authenticationCache=loaded.cache;
+        else if (loaded.result.status!=CredentialStatus::NotFound)
+            qWarning() << "Saved authentication unavailable:" << int(loaded.result.status) << "native:" << loaded.result.nativeCode;
+        refreshActions();
+        requestConnection(source,connectionOptions,loaded.revision);
+    });
+}
+void ConnectionUiController::requestConnection(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 revision)
+{
+    if (connectionOptions.endpoint.authType=="smsCheckCode" && connectionOptions.endpoint.phone.isEmpty()) {
+        promptSource=source;promptCredentials=connectionOptions.credentials;
+        auto country=settings()->value("JustConnect/PhoneCountryCode","86").toString().trimmed();
+        if (country.isEmpty()) country="86";
+        authenticationDialogs->requestPhoneNumber(country,settings()->value("JustConnect/PhoneNumber").toString());return;
     }
-    if (passwordLogin && (username.isEmpty() || password.isEmpty()))
-    {
-        authenticationDialogs->requestLogin(username, password);
-        return;
+    if (connectionOptions.endpoint.authType=="psw" && (connectionOptions.credentials.username.isEmpty()
+        || (connectionOptions.credentials.password.isEmpty() && connectionOptions.authenticationCache.data.isEmpty()))) {
+        promptSource=source;promptCredentials=connectionOptions.credentials;
+        authenticationDialogs->requestLogin(connectionOptions.credentials.username,connectionOptions.credentials.password);return;
     }
-    startConnection(username, password);
+    startConnection(connectionOptions,source,revision);
+}
+void ConnectionUiController::submitLogin(const QString &username,const QString &password,bool save)
+{
+    if (!promptSource || !sourceStillCurrent(*promptSource)) return;
+    const auto source=*promptSource;auto connectionOptions=SavedConnectionService::load(*settings());
+    const auto totp=username.trimmed()==source.connectionOptions.credentials.username && CredentialAccess::matches(source,*settings())
+        ? promptCredentials.totpSecret : QString();
+    connectionOptions.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
+    submitManual(source,connectionOptions,save,{{"Credential/Username",connectionOptions.credentials.username}},
+        !connectionOptions.credentials.password.isEmpty() || !connectionOptions.credentials.totpSecret.isEmpty());
+}
+void ConnectionUiController::submitPhone(const QString &country,const QString &phone,bool save)
+{
+    if (!promptSource || !sourceStillCurrent(*promptSource)) return;
+    const auto source=*promptSource;auto connectionOptions=SavedConnectionService::load(*settings());
+    connectionOptions.endpoint.phone=country+"-"+phone;promptSource.reset();promptCredentials={};
+    submitManual(source,connectionOptions,save,{{"JustConnect/PhoneCountryCode",country},{"JustConnect/PhoneNumber",phone}},false);
+}
+void ConnectionUiController::submitManual(const CredentialSource &source,const ConnectionOptions &connectionOptions,bool save,const QVariantMap &changes,bool updateCredentials)
+{
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
+    if (validation!=ConnectionError::NONE) {showConnectionError(validation);return;}
+    if (!save) {const auto current=credentialSourceProvider();startConnection(connectionOptions,current,credentials->authenticationCacheRevision(current));return;}
+    const auto generation=++credentialGeneration;
+    credentialsPending=true;refreshActions();
+    credentials->save(source,connectionOptions,updateCredentials,changes).then(this,[this,source,connectionOptions,generation](const CredentialResult &result) {
+        if (generation!=credentialGeneration) return;
+        credentialsPending=false;
+        const bool sameFile=settings()->fileName()==source.path;
+        if (!sameFile) {cancelPendingCredentials();return;}
+        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Login details were not saved"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nYou can sign in manually for this connection."));
+        if (generation!=credentialGeneration) return;
+        const auto current=SavedConnectionService::load(*settings());
+        const auto expected=result.succeeded() ? connectionOptions.authenticationIdentity() : source.connectionOptions.authenticationIdentity();
+        if (current.authenticationIdentity()!=expected) {cancelPendingCredentials();return;}
+        const auto currentSource=credentialSourceProvider();
+        startConnection(connectionOptions,currentSource,credentials->authenticationCacheRevision(currentSource));
+    });
 }
 
-void ConnectionUiController::handleProxyClicked()
+void ConnectionUiController::startConnection(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 revision)
 {
-    if (systemProxySession->isBusy())
-    {
-        return;
-    }
-    if (systemProxySession->isEnabled())
-    {
-        systemProxySession->disable();
-        return;
-    }
-
-    const int httpPort = settings()->value("ZJUConnect/HTTPPort").toInt();
-    const int socksPort = settings()->value("ZJUConnect/SOCKS5Port").toInt();
-    const SystemProxyConfig proxyConfig{
-        httpPort,
-        socksPort,
-        settings()->value("Common/SystemProxyBypass").toString()
-    };
-    connect(
-        systemProxySession,
-        &SystemProxySession::conflictCheckFinished,
-        this,
-        [this, proxyConfig, httpPort, socksPort](bool conflict)
+    const auto generation=credentialGeneration;
+    credentialsPending=true;refreshActions();
+    controllerSelection->choose([this,connectionOptions=std::move(connectionOptions),source,revision,generation](std::optional<QString> address) mutable {
+        if (generation!=credentialGeneration || quitting) return;
+        credentialsPending=false;
+        if (!address || !sourceStillCurrent(source)) { cancelPendingCredentials();return; }
+        connectionOptions.behavior.controllerAddress=*address;
+        promptSource.reset();promptCredentials=connectionOptions.credentials;
+        connectionOptions=authenticationCache->prepare(std::move(connectionOptions),source,revision);
+        cacheCredentialsRequired=connectionOptions.endpoint.authType=="psw" && connectionOptions.credentials.password.isEmpty() && !connectionOptions.authenticationCache.data.isEmpty();
+        const ReconnectPolicy reconnectPolicy{
+            settings()->value("Common/AutoReconnect", false).toBool(),
+            qBound(1, settings()->value("Common/ReconnectTime", 1).toInt(), ConnectionSessionState::MaxReconnectDelayMs / 1000) * 1000
+        };
+        if (!connectionSession->start(connectionOptions, reconnectPolicy)
+            || !connectionSession->isActive())
         {
-            if (!connectionSession->isActive())
-            {
-                return;
-            }
+            return;
+        }
 
-            if (conflict &&
-                !settings()->value(
-                    "Common/SuppressProxyOverrideWarning",
-                    false
-                ).toBool())
-            {
-                QMessageBox messageBox(
-                    QMessageBox::Warning,
-                    "警告",
-                    "当前已存在系统代理配置（可能是 Clash 或其它代理软件）\n"
-                    "是否覆盖当前系统代理配置？",
-                    QMessageBox::Yes | QMessageBox::No,
-                    parentWidget
-                );
-                auto *dontShowCheckBox = new QCheckBox("不再提示");
-                messageBox.setCheckBox(dontShowCheckBox);
-                if (messageBox.exec() == QMessageBox::No)
-                {
-                    return;
-                }
-                if (dontShowCheckBox->isChecked())
-                {
-                    settings()->setValue(
-                        "Common/SuppressProxyOverrideWarning",
-                        true
-                    );
-                    settings()->sync();
-                }
-            }
-            else if (conflict)
-            {
-                qInfo().noquote() << "跳过系统代理覆盖警告，因为已设置了不再提示";
-            }
+        refreshActions();
 
-            qInfo().noquote()
-                << "设置系统代理：HTTP端口 " + QString::number(httpPort)
-                       + "，SOCKS5 端口 " + QString::number(socksPort);
-            systemProxySession->enable(proxyConfig);
-        },
-        Qt::SingleShotConnection
-    );
-    systemProxySession->checkConflict(proxyConfig);
+    });
 }
 
-void ConnectionUiController::startConnection(
-    const QString &username,
-    const QString &password,
-    const QString &phone
-)
+void ConnectionUiController::clearAuthenticationCache()
 {
-    ConnectionProfile profile = SettingsProfileLoader::load(
-        *settings(),
-        profileIdProvider(),
-        username,
-        password
-    );
-    if (!phone.isNull())
-    {
-        profile.endpoint.phone = phone;
+    if (quitting) return;
+    const auto source=credentialSourceProvider();
+    if (isConfigurationSaving()) {
+        QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before clearing authentication caches."));return;
     }
-    profile.program = CoreExecutable::path();
-    const ReconnectPolicy reconnectPolicy{
-        settings()->value("Common/AutoReconnect", false).toBool(),
-        settings()->value("Common/ReconnectTime", 1).toInt() * 1000
-    };
-    if (!connectionSession->start(profile, reconnectPolicy)
-        || !connectionSession->isActive())
-    {
-        return;
+    if (ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions).isEmpty()) {
+        QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
     }
-
-    connectButton->setText("断开服务器");
-    trayConnectAction->setText("断开服务器");
-    proxyButton->show();
-
-    if (settings()->value("Common/AutoSetProxy", false).toBool())
-    {
-        proxyButton->click();
-    }
+    const auto account=source.connectionOptions.credentials.username.isEmpty() ? source.connectionOptions.endpoint.phone : source.connectionOptions.credentials.username;
+    if (!PresentationHelpers::actionPrompt(parentWidget,tr("Clear authentication cache"),
+        tr("Clear the saved sign-in for %1 on %2?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.")
+            .arg(account,source.connectionOptions.endpoint.server))) return;
+    if (credentialsPending) cancelPendingCredentials();
+    authenticationCache->clear(source).then(this,[this](const CredentialResult &result) {
+        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Authentication cache cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
+    });
 }
 
-void ConnectionUiController::showConnectionError(ZJU_ERROR error)
+void ConnectionUiController::prepareForQuit()
+{
+    if (!quitting) {
+        quitting=true;
+        if (networkPolicy) networkPolicy->clear();
+        cancelPendingCredentials();
+        for (auto *query:parentWidget->findChildren<AuthMethodsQuery *>()) query->stop();
+        authenticationDialogs->closeAuthentication();
+        authenticationDialogs->closeCredentialPrompts();
+        connectButton->setEnabled(false);
+        trayConnectAction->setEnabled(false);
+    }
+    shutdown->request();
+}
+
+void ConnectionUiController::showConnectionError(ConnectionError error)
 {
     QString message;
     switch (error)
     {
-    case ZJU_ERROR::INVALID_DETAIL:
-        message = "登录失败！\n请检查设置中的网络账号和密码是否设置正确。";
+    case ConnectionError::BACKGROUND_HELPER_UNAVAILABLE: {
+#if defined(Q_OS_MACOS)
+        if (PresentationHelpers::actionPrompt(parentWidget,tr("Background access required"),
+            tr("Allow JustConnect under Login Items & Extensions, then connect again."),
+            QDialogButtonBox::Open,QDialogButtonBox::Cancel,tr("Open System Settings"))) openMacBackgroundApprovalSettings();
+        return;
+#else
+        message=tr("Check that JustConnect is allowed to run in the background, then connect again.");
         break;
-    case ZJU_ERROR::BRUTE_FORCE:
-        message = "登录失败！\n登录尝试过于频繁，IP 被风控，请稍后重试或换用 EasyConnect。";
+#endif
+    }
+    case ConnectionError::PERMISSION_DENIED:
+        message=tr("Network permission was denied. Check interface access or authorization, then retry.");
         break;
-    case ZJU_ERROR::OTHER_LOGIN_FAILED:
-        message = "登录失败！\n未知原因，可将日志反馈给开发者以便调查。";
+    case ConnectionError::SESSION_INVALID:
+        message=tr("The server ended the session. Select Connect to sign in again.");
         break;
-    case ZJU_ERROR::ACCESS_DENIED:
-        message = "权限不足！\n请关闭程序，点击右键以管理员身份运行。";
+    case ConnectionError::CREDENTIALS_REQUIRED:
+        message=tr("Authentication expired or could not be restored. Enter your credentials and retry.");
         break;
-    case ZJU_ERROR::LISTEN_FAILED:
-        message = "监听失败！\n请关闭占用端口的程序（如残留的 zju-connect.exe），或者监听其它端口。";
+    case ConnectionError::AUTHENTICATION_UNSUPPORTED:
+        message=tr("The next sign-in step is not supported. Ask your administrator to confirm the authentication policy.");
         break;
-    case ZJU_ERROR::CLIENT_FAILED:
-        message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
+    case ConnectionError::AUTHENTICATION_CHANGED:
+        message = tr("In connection settings, choose “Load from server…” and select a sign-in method.");
         break;
-    case ZJU_ERROR::CAPTCHA_FAILED:
-        message = "登录失败！\n验证码问题，可能是已验证码过期或者有误。";
+    case ConnectionError::TLS_TRUST:
+        message=tr("The certificate is not trusted or does not match the server. Check the address, system time and campus CA.");
         break;
-    case ZJU_ERROR::PROGRAM_NOT_FOUND:
-        message = "程序未找到！\n请检查核心是否在正确路径下，检查是否解压在当前目录下。";
+    case ConnectionError::TLS_PROTOCOL:
+        message=tr("TLS negotiation failed. Check the server port and TLS compatibility.");
         break;
-    case ZJU_ERROR::INTERACTIVE_ERROR:
-        message = "登录失败！\n请检查您的输入是否正确，检查是否完成 SSO 登录。";
+    case ConnectionError::NETWORK_FAILED:
+        message=tr("The network connection failed. Check DNS, connectivity and the server address.");
         break;
-    case ZJU_ERROR::AUTH_NOT_AVAILABLE:
-        message = "认证方式/登录域不可用！\n请通过“获取认证方式”按钮配置认证方式。";
+    case ConnectionError::TIMED_OUT:
+        message=tr("The connection or sign-in timed out. Please retry.");
         break;
-    case ZJU_ERROR::AUTH_EXPIRED:
-        message = "认证已过期！\n请重新登录。";
+    case ConnectionError::CLIENT_FAILED:
+        message = tr("Connection failed. Check your network and server settings.");
         break;
-    case ZJU_ERROR::OTHER:
-        message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";
+    case ConnectionError::CORE_UNAVAILABLE:
+        message = tr("The core library is unavailable. Check that the package is complete and its ABI matches.");
         break;
-    case ZJU_ERROR::NONE:
+    case ConnectionError::INVALID_CONFIGURATION:
+        message = tr("The connection settings are invalid or use unsupported legacy options.");
+        break;
+    case ConnectionError::OTHER:
+        message = tr("Unexpected error. Share the diagnostic log with the developer for investigation.");
+        break;
+    case ConnectionError::NONE:
         return;
     }
-    QMessageBox::critical(parentWidget, "错误", message);
+    QMessageBox::critical(parentWidget, tr("Error"), message);
 }

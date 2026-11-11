@@ -4,7 +4,9 @@
 #include <QDialog>
 #include <QUrl>
 #include <QString>
-#include <QCloseEvent>
+#include "core/connectionoptions.h"
+
+class SignInBrowser;
 
 namespace Ui
 {
@@ -16,25 +18,30 @@ class SsoLoginWebView : public QDialog
     Q_OBJECT
 
 public:
-    explicit SsoLoginWebView(QWidget *parent = nullptr);
+    explicit SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsOptions &tls={});
     ~SsoLoginWebView() override;
 
     void setInitialUrl(const QUrl &url);
-    void setCallbackServerUrl(const QUrl &url);
-    QUrl currentUrl() const;
 
 signals:
     void loginCompleted(const QString &url);
 
 protected:
-    void closeEvent(QCloseEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private:
     void setupConnections();
+    void showNavigationError();
+    void updateWarning();
+    enum class NavigationFailure { None, Address, Certificate, Runtime };
+    NavigationFailure failure=NavigationFailure::None;
     bool isCallbackUrl(const QUrl &url) const;
+    bool isAllowedUrl(const QUrl &url) const;
 
     Ui::SsoLoginWebView *ui;
-    QUrl callbackServerUrl;
+    SignInBrowser *browser=nullptr;
+    const QUrl callbackUrl;
+    const TlsOptions tls;
     bool loginCompletedEmitted = false;
 };
 

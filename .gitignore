@@ -18,6 +18,7 @@
 
 # Fortran module files
 *.mod
+!go.mod
 *.smod
 
 # Compiled Static libraries
@@ -46,4 +47,11 @@ CMakeUserPresets.json
 
 /.vscode
 
-!wintun.dll
+__pycache__/
+aqtinstall.log
+
+# Local development documents
+/AGENTS.md
+/plan.md
+/docs/*
+!/docs/releases/

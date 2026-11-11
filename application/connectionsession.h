@@ -3,52 +3,96 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QUrl>
+#include <QMap>
+#include <QDateTime>
+#include <QUuid>
+#include "application/platformoperationresult.h"
 
-#include "application/coreprocess.h"
-#include "core/connectionprofile.h"
+#include "application/coreengine.h"
+#include "core/connectionoptions.h"
 #include "core/connectionsessionstate.h"
+
+struct SessionObservation { QString result; QDateTime observedAt; };
+enum class ConnectionPhase { Initializing, Starting, Authenticating, AuthenticationSucceeded, Restoring, ReauthenticationRequired, TransportReady, NetworkRecovering, NetworkPreparing, NetworkRestoring, CampusReady };
+
+// The backend confirms recovery before startup and retains responsibility until final release.
+class NetworkAccess : public QObject
+{
+    Q_OBJECT
+public:
+    using QObject::QObject;
+    virtual void prepare(const QUuid &attempt) = 0;
+    virtual void activate(const QUuid &attempt, const ConnectionOptions &connectionOptions) = 0;
+    virtual void stop(const QUuid &attempt) = 0;
+signals:
+    void prepared(const QUuid &attempt, PlatformOperationResult result);
+    void ready(const QUuid &attempt, PlatformOperationResult result);
+    // Captures and DNS are withdrawn; the core may stop before the backend releases its device.
+    void quiesced(const QUuid &attempt);
+    void stopped(const QUuid &attempt, PlatformOperationResult result);
+    void lost(const QUuid &attempt, PlatformOperationResult result);
+    void restartRequired(const QUuid &attempt, const QString &detail);
+};
 
 class ConnectionSession : public QObject
 {
 Q_OBJECT
 
 public:
-    explicit ConnectionSession(CoreProcess *coreProcess, QObject *parent = nullptr);
+    explicit ConnectionSession(CoreEngine *coreEngine, QObject *parent = nullptr, NetworkAccess *network = nullptr);
 
-    bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
+    bool start(const ConnectionOptions &connectionOptions, const ReconnectPolicy &policy);
     void stop();
-    void submitInput(const QByteArray &data);
-    void cancelInteractiveInput();
-    void submitSudoPassword(const QString &password, bool remember);
+    void blockNewConnections();
+    void submitResponse(const QJsonObject &response);
+    void forgetAuthenticationCache();
 
     ConnectionState state() const;
+    ConnectionPhase phase() const { return currentPhase; }
+    SessionObservation observation(const QString &stage) const { return observations.value(stage); }
     bool isActive() const;
+    bool networkRecoveryFailed() const { return networkRestore == NetworkRestoreState::Failed; }
+    int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
+    ProxyOptions proxyOptions() const { return currentOptions.proxy; }
+    KeepAliveOptions keepAliveOptions() const { return currentOptions.keepAlive; }
 
 signals:
     void stateChanged(ConnectionState state);
-    void outputRead(const QString &output);
-    void graphCaptcha(const QString &graphFile);
-    void smsCode(bool showSkipSecondaryAuthOption);
-    void totpCode();
-    void randCode();
-    void radiusCode(bool showSkipSecondaryAuthOption);
-    void ssoAuth();
-    void askSudoPass();
-    void savedSudoPasswordRejected();
+    void diagnostic(const QString &code);
+    void progressChanged();
+    void authenticationCacheUpdated(const AuthenticationCache &cache);
+    void authenticationCacheInvalidated();
+    void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls);
     void reconnectScheduled(int delayMs);
-    void finished(ZJU_ERROR error);
+    void finished(ConnectionError error);
 
 private:
     void startCore();
+    void startEngine();
+    void stopNetwork();
+    void stopCore();
+    void becameReady(ConnectionPhase phase);
+    void networkFailure(const PlatformOperationResult &result);
     void handleCoreFinished();
-    void handleSudoPasswordRequest();
+    QUrl serverUrl() const;
+    void clearAuthentication();
 
-    CoreProcess *coreProcess;
+    CoreEngine *coreEngine;
+    NetworkAccess *network;
+    QUuid attempt;
+    enum class NetworkRestoreState { Idle, Pending, Failed };
+    NetworkRestoreState networkRestore = NetworkRestoreState::Idle;
+    bool coreActive = false, networkStopped = true, waitingCoreStop = false, networkLost = false;
     QTimer reconnectTimer;
+    QTimer stableTimer;
     ConnectionSessionState sessionState;
-    ConnectionProfile currentProfile;
-    QString savedSudoPassword;
-    bool sudoPasswordSubmitted = false;
+    ConnectionOptions currentOptions;
+    ConnectionPhase currentPhase = ConnectionPhase::Initializing;
+    QMap<QString,SessionObservation> observations;
+    QJsonObject pendingAuthentication;
+    QString responseAction;
+    bool blocked = false;
 };
 
 #endif // CONNECTIONSESSION_H

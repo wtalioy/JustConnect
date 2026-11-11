@@ -6,9 +6,8 @@
 namespace ApplicationConstants
 {
 const inline QString RepositoryName("wtalioy/JustConnect");
-const inline QString CoreRepositoryName("Mythologyli/zju-connect");
 const inline QString ApplicationName("JustConnect");
-constexpr inline int ConfigVersion = 8;
+constexpr inline int ConfigVersion = 9;
 }
 
 #endif // APPLICATIONCONSTANTS_H

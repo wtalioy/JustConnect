@@ -1,0 +1,8 @@
+{
+  "protocol": 11,
+  "storage_version": 3,
+  "service_suffix": ".NetworkHelper",
+  "executable": "JustConnectNetworkHelper",
+  "authorization_right": "system.services.systemconfiguration.network",
+  "state_directory": "/var/db/JustConnect/network"
+}

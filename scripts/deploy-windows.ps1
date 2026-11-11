@@ -1,12 +1,11 @@
 # Windows deployment script
-# Usage: .\deploy-windows.ps1 -TargetName "JustConnect" -DisplayName "JustConnect" -BuildDir "build" -Architecture "amd64" -Nightly "false"
+# Usage: .\deploy-windows.ps1 -TargetName "JustConnect" -DisplayName "JustConnect" -BuildDir "build"
 
 param(
     [string]$TargetName = "JustConnect",
     [string]$DisplayName = "JustConnect",
     [string]$BuildDir = "build",
-    [string]$Architecture = "amd64",
-    [string]$Nightly = "false"
+    [ValidateSet('x64', 'arm64')][string]$Architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,29 +19,35 @@ Push-Location "$DisplayName"
 # Copy executable
 Copy-Item -Path "../$BuildDir/Release/$TargetName.exe" -Destination .
 
-# Run windeployqt
-& windeployqt.exe "$TargetName.exe"
+# Install the CMake-selected embedded runtime next to the host.
+cmake --install "../$BuildDir" --config Release --component CoreRuntime --prefix (Get-Location).Path
+if ($LASTEXITCODE -ne 0) { throw "Embedded runtime installation failed" }
+cmake --install "../$BuildDir/windows-helper" --config Release --component WindowsNetworkHelper --prefix (Get-Location).Path
+if ($LASTEXITCODE -ne 0) { throw "Native network helper installation failed" }
+
+# TUIO input requires an explicitly enabled generic plugin.
+& windeployqt.exe --release --no-translations --no-compiler-runtime --exclude-plugins qtuiotouchplugin "$TargetName.exe"
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
-# Download and extract zju-connect
-$ZjuReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
-$ZjuUrl = "https://github.com/Mythologyli/zju-connect/releases/$ZjuReleasePath/zju-connect-windows-$Architecture.zip"
-$ZjuZipPath = "zju-connect-windows-$Architecture.zip"
-Invoke-WebRequest -Uri $ZjuUrl -OutFile $ZjuZipPath
-Expand-Archive -Path $ZjuZipPath -DestinationPath . -Force
-Remove-Item -Path $ZjuZipPath
-
-# Copy additional files
-Copy-Item -Path "../libs/wintun/bin/$Architecture/wintun.dll" -Destination .
 Copy-Item -Path "../resource/qt.conf" -Destination .
 
-# Remove vc_redist executable
-if ($Architecture -eq "amd64") {
-    Remove-Item -Path vc_redist.x64.exe -ErrorAction SilentlyContinue
-} else {
-    Remove-Item -Path vc_redist.arm64.exe -ErrorAction SilentlyContinue
+# Ship the native app-local CRT with both the ZIP and the installer.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$crt = & $vswhere -latest -products '*' -find "VC\Redist\MSVC\*\$Architecture\Microsoft.VC*.CRT\msvcp140.dll" |
+    Sort-Object { [version](Get-Item -LiteralPath $_).Directory.Parent.Parent.Name } -Descending |
+    Select-Object -First 1
+if (!$crt) { throw "Missing Visual C++ redistributable files for $Architecture" }
+$machine = @{ x64 = 0x8664; arm64 = 0xaa64 }[$Architecture]
+foreach ($dll in Get-ChildItem -LiteralPath (Split-Path -Parent $crt) -Filter '*.dll' -File) {
+    $bytes = [IO.File]::ReadAllBytes($dll.FullName)
+    $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+    if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550) { throw "Invalid PE image: $($dll.Name)" }
+    # A hybrid CRT image can have a different display name; use the PE machine field.
+    if ([BitConverter]::ToUInt16($bytes, $offset + 4) -eq $machine) {
+        Copy-Item -LiteralPath $dll.FullName -Destination .
+    }
 }
 
 Pop-Location

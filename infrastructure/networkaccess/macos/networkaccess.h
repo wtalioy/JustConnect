@@ -1,0 +1,43 @@
+#pragma once
+#include "application/connectionsession.h"
+#include "application/networkpolicysession.h"
+#include "infrastructure/networkhelper/macos/networkhelperclient.h"
+#include "infrastructure/networkhelper/macos/networkhelperpreparation.h"
+#include <QFutureWatcher>
+#include <QLockFile>
+
+class MacNetworkAccess final : public NetworkAccess
+{
+public:
+    MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,QObject *parent = nullptr,
+        MacNetworkHelperClient::AuthorizationProvider authorization = {});
+    ~MacNetworkAccess() override;
+    void prepare(const QUuid &attempt) override;
+    void activate(const QUuid &attempt,const ConnectionOptions &connectionOptions) override;
+    void stop(const QUuid &attempt) override;
+    std::unique_ptr<SystemProxyBackend> makeProxyBackend() const { return helper.makeProxyBackend(); }
+private:
+    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, RefreshingDNS, Stopping };
+    void prepareConfiguration();
+    void helperFinished(MacNetworkHelperClient::Operation operation,PlatformOperationResult result);
+    void driveStop();
+    void observeModel();
+    void applyPolicy(const QJsonObject &value);
+    void finishPolicy(CoreEngine::RequestStatus status);
+    CoreEngine *core;
+    NetworkPolicySession *policy;
+    int mtu = 0;
+    MacNetworkHelperClient helper;
+    QFutureWatcher<MacHelperPreparation> worker;
+    std::unique_ptr<QLockFile> lock;
+    QUuid attempt;
+    QString generation,localDNS;
+    QJsonObject changingPolicy, originalExit;
+    QJsonArray originalSources, activeFallbacks;
+    std::optional<MacCaptureUpdate> pendingDNS;
+    std::optional<MacHelperConfiguration> pendingConfiguration;
+    QStringList nextCapture;
+    Stage stage = Stage::Idle;
+    QTimer observation;
+    bool preparing = false,attaching = false,automaticPolicy = false;
+};

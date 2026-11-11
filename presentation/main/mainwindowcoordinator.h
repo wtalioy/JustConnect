@@ -5,7 +5,13 @@
 
 class AuthDialogCoordinator;
 class ConnectionSession;
-class ProfileService;
+class ConnectionDiagnostics;
+class CoreEngine;
+class NetworkAccess;
+class NetworkPolicySession;
+class CredentialAccess;
+struct CredentialSource;
+class SavedConnectionService;
 class SystemProxySession;
 class UpdateChecker;
 class QWidget;
@@ -15,26 +21,38 @@ class MainWindowCoordinator : public QObject
     Q_OBJECT
 
 public:
+    using NetworkFactory = NetworkAccess *(*)(CoreEngine *, NetworkPolicySession *);
+
     MainWindowCoordinator(
         QWidget *parentWidget,
         const QString &overrideConfigPath,
-        QObject *parent = nullptr
+        QObject *parent = nullptr,
+        NetworkFactory networkFactory = nullptr
     );
 
-    ProfileService *profiles() const;
+    ~MainWindowCoordinator() override;
+
+    SavedConnectionService *connectionSettingsService() const;
+    CredentialAccess *credentials() const;
+    CredentialSource credentialSource();
     ConnectionSession *connection() const;
+    ConnectionDiagnostics *diagnostics() const;
+    NetworkPolicySession *networkPolicy() const;
     SystemProxySession *systemProxy() const;
     UpdateChecker *updates() const;
     AuthDialogCoordinator *authenticationDialogs() const;
 
-    void prepareForShutdown();
 
 private:
-    ProfileService *profileService;
-    ConnectionSession *connectionSession;
+    SavedConnectionService *savedConnections;
+    CoreEngine *coreEngine; // Owned by ConnectionSession and shared with the collector.
+    NetworkPolicySession *networkPolicySession;
     SystemProxySession *systemProxySession;
+    ConnectionSession *connectionSession;
     UpdateChecker *updateChecker;
     AuthDialogCoordinator *authenticationCoordinator;
+    CredentialAccess *credentialAccess;
+    ConnectionDiagnostics *connectionDiagnostics;
 };
 
 #endif // MAINWINDOWCOORDINATOR_H

@@ -1,0 +1,261 @@
+#include "infrastructure/networkhelper/macos/helperauthorization.h"
+#include "infrastructure/networkhelper/macos/helperidentity.h"
+#include "infrastructure/networkhelper/macos/helpertransport.h"
+#include "infrastructure/networkhelper/macos/networkhelperstate.h"
+#include "infrastructure/systemproxy/macos/privilegedproxy.h"
+#include "infrastructure/systemproxy/proxyvalidation.h"
+#include <QCoreApplication>
+#include <QDebug>
+#include <QJsonDocument>
+#include <QMap>
+#include <QScopeGuard>
+#include <algorithm>
+#include <dispatch/dispatch.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <memory>
+#include <netinet/in.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <signal.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+using Result = PlatformOperationResult;
+using Status = Result::Status;
+constexpr int MaximumOwners = 256;
+struct Ownership {
+    std::unique_ptr<MacNetworkHelperState> state;
+    quint64 peer = 0;
+};
+struct Peer {
+    xpc_connection_t channel=nullptr;
+    pid_t authorizedPid=0;
+    uid_t authorizedUser=0;
+};
+QString key(uid_t uid, const QUuid &owner) { return QString::number(uid)+'/'+owner.toString(QUuid::WithoutBraces); }
+QStringList children(int directory)
+{
+    QStringList result;
+    const int copied = ::openat(directory,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+    if (copied < 0) return result;
+    auto *stream = ::fdopendir(copied);
+    if (!stream) { ::close(copied); return result; }
+    const auto close = qScopeGuard([&] { ::closedir(stream); });
+    while (auto *entry = ::readdir(stream)) {
+        if (!std::strcmp(entry->d_name,".") || !std::strcmp(entry->d_name,"..")) continue;
+        if (result.size() >= MaximumOwners) break;
+        result.append(QString::fromLatin1(entry->d_name));
+    }
+    return result;
+}
+class Server {
+public:
+    int directory = -1;
+    MacHelperIdentity identity{MacHelperIdentifier,MacHelperAppIdentifier};
+    QMap<QString,std::shared_ptr<Ownership>> owners;
+    QMap<quint64,Peer> peers;
+    quint64 serial = 0;
+    quint64 proxyPeer = 0;
+    MacPrivilegedProxy proxy;
+    bool wasIdle = false;
+    dispatch_queue_t queue = dispatch_queue_create(MacHelperIdentifier,DISPATCH_QUEUE_SERIAL);
+
+    void discover()
+    {
+        for (const auto &account : children(directory)) {
+            bool ok = false; const auto uid = account.toUInt(&ok);
+            if (!ok || !uid || QString::number(uid) != account) continue;
+            const int user = openPrivateNetworkDirectory(directory,account.toLatin1(),false);
+            if (user < 0) continue;
+            const auto names = children(user); ::close(user);
+            for (const auto &name : names) {
+                const QUuid owner(name);
+                if (owner.isNull() || owner.toString(QUuid::WithoutBraces) != name || owners.contains(key(uid,owner))) continue;
+                if (owners.size() >= MaximumOwners) return;
+                auto entry = std::make_shared<Ownership>(); entry->state = std::make_unique<MacNetworkHelperState>();
+                entry->state->open(directory,uid,owner,false);
+                owners.insert(key(uid,owner),entry);
+            }
+        }
+    }
+    bool recoverOrphans()
+    {
+        const bool proxyRecovered=proxyPeer || proxy.restore().succeeded();
+        discover();
+        for (const auto &entry : owners) if (!entry->peer && entry->state->phase() != "restored") entry->state->restore();
+        return proxyRecovered;
+    }
+    void maintain()
+    {
+        const bool proxyRecovered=recoverOrphans();
+        const bool idle = proxyRecovered && peers.isEmpty() && std::all_of(owners.cbegin(), owners.cend(),
+            [](const auto &entry) { return entry->state->phase() == "restored"; });
+        // An idle daemon must not keep the previous bundle's signing identity alive across upgrades.
+        if (idle && wasIdle) std::exit(0);
+        wasIdle = idle;
+    }
+    void disconnected(quint64 peer)
+    {
+        const auto connection = peers.take(peer).channel;
+        if (!connection) return;
+        if (proxyPeer==peer) { proxyPeer=0; proxy.restore(); }
+        for (const auto &entry : owners) if (entry->peer == peer) { entry->peer = 0; entry->state->restore(); }
+        xpc_connection_cancel(connection); xpc_release(connection);
+    }
+    void request(quint64 peer, xpc_object_t message)
+    {
+        const auto session=peers.find(peer);
+        if (session==peers.end() || !identity.accepts(message)) { disconnected(peer); return; }
+        const auto connection=session->channel;
+        const auto uid = xpc_connection_get_euid(connection);
+        const auto pid = xpc_connection_get_pid(connection);
+        QJsonObject packet;
+        if (!uid || uid == uid_t(-1) || pid<=0 || !readMacHelperMessage(message,packet) || !validMacHelperRequest(packet)) { disconnected(peer); return; }
+        const bool authorized=session->authorizedPid==pid && session->authorizedUser==uid;
+        const QUuid owner(packet["owner"].toString()); const auto operation = packet["operation"].toString();
+        auto entry = owners.value(key(uid,owner));
+        Result result; QJsonObject device, proxyView; int descriptor = -1; QJsonArray receipts;
+        if (operation == "probe") {
+            if (!proxyPeer) {
+                result=proxy.restore();
+                if (!result.succeeded()) result.mayHaveChanged=true;
+            }
+            discover();
+            for (const auto &saved : owners) if (saved->state->uid() == uid)
+                receipts.append(QJsonObject{{"owner",saved->state->owner().toString(QUuid::WithoutBraces)},{"phase",saved->state->phase()}});
+        } else if (operation == "tcp_listener") {
+            if (!macOwnsLoopbackTCPListener(packet["pid"].toInt(),quint16(packet["port"].toInt()),quint32(packet["ipv4"].toInteger())))
+                result = {Status::Failed,"The process does not own the requested loopback TCP listener.",false};
+        } else if (entry && entry->peer && entry->peer != peer) {
+            result = {Status::PermissionDenied,"Connection ownership belongs to another live client.",false};
+        } else if (operation == "proxy_inspect" || operation == "proxy_apply" || operation == "proxy_clear") {
+            if ((proxyPeer && proxyPeer!=peer) || (operation!="proxy_clear" && (!entry || entry->peer!=peer || entry->state->phase()!="active"))) {
+                result={Status::PermissionDenied,"Browser proxy changes require the live network owner.",false};
+            } else if (operation == "proxy_inspect") {
+                const auto check=proxy.inspect();result=check.result;
+                proxyView={{"active",check.active},{"managed",check.managed},{"endpoints",QJsonArray::fromStringList(check.endpoints)}};
+            } else if (operation == "proxy_clear") {
+                result=proxy.restore();
+                if (result.succeeded()) proxyPeer=0;
+            } else {
+                const auto configuration=ProxyValidation::parse(packet["configuration"].toObject());
+                if (!configuration || configuration->upstream.isEmpty() || !configuration->bypass.isEmpty()
+                    || !macOwnsLoopbackTCPListener(pid,quint16(configuration->httpPort),INADDR_LOOPBACK)
+                    || !macOwnsLoopbackTCPListener(pid,quint16(configuration->socksPort),INADDR_LOOPBACK))
+                    result={Status::PermissionDenied,"Browser proxy handoff requires verified local listeners owned by this app.",false};
+                else {
+                    result=proxyPeer ? Result{} : proxy.restore();
+                    if (result.succeeded()) result=proxy.apply(*configuration);
+                    if (result.succeeded() || result.mayHaveChanged) proxyPeer=peer;
+                }
+            }
+        } else if (operation == "apply") {
+            const auto configuration = parseMacHelperApply(packet);
+            if (!configuration) result = {Status::Failed,"Invalid bounded network configuration.",false};
+            else if (!authorized && !authorizedMacNetworkMessage(message))
+                result = {Status::PermissionDenied,"Network administrator authorization is required.",false};
+            else if (entry || owners.size() >= MaximumOwners) result = {Status::Failed,"Existing or exhausted connection ownership is preserved.",false};
+            else {
+                entry = std::make_shared<Ownership>(); entry->state = std::make_unique<MacNetworkHelperState>();
+                result = entry->state->open(directory,uid,owner,true);
+                owners.insert(key(uid,owner),entry);
+                if (result.succeeded()) result = entry->state->apply(*configuration);
+                if (result.succeeded()) { entry->peer = peer; device = entry->state->deviceInfo(); descriptor = entry->state->descriptor(); }
+            }
+        } else if (operation == "extend" || operation == "routes") {
+            const auto targets = operation == "routes" ? parseMacHelperRoutes(packet) : parseMacHelperExtend(packet);
+            if (!entry || entry->peer != peer) result = {Status::PermissionDenied,"Capture changes require this live connection owner.",false};
+            else if (!targets) result = {Status::Failed,"Invalid bounded capture targets.",false};
+            else result = entry->state->update(*targets,operation == "routes");
+        } else if (!entry) {
+            // Only an explicit receipt acknowledgement is idempotent without ownership evidence.
+            result = operation == "cleanup" ? Result{} : Result{Status::Failed,"No authenticated connection ownership was found.",true};
+        } else if (operation == "cleanup") {
+            result = entry->state->cleanup();
+            if (result.succeeded()) owners.remove(key(uid,owner));
+        } else {
+            if (proxyPeer==peer) {
+                result=proxy.restore();
+                if (result.succeeded()) proxyPeer=0;
+            }
+            if (result.succeeded()) result = entry->state->restore();
+            if (result.succeeded()) entry->peer = 0;
+        }
+        QJsonObject network;
+        if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) {
+            network = entry->state->networkView();
+            if (network.isEmpty()) {
+                const auto restored = entry->state->restore(); descriptor = -1; device = {};
+                result = {Status::Failed,"Cannot confirm the native network view. "+restored.detail,true};
+            }
+        }
+        auto response = macHelperResponse(packet,result,device);
+        if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) response["network"] = network;
+        if (operation == "apply" && result.succeeded()) {
+            session->authorizedPid=pid;
+            session->authorizedUser=uid;
+        }
+        if (operation == "probe" && result.succeeded()) {
+            response["owners"] = receipts;
+            response["authorized"]=authorized;
+        }
+        if (operation == "proxy_inspect" && result.succeeded()) response["proxy"]=proxyView;
+        const auto reply = xpc_dictionary_create_reply(message);
+        const auto encoded = macHelperMessage(response,descriptor);
+        if (!reply || !encoded) { if (reply) xpc_release(reply); if (encoded) xpc_release(encoded); disconnected(peer); return; }
+        xpc_dictionary_apply(encoded,^(const char *name, xpc_object_t value) { xpc_dictionary_set_value(reply,name,value); return true; });
+        xpc_connection_send_message(connection,reply); xpc_release(encoded); xpc_release(reply);
+    }
+    void accept(xpc_connection_t connection)
+    {
+        const auto uid = xpc_connection_get_euid(connection);
+        if (!uid || uid == uid_t(-1) || peers.size() >= MacHelperMaxPeers || !identity.constrain(connection)) { xpc_connection_cancel(connection); return; }
+        wasIdle = false;
+        const auto peer = ++serial;
+        xpc_retain(connection); peers.insert(peer,Peer{connection}); xpc_connection_set_target_queue(connection,queue);
+        xpc_connection_set_event_handler(connection,^(xpc_object_t message) {
+            if (xpc_get_type(message) == XPC_TYPE_DICTIONARY) request(peer,message);
+            else if (message == XPC_ERROR_CONNECTION_INVALID || message == XPC_ERROR_CONNECTION_INTERRUPTED) disconnected(peer);
+        });
+        xpc_connection_resume(connection);
+    }
+};
+}
+
+int main(int argc, char **argv)
+{
+    QCoreApplication application(argc,argv);
+    if (application.arguments() == QStringList{application.arguments().first(),"--version"}) {
+        MacHelperIdentity identity(MacHelperIdentifier,MacHelperAppIdentifier);
+        const QJsonObject report{{"protocol",MacHelperProtocol},{"storage_version",MacHelperStorageVersion},
+            {"revision",JC_HELPER_REVISION},{"source_state",JC_HELPER_SOURCE_STATE},{"identity_ready",identity.ready()}};
+        std::puts(QJsonDocument(report).toJson(QJsonDocument::Compact).constData()); return 0;
+    }
+    if (argc != 1 || ::geteuid() != 0) return 2;
+    auto *server = new Server;
+    if (!server->identity.ready() || (server->directory = openMacHelperBootDirectory()) < 0) return 3;
+    if (!server->proxy.open(server->directory).succeeded()) return 3;
+    const auto listener = xpc_connection_create_mach_service(MacHelperIdentifier,server->queue,XPC_CONNECTION_MACH_SERVICE_LISTENER);
+    if (!listener) return 4;
+    xpc_connection_set_event_handler(listener,^(xpc_object_t connection) {
+        if (xpc_get_type(connection) == XPC_TYPE_CONNECTION) server->accept(xpc_connection_t(connection));
+    });
+    dispatch_async(server->queue,^{ server->recoverOrphans(); });
+    const auto timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,server->queue);
+    dispatch_source_set_timer(timer,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC),5*NSEC_PER_SEC,NSEC_PER_SEC);
+    dispatch_source_set_event_handler(timer,^{ server->maintain(); }); dispatch_resume(timer);
+    ::signal(SIGTERM,SIG_IGN); ::signal(SIGINT,SIG_IGN);
+    for (int number : {SIGTERM,SIGINT}) {
+        const auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL,uintptr_t(number),0,server->queue);
+        dispatch_source_set_event_handler(source,^{
+            server->proxy.restore();
+            for (const auto &entry : server->owners) entry->state->restore();
+            std::exit(0);
+        });
+        dispatch_resume(source);
+    }
+    xpc_connection_resume(listener); dispatch_main();
+}

@@ -1,11 +1,13 @@
 #include "connectionsessionstate.h"
 
+#include <algorithm>
+
 ConnectionState ConnectionSessionState::state() const
 {
     return currentState;
 }
 
-ZJU_ERROR ConnectionSessionState::error() const
+ConnectionError ConnectionSessionState::error() const
 {
     return currentError;
 }
@@ -25,7 +27,8 @@ bool ConnectionSessionState::wantsConnection() const
 
 int ConnectionSessionState::reconnectDelayMs() const
 {
-    return reconnectPolicy.delayMs;
+    const int base = std::clamp(reconnectPolicy.delayMs, 1, MaxReconnectDelayMs);
+    return std::min(MaxReconnectDelayMs, base * (1 << std::max(0, retryCount - 1)));
 }
 
 bool ConnectionSessionState::requestStart(const ReconnectPolicy &policy)
@@ -36,8 +39,10 @@ bool ConnectionSessionState::requestStart(const ReconnectPolicy &policy)
     }
 
     reconnectPolicy = policy;
+    retryCount = 0;
+    interactiveAuthentication = false;
     desiredConnected = true;
-    currentError = ZJU_ERROR::NONE;
+    currentError = ConnectionError::NONE;
     currentState = ConnectionState::Starting;
     return true;
 }
@@ -47,15 +52,28 @@ void ConnectionSessionState::connectionEstablished()
     if (currentState == ConnectionState::Starting)
     {
         currentState = ConnectionState::Running;
+        interactiveAuthentication = false;
     }
 }
 
-void ConnectionSessionState::recordError(ZJU_ERROR error)
+void ConnectionSessionState::connectionStable()
 {
-    if (currentError == ZJU_ERROR::NONE)
+    if (currentState == ConnectionState::Running) retryCount = 0;
+}
+
+void ConnectionSessionState::recordError(ConnectionError error)
+{
+    if (currentError == ConnectionError::NONE)
     {
         currentError = error;
     }
+}
+
+bool ConnectionSessionState::interruptForReconnect()
+{
+    if (currentState != ConnectionState::Running) return false;
+    currentState = ConnectionState::Stopping;
+    return true;
 }
 
 bool ConnectionSessionState::requestStop()
@@ -64,6 +82,7 @@ bool ConnectionSessionState::requestStop()
     if (currentState == ConnectionState::Reconnecting)
     {
         currentState = ConnectionState::Disconnected;
+        currentError = ConnectionError::NONE;
         return false;
     }
     if (currentState == ConnectionState::Starting || currentState == ConnectionState::Running)
@@ -71,44 +90,43 @@ bool ConnectionSessionState::requestStop()
         currentState = ConnectionState::Stopping;
         return true;
     }
-    return currentState == ConnectionState::Stopping;
+    return false;
 }
 
-ProcessFinishAction ConnectionSessionState::processFinished()
+SessionFinishAction ConnectionSessionState::engineFinished()
 {
     const bool connectionWasEstablished = currentState == ConnectionState::Running;
     if (desiredConnected
         && reconnectPolicy.enabled
-        && isReconnectable(currentError))
+        && !interactiveAuthentication
+        && retryCount < MaxReconnectAttempts
+        && (currentError == ConnectionError::NETWORK_FAILED || currentError == ConnectionError::TIMED_OUT))
     {
+        ++retryCount;
         currentState = ConnectionState::Reconnecting;
-        return ProcessFinishAction::Reconnect;
+        return SessionFinishAction::Reconnect;
     }
 
     desiredConnected = false;
-    if (connectionWasEstablished)
+    if (connectionWasEstablished && currentError != ConnectionError::SESSION_INVALID)
     {
         currentState = ConnectionState::Interrupted;
     }
     else
     {
-        currentState = currentError == ZJU_ERROR::NONE
+        currentState = currentError == ConnectionError::NONE
             ? ConnectionState::Disconnected
             : ConnectionState::Failed;
     }
-    return ProcessFinishAction::Complete;
+    return SessionFinishAction::Complete;
 }
 
 void ConnectionSessionState::beginReconnect()
 {
     if (currentState == ConnectionState::Reconnecting && desiredConnected)
     {
-        currentError = ZJU_ERROR::NONE;
+        currentError = ConnectionError::NONE;
+        interactiveAuthentication = false;
         currentState = ConnectionState::Starting;
     }
-}
-
-bool ConnectionSessionState::isReconnectable(ZJU_ERROR error)
-{
-    return error == ZJU_ERROR::AUTH_EXPIRED || error == ZJU_ERROR::OTHER;
 }

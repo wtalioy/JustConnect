@@ -1,0 +1,171 @@
+name: Core ABI
+
+on:
+  push:
+    branches: [develop]
+    paths: &coreabi_paths
+      - '.gitattributes'
+      - '.github/actions/**'
+      - '.github/workflows/coreabi.yml'
+      - 'CMakeLists.txt'
+      - 'application/**'
+      - 'cmake/**'
+      - 'core/**'
+      - 'corelib/**'
+      - 'infrastructure/**'
+      - 'presentation/**'
+      - 'resource.qrc'
+      - 'resource/network-helper*'
+      - 'scripts/generate-core-abi.py'
+      - 'scripts/verify-package.py'
+      - 'scripts/windows_helper_sdk.py'
+      - 'tests/CoreEngineTests.cmake'
+      - 'tests/coreabi/**'
+      - 'tests/coreabi*_test.py'
+      - 'tests/coreengineui_test.cpp'
+      - 'tests/credentialstorefixture.h'
+      - 'tests/embeddedcoreengine_test.cpp'
+      - 'tests/platform/**'
+      - 'tests/uiwait.h'
+      - 'tests/windows_helper_sdk_test.py'
+  pull_request:
+    branches: [main, develop]
+    paths: *coreabi_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Isolate broken Intel VM icon service
+        if: matrix.os == 'macos-26-intel'
+        shell: bash
+        run: |
+          # shortcut: runner-images#14751 crashes the VM icon renderer; remove when the image is fixed.
+          launchctl bootout "gui/$(id -u)/com.apple.iconservices.iconservicesagent" || true
+          launchctl disable "gui/$(id -u)/com.apple.iconservices.iconservicesagent"
+
+      - name: Build Windows native backends before toolchain setup
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force build/coreabi | Out-Null
+          python tests/platform/run_windows_packet.py --build-only 2>&1 | Tee-Object -FilePath build/coreabi/windows-native-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: ./.github/actions/setup-qt
+        with:
+          host: ${{ matrix.qt_host }}
+          arch: ${{ matrix.qt_arch }}
+
+      - uses: ./.github/actions/setup-core-toolchain
+
+      - name: Verify ordinary Qt Windows authorization and recovery control
+        if: runner.os == 'Windows'
+        run: python tests/platform/run_windows_helper.py --qt-control
+
+      - name: Probe Windows device broker in the disposable runner
+        id: windows_device_probe
+        if: runner.os == 'Windows'
+        run: python tests/platform/run_windows_packet.py --device-only
+
+      - name: Stage pinned Mihomo for native control-DNS integration
+        if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
+        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
+
+      - name: Verify signed macOS network helper and independent recovery
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash tests/platform/run_macos_networkhelper.sh
+
+      - name: Verify formal C ABI, protocol session and authentication
+        if: *collect_native_evidence
+        timeout-minutes: 20
+        run: python tests/platform/run_coreabi.py
+
+      - name: Check macOS utun fd transfer and cleanup in the disposable runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" build/coreabi/macos_tunroutes_test --isolated 2>&1 | tee build/coreabi/macos-routes.log
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/macos_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test 2>&1 | tee build/coreabi/macos-device.log
+
+      - name: Verify ordinary macOS utun traffic through the formal C ABI
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CGO_ENABLED: '1'
+          GOEXPERIMENT: cgocheck2
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+          GOENV: 'off'
+        run: |
+          go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
+          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice/macos
+          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_macos.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
+
+      # Run the upstream runtime only after the original signed SDK and native application checks.
+      - name: Verify control beneath a live rejecting Mihomo TUN
+        if: *collect_native_evidence
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          output = pathlib.Path('build/controller-checks')
+          output.mkdir(parents=True, exist_ok=True)
+          probe = (output / ('mihomo-tun-probe.exe' if os.name == 'nt' else 'mihomo-tun-probe')).resolve()
+          commands = [
+              ['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', './tests/mihomotun'],
+              ['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), './tests/mihomotun'],
+              [sys.executable, 'tests/platform/mihomo_tun_native.py', '--probe', str(probe),
+               '--mihomo', os.environ['JC_TEST_MIHOMO_BINARY'], '--url', 'https://github.com/robots.txt'],
+          ]
+          path = output / 'live-tun.log'
+          try:
+              with path.open('wb') as log:
+                  for command in commands:
+                      subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=115)
+          finally:
+              sys.stdout.buffer.write(path.read_bytes())
+              sys.stdout.buffer.flush()
+
+      # Collect independent ABI/application evidence, but keep the original device probe mandatory.
+      - name: Enforce required Windows device result
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.windows_device_probe.outcome != 'success' }}
+        shell: pwsh
+        run: throw 'Required Windows native device/4096-packet check failed or did not run; see its original log.'
+
+      - name: Upload toolchain and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: coreabi-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/coreabi/*.log
+            build/coreabi/*.txt
+            build/coreabi/*.json
+            build/coreabi/Testing/Temporary/*.log
+            build/coreabi/Testing/Temporary/*.sample.txt
+            build/coreabi/macos-helper/*.out
+            build/coreabi/macos-helper/*.err
+            build/coreabi/macos-helper/*.json
+            build/controller-checks/*.log

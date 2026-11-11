@@ -1,0 +1,166 @@
+package atrust
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+
+	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
+	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
+)
+
+type conntrackKey [2 + 2*net.IPv6len + 4]byte
+
+func makeConntrackKey(meta packetMeta) conntrackKey {
+	var key conntrackKey
+	// Internal fixed-width keys avoid formatting validated packet tuples on every read/write.
+	key[0], key[1] = byte(meta.atype), byte(meta.proto)
+	copy(key[2:2+net.IPv6len], meta.srcIP.To16())
+	copy(key[2+net.IPv6len:2+2*net.IPv6len], meta.dstIP.To16())
+	binary.BigEndian.PutUint16(key[len(key)-4:], meta.srcPort)
+	binary.BigEndian.PutUint16(key[len(key)-2:], meta.dstPort)
+	return key
+}
+
+func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
+	meta, err := buildPacketMeta(packet)
+	if err != nil {
+		return err
+	}
+	protocol := ""
+	port := -1
+	switch packet.Protocol() {
+	case zctcpip.TCP:
+		protocol = "tcp"
+		port = int(meta.dstPort)
+	case zctcpip.UDP:
+		protocol = "udp"
+		port = int(meta.dstPort)
+	case zctcpip.ICMP:
+		protocol = "icmp"
+	}
+
+	resource, ok := matchL3IPResource(t.resourceIndex, meta.dstIP, protocol, port)
+	if ok {
+		return t.writePacket(packet, meta, resource.AppID, resource.NodeGroupID)
+	}
+
+	if port != -1 {
+		return fmt.Errorf("%s:%d, [%s]: %w", meta.dstIP, port, protocol, client.ErrResourceNotFound)
+	}
+	return fmt.Errorf("%s, [%s]: %w", meta.dstIP, protocol, client.ErrResourceNotFound)
+}
+
+func matchL3IPResource(index *ipresource.Index, destination net.IP, protocol string, port int) (client.IPResource, bool) {
+	return index.MatchWhere(destination, protocol, port, func(resource client.IPResource) bool {
+		return protocol != "tcp" || resource.EnableTCPPrefL3
+	})
+}
+
+func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, meta packetMeta, appID, nodeGroupID string) error {
+	meta.key = makeConntrackKey(meta)
+
+	conn, err := t.getConn(nodeGroupID)
+	if err != nil {
+		if isClosedConnErr(err) {
+
+			return nil
+		}
+		return err
+	}
+
+	err = conn.WritePacket(meta, appID, nodeGroupID, packet)
+	for retry := 0; retry < 1 && isClosedConnErr(err); retry++ {
+		// If the cached tunnel conn was closed by network flaps, evict it and retry.
+
+		t.evictConn(nodeGroupID, conn)
+		t.startReconnect(nodeGroupID)
+		retryConn, retryErr := t.getConn(nodeGroupID)
+		if retryErr != nil {
+			if isClosedConnErr(retryErr) {
+				err = retryErr
+				continue
+			}
+			return retryErr
+		}
+		conn = retryConn
+		err = conn.WritePacket(meta, appID, nodeGroupID, packet)
+	}
+	if isAuthTimeoutErr(err) {
+
+		return nil
+	}
+	if isClosedConnErr(err) {
+
+		t.evictConn(nodeGroupID, conn)
+		t.startReconnect(nodeGroupID)
+		return nil
+	}
+	return err
+}
+
+func isClosedConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	return strings.Contains(err.Error(), "use of closed network connection")
+}
+
+func isAuthTimeoutErr(err error) bool {
+	return errors.Is(err, errL3TunnelAuthTimeout)
+}
+
+func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
+	if !packet.Valid() {
+		return packetMeta{}, zctcpip.ErrInvalidLength
+	}
+	if packet.Protocol() == zctcpip.ICMP {
+		return packetMeta{
+			atype:   4,
+			proto:   int(packet.Protocol()),
+			srcIP:   packet.SourceIP(),
+			dstIP:   packet.DestinationIP(),
+			srcPort: 0,
+			dstPort: 0,
+		}, nil
+	}
+
+	var srcPort, dstPort uint16
+	switch packet.Protocol() {
+	case zctcpip.TCP:
+		tcpPacket := zctcpip.TCPPacket(packet.Payload())
+		if !tcpPacket.Valid() {
+			return packetMeta{}, zctcpip.ErrInvalidLength
+		}
+		srcPort = tcpPacket.SourcePort()
+		dstPort = tcpPacket.DestinationPort()
+	case zctcpip.UDP:
+		udpPacket := zctcpip.UDPPacket(packet.Payload())
+		if !udpPacket.Valid() {
+			return packetMeta{}, zctcpip.ErrInvalidLength
+		}
+		srcPort = udpPacket.SourcePort()
+		dstPort = udpPacket.DestinationPort()
+	default:
+		return packetMeta{}, fmt.Errorf("protocol %d: %w", packet.Protocol(), client.ErrResourceNotFound)
+	}
+
+	return packetMeta{
+		atype:   4,
+		proto:   int(packet.Protocol()),
+		srcIP:   packet.SourceIP(),
+		dstIP:   packet.DestinationIP(),
+		srcPort: srcPort,
+		dstPort: dstPort,
+	}, nil
+}

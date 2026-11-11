@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>GraphCaptchaWindow</class>
  <widget class="QDialog" name="GraphCaptchaWindow">
@@ -6,21 +6,31 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>300</width>
-    <height>300</height>
+    <width>420</width>
+    <height>320</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>图形验证码</string>
+   <string>Image verification</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="CaptchaCanvas" name="canvas"/>
-   </item>
-   <item>
     <widget class="QLabel" name="codeLabel">
      <property name="text">
-      <string>请输入图片中的字符验证码：</string>
+      <string>Enter the characters in the image.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="CaptchaCanvas" name="canvas">
+     <property name="accessibleName">
+      <string>Verification image</string>
+     </property>
+     <property name="accessibleDescription">
+      <string>Arrow keys move; Shift moves faster. Space selects a point; Backspace removes the last point.</string>
      </property>
     </widget>
    </item>
@@ -41,16 +51,31 @@
      </property>
     </widget>
    </item>
+   <property name="spacing">
+    <number>12</number>
+   </property>
+   <property name="leftMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>24</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
   </layout>
  </widget>
-  <customwidgets>
-    <customwidget>
-    <class>CaptchaCanvas</class>
-    <extends>QWidget</extends>
-    <header>presentation/dialogs/graphcaptchawindow/captchacanvas.h</header>
-    </customwidget>
+ <customwidgets>
+  <customwidget>
+   <class>CaptchaCanvas</class>
+   <extends>QWidget</extends>
+   <header>presentation/dialogs/graphcaptchawindow/captchacanvas.h</header>
+  </customwidget>
  </customwidgets>
- <resources/>
+ <resources />
  <connections>
   <connection>
    <sender>buttonBox</sender>

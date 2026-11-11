@@ -1,9 +1,8 @@
 #pragma once
 
-#include "ui_graphcaptchawindow.h"
+namespace Ui { class GraphCaptchaWindow; }
 #include <QDialog>
-
-class MainWindow;
+#include <QJsonObject>
 
 class GraphCaptchaWindow : public QDialog
 {
@@ -14,18 +13,19 @@ public:
 
     ~GraphCaptchaWindow() override;
 
-    void setGraph(const QString &graphFile, bool textInputMode);
+    void setGraph(const QByteArray &image, bool textInputMode);
 
 signals:
-    void finishCaptcha(const QByteArray &captcha);
-    void cancelled();
+    void finishCaptcha(const QJsonObject &response);
 
 public slots:
     void accept() override;
-    void reject() override;
+
+protected:
+    void changeEvent(QEvent *event) override;
 
 private:
+    void updatePrompt();
     Ui::GraphCaptchaWindow *ui;
-    MainWindow *mainWindow = nullptr;
     bool textInputMode = false;
 };

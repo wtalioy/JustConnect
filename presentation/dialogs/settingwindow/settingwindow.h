@@ -1,45 +1,75 @@
-#ifndef SETTINGWINDOW_H
-#define SETTINGWINDOW_H
-
+#pragma once
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QSettings>
-#include "ui_settingwindow.h"
-#include "presentation/dialogs/extrasettingwindow/extrasettingwindow.h"
-#include "presentation/dialogs/authinfowindow/authinfowindow.h"
+#include <functional>
+#include "infrastructure/settings/credentialaccess.h"
+class QLabel;
+class QCheckBox;
+class QPushButton;
+class ServerSettingsWidget;
+class CoreEngine;
+class AuthMethodsQuery;
+class ControllerSelectionCoordinator;
+namespace Ui { class SettingWindow; }
 
-namespace Ui
-{
-    class SettingWindow;
-}
-
-class SettingWindow : public QDialog
-{
-Q_OBJECT
-
+class SettingWindow : public QDialog {
+    Q_OBJECT
 public:
-    explicit SettingWindow(QWidget *parent = nullptr, QSettings *settings = nullptr, const QString &profileId = "");
-
+    using DraftPublisher=std::function<bool()>;
+    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,
+        CoreEngine *queryEngine=nullptr,DraftPublisher publishDraft={});
+    void setProfileEditable(bool editable);
+    void setConnectAfterSave(bool connect);
     ~SettingWindow() override;
-
+    bool isSaving() const {return saving || savePending;}
+signals:
+    void connectRequested();
+protected:
+    void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void done(int result) override;
 private:
-    void loadSettings();
-    void applySettings();
-    bool isAuthSettingChanged();
-    bool shouldCheckCredential();
-
+    void retranslate();
+    void updateAuthFields();
+    void resetAuthChoices(const QString &namedType={});
+    void loadSettings(const QSettings &source);
+    void readCredentials();
+    void clearCredentials();
+    void updateBusy();
+    void clearDraftCredentials();
+    void saveSettings();
+    void saveDraft(const QVariantMap &changes,const ConnectionOptions &options,bool edited);
+    void queryMethods();
+    void cancelQuery();
+    void finishQueryPresentation(bool letProgressSettle=true);
+    void showQueriedMethods();
+    QVariantMap publicChanges() const;
+    ConnectionOptions currentOptions() const;
     Ui::SettingWindow *ui;
-
-    QSettings *settings;
-    QString profileId;
-
-    ExtraSettingWindow *extraSettingWindow;
-    AuthInfoWindow *authInfoWindow;
-
-    QString tcpPortForwarding;
-    QString udpPortForwarding;
-    QString customDNS;
-    QString customProxyDomain;
-    QString extraArguments;
+    DraftPublisher publishDraft;
+    QSettings settings;
+    CredentialAccess *credentials;
+    CredentialSource credentialSource;
+    ConnectionCredentials loadedCredentials;
+    QLabel *credentialStatus;
+    const char *credentialStatusText=nullptr;
+    CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
+    QPushButton *clearCredentialButton,*saveButton,*dismissButton;
+    QCheckBox *rememberAuthentication;
+    bool loading=false,saving=false,closed=false,profileEditable=true,querying=false,connectAfterSave=false;
+    bool savePending=false;
+    bool opened=false;
+    quint64 loadGeneration=0;
+    ServerSettingsWidget *serverEditor;
+    QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType, selectedAuthName;
+    int selectedAuthIndex=-1;
+    QVariantMap draftValues;
+    AuthMethodsQuery *authQuery;
+    ControllerSelectionCoordinator *controllerSelection;
+    QLabel *queryStatus,*profileHint;
+    const char *queryStatusText=nullptr;
+    quint64 queryGeneration=0;
+    QElapsedTimer queryProgressShown;
+    bool showQueryResults=false;
 };
-
-#endif //SETTINGWINDOW_H

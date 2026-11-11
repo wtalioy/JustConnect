@@ -1,0 +1,42 @@
+#pragma once
+
+#include "infrastructure/networkhelper/macos/networkhelper.h"
+#include "infrastructure/routing/macos/tunroutes.h"
+#include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/dns/macos/originaldns.h"
+#include <sys/types.h>
+
+class MacNetworkHelperState
+{
+public:
+    ~MacNetworkHelperState();
+    PlatformOperationResult open(int bootDirectory, uid_t uid, const QUuid &owner, bool create);
+    PlatformOperationResult apply(const MacHelperConfiguration &configuration);
+    PlatformOperationResult update(const QStringList &targets, bool replace);
+    PlatformOperationResult restore();
+    PlatformOperationResult cleanup();
+    QString phase() const { return metadata["phase"].toString("unknown"); }
+    QUuid owner() const { return connection; }
+    uid_t uid() const { return user; }
+    int descriptor() const { return device.descriptor(); }
+    QJsonObject networkView() const;
+    QJsonObject deviceInfo() const { return device.snapshot(); }
+private:
+    PlatformOperationResult commit(const QJsonObject &record);
+    PlatformOperationResult store(const QString &phase);
+    bool valid(const QJsonObject &record) const;
+    bool deviceAbsent() const;
+    PlatformOperationResult removeDirectory();
+    uid_t user = 0;
+    QUuid connection;
+    QJsonObject metadata;
+    int userDirectory = -1, directory = -1, captureDirectory = -1;
+    MacNetworkJournal guardian, captureJournal;
+    MacTunDevice device;
+    MacTunRoutes capture;
+    MacTunDns dns;
+    MacOriginalDns originalDns;
+};
+
+// The daemon scopes all callers to the current kernel boot, independently of request data.
+int openMacHelperBootDirectory();

@@ -1,44 +1,166 @@
 #include "settingsmigrator.h"
 
+#include <QDebug>
 #include <QSettings>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
 
-SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
+namespace {
+QString legacyTarget(const QString &key)
 {
+    return "JustConnect/" + (key=="DisableZJUDNS" ? QString("DisableRemoteDNS") : key);
+}
+}
+
+bool SettingsMigrator::readableFile(const QString &path)
+{
+    // QSettings caches parsed INI data without retaining its format error for later instances.
+    if (!QFileInfo(path).isFile()) return false;
+    QTemporaryDir snapshot;
+    if (!snapshot.isValid()) return false;
+    QFile input(path);
+    if (!input.open(QIODevice::ReadOnly)) return false;
+    const auto bytes=input.readAll();
+    if (input.error()!=QFileDevice::NoError) return false;
+    QFile copy(snapshot.filePath("input.ini"));
+    if (!copy.open(QIODevice::WriteOnly|QIODevice::NewOnly,QFile::ReadOwner|QFile::WriteOwner)
+        || copy.write(bytes)!=bytes.size() || !copy.flush()) return false;
+    copy.close();
+    QSettings original(copy.fileName(),QSettings::IniFormat);
+    original.allKeys();
+    return original.status()==QSettings::NoError;
+}
+
+SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seedBuiltInConnection)
+{
+    if (settings.status()!=QSettings::NoError
+        || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return SettingsMigrationAction::Failed;
+    if (seedBuiltInConnection && DefaultSettings::isUnconfiguredDefault(settings))
+        DefaultSettings::applyBuiltInConnection(settings);
+    else if (settings.allKeys().isEmpty())
+        settings.setValue("JustConnect/AuthType", QString());
+    settings.beginGroup("ZJUConnect");
+    const QStringList previousKeys = settings.allKeys();
+    settings.endGroup();
+    for (const QString &key : previousKeys)
+    {
+        if (key == "ZJUDefault")
+        {
+            continue;
+        }
+        const QString target = legacyTarget(key);
+        if (!settings.contains(target))
+        {
+            settings.setValue(target, settings.value("ZJUConnect/" + key));
+        }
+    }
+    // Save copied values before removing the legacy group.
+    if (!previousKeys.isEmpty())
+    {
+        settings.sync();
+        if (settings.status() == QSettings::NoError)
+        {
+            settings.remove("ZJUConnect");
+            settings.sync();
+        }
+        else
+        {
+            qWarning() << "Could not save the renamed configuration group; original configuration retained";
+            return SettingsMigrationAction::Failed;
+        }
+    }
+
     const int configVersion = settings.value("Common/ConfigVersion", -1).toInt();
-    if (configVersion == -1)
-    {
-        DefaultSettings::reset(settings);
-        return SettingsMigrationAction::None;
+    const auto protocol = settings.value("JustConnect/Protocol").toString();
+    if ((configVersion == 4 && protocol.isEmpty())
+        || (!protocol.isEmpty() && protocol.compare("atrust",Qt::CaseInsensitive) != 0))
+        settings.setValue("Common/NeedsConfiguration",true);
+    if (!settings.contains("JustConnect/KeepAliveMode")) {
+        const bool disabled=settings.contains("JustConnect/KeepAlive") && !settings.value("JustConnect/KeepAlive").toBool();
+        settings.setValue("JustConnect/KeepAliveMode", disabled ? "off"
+            : settings.value("JustConnect/KeepAliveURL").toString().isEmpty() ? "auto" : "target");
     }
-    if (configVersion == 4)
-    {
-        settings.setValue("ZJUConnect/Protocol", "easyconnect");
-        return SettingsMigrationAction::None;
-    }
+    DefaultSettings::initialize(settings);
     if (configVersion == 6)
     {
         return SettingsMigrationAction::MigrateAutoStart;
     }
-    if (configVersion < ApplicationConstants::ConfigVersion)
-    {
-        return SettingsMigrationAction::RecommendReset;
-    }
     return SettingsMigrationAction::None;
 }
 
-void SettingsMigrator::finish(QSettings &settings, bool resetToDefaults)
+bool SettingsMigrator::finish(QSettings &settings)
 {
-    if (resetToDefaults)
-    {
-        settings.clear();
-        DefaultSettings::reset(settings);
+    if (settings.status()!=QSettings::NoError
+        || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return false;
+    const auto previous = settings.value("Common/ConfigVersion");
+    QVariantMap removed;
+    if (previous.toInt() <= ApplicationConstants::ConfigVersion) {
+        const QStringList obsolete{
+            "JustConnect/DNS",
+            "JustConnect/DNSAuto",
+            "JustConnect/DNSServerBind",
+            "JustConnect/ShadowsocksURL",
+            "JustConnect/DialDirectProxy",
+            "JustConnect/UpdateBestNodesInterval",
+            "JustConnect/Protocol",
+            "JustConnect/LoginURL",
+            "JustConnect/EasyConnectAuthType",
+            "JustConnect/MultiLine",
+            "JustConnect/KeepAlive",
+            "JustConnect/OutsideAccess",
+            "JustConnect/SkipDomainResource",
+            "JustConnect/DisableServerConfig",
+            "JustConnect/ProxyAll",
+            "JustConnect/Debug",
+            "JustConnect/DebugPCAP",
+            "JustConnect/DebugTLSLog",
+            "JustConnect/TUNMode",
+            "JustConnect/AddRoute",
+            "JustConnect/DNSHijack",
+            "JustConnect/FakeIP",
+            "JustConnect/TCPTunnelMode",
+            "JustConnect/TCPPortForwarding",
+            "JustConnect/UDPPortForwarding",
+            "JustConnect/CustomDNS",
+            "JustConnect/CustomProxyDomain",
+            "JustConnect/ExtraArguments",
+            "Credential/CertFile",
+            "Credential/CertPassword",
+            "Common/AutoStart",
+            "Common/AutoSetProxy",
+            "Common/SystemProxyBypass",
+            "Common/SuppressProxyOverrideWarning"
+        };
+        for (const auto &key:obsolete) {
+            if (settings.contains(key)) removed.insert(key,settings.value(key));
+            settings.remove(key);
+        }
+        settings.setValue("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
     }
-    settings.setValue(
-        "Common/ConfigVersion",
-        ApplicationConstants::ConfigVersion
-    );
     settings.sync();
+    if (settings.status() == QSettings::NoError) return true;
+    for (auto it=removed.cbegin();it!=removed.cend();++it) settings.setValue(it.key(),it.value());
+    if (previous.isValid()) settings.setValue("Common/ConfigVersion", previous);
+    else settings.remove("Common/ConfigVersion");
+    return false;
+}
+
+bool SettingsMigrator::publicDraft(const QSettings &source,QSettings &draft)
+{
+    if (source.status()!=QSettings::NoError || draft.status()!=QSettings::NoError || !draft.allKeys().isEmpty()
+        || (QFileInfo::exists(source.fileName()) && !readableFile(source.fileName()))) return false;
+    for (const auto &key:source.allKeys()) {
+        const auto current=key.startsWith("ZJUConnect/") ? legacyTarget(key.mid(11)) : key;
+        // Legacy switches are migration input, then removed at the public-data boundary.
+        if (DefaultSettings::isPublicKey(current) || current=="JustConnect/Protocol" || current=="JustConnect/KeepAlive")
+            draft.setValue(key,source.value(key));
+    }
+    if (source.status()!=QSettings::NoError || prepare(draft)==SettingsMigrationAction::Failed || !finish(draft)) return false;
+    for (const auto &key:draft.allKeys()) if (!DefaultSettings::isPublicKey(key)) draft.remove(key);
+    draft.sync();
+    return draft.status()==QSettings::NoError;
 }

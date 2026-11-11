@@ -1,0 +1,366 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include "infrastructure/networkaccess/windows/networkaccess.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/dns/dnssnapshot.h"
+#include "infrastructure/dns/windows/dnscontract.h"
+#include "infrastructure/dns/windows/dnssnapshot.h"
+#include "infrastructure/process/command.h"
+#include "infrastructure/routing/originalexit.h"
+#include "application/networkprotection.h"
+#include "tests/platform/windows_device/controlhandoff.h"
+#include "tests/platform/networksnapshotcheck.h"
+#include "tuntraffic.h"
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QTimer>
+#include <QHostInfo>
+#include <QJsonDocument>
+#include <QLibrary>
+#include <QMap>
+#include <QNetworkInterface>
+#include <QStandardPaths>
+#include <QCryptographicHash>
+#include <QSet>
+#include <QtConcurrent>
+#include <atomic>
+#include <cstring>
+#include <iostream>
+#include <objbase.h>
+
+using ProxyCheck::check;
+template<class Predicate> static void until(const char *stage,Predicate done,int timeout=10000){
+    if(done())return;
+    QEventLoop loop;QTimer poll,deadline;bool timedOut=false;
+    poll.setInterval(1);deadline.setSingleShot(true);deadline.setTimerType(Qt::PreciseTimer);
+    QObject::connect(&poll,&QTimer::timeout,&loop,[&]{if(done())loop.quit();});
+    QObject::connect(&deadline,&QTimer::timeout,&loop,[&]{timedOut=true;loop.quit();});
+    poll.start();deadline.start(timeout);
+    while(!done() && !timedOut)loop.exec();
+    check(done(),stage);
+}
+#include "coexistence_windows.h"
+static DnsSnapshot readNativeDns()
+{
+    return readWindowsDnsSnapshot([](const QString &program,const QStringList &arguments){
+        auto command=runPlatformCommand(program,arguments,WindowsDNS::SnapshotTimeoutMs);
+        if(!command.result.succeeded())std::cerr<<"native_dns_reader_stderr="<<command.standardError.toStdString()<<'\n';
+        return command;
+    });
+}
+static QJsonObject dnsSnapshot(){
+    auto future=QtConcurrent::run(readNativeDns);
+    // Let the reader return its own bounded error and phase, including command cleanup.
+    until("complete native DNS snapshot",[&]{return future.isFinished();},WindowsDNS::SnapshotTimeoutMs+PlatformCommandCleanupTimeoutMs);
+    const auto result=future.result();
+    if(!result.result.succeeded())std::cerr<<"DNS_snapshot_status="<<int(result.result.status)<<" detail="<<result.result.detail.toStdString()<<'\n';
+    check(result.result.succeeded(),"ordinary application reads complete system DNS");
+    auto data=result.data;
+    for(const auto &key:{"interfaces","clients","nrpt","doh"}){
+        QMultiMap<QByteArray,QJsonValue> sorted;
+        for(const auto &row:data[key].toArray())sorted.insert(QJsonDocument(row.toObject()).toJson(QJsonDocument::Compact),row);
+        QJsonArray rows;for(const auto &row:sorted)rows.append(row);
+        data[key]=rows;
+    }
+    return data;
+}
+static QStringList interfaceAddresses(){
+    QStringList result;
+    for(const auto &adapter:QNetworkInterface::allInterfaces())for(const auto &address:adapter.addressEntries())
+        result.append(QString::number(adapter.index())+"/"+adapter.name()+"/"+address.ip().toString()+"/"+QString::number(address.prefixLength()));
+    result.sort();return result;
+}
+static bool sameNetwork(const QJsonObject &beforeDns,const QJsonObject &afterDns,
+    const QStringList &beforeAddresses,const QStringList &afterAddresses){
+    if(beforeDns==afterDns && beforeAddresses==afterAddresses)return true;
+    QJsonObject difference{{"dns",NetworkSnapshotCheck::difference(beforeDns,afterDns)}};
+    if(beforeAddresses!=afterAddresses)difference["interfaces"]=QJsonObject{
+        {"before",QJsonArray::fromStringList(beforeAddresses)},{"after",QJsonArray::fromStringList(afterAddresses)}};
+    std::cerr<<"network_restoration_difference="<<QJsonDocument(difference).toJson(QJsonDocument::Compact).constData()<<'\n';
+    return false;
+}
+static QJsonObject systemIPv4(const QString &name)
+{
+    ADDRINFOW hints{};hints.ai_family=AF_INET;hints.ai_socktype=SOCK_STREAM;
+    ADDRINFOW *addresses=nullptr;QJsonArray result;
+    const int status=GetAddrInfoW(reinterpret_cast<const wchar_t *>(name.utf16()),nullptr,&hints,&addresses);
+    if(status==0)for(auto item=addresses;item;item=item->ai_next)
+        result.append(QHostAddress(ntohl(reinterpret_cast<sockaddr_in *>(item->ai_addr)->sin_addr.s_addr)).toString());
+    if(addresses)FreeAddrInfoW(addresses);
+    return {{"status",status},{"addresses",result}};
+}
+int main(int argc,char **argv) try
+{
+    qInstallMessageHandler([](QtMsgType,const QMessageLogContext &,const QString &message){std::cerr<<"qt: "<<message.toStdString()<<'\n';});
+    QCoreApplication app(argc,argv);QStandardPaths::setTestModeEnabled(true);
+    WSADATA sockets{};check(WSAStartup(MAKEWORD(2,2),&sockets)==0,"start ordinary system DNS sockets");
+    struct SocketCleanup {~SocketCleanup(){WSACleanup();}} socketCleanup;
+    check((argc==5 || argc==6) && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
+    const auto fault=argc==6?QByteArray(argv[5]):QByteArray{};
+    const bool policyChanges=qgetenv("JC_WINDOWS_SESSION_POLICY")=="true";
+    const bool exitChange=qgetenv("JC_WINDOWS_SESSION_EXIT_CHANGE")=="true";
+    check(!policyChanges || fault.isEmpty(),"policy changes use normal ownership restoration");
+    check(!exitChange || (!policyChanges && fault.isEmpty()),"exit change has its own ordinary two-session scenario");
+    check(fault.isEmpty() || fault=="helper-loss" || fault=="dual-kill","known application fault scenario");
+    bool valid=false;const auto replyValue=QByteArray(argv[4]).toULongLong(&valid);check(valid && replyValue,"application approval reply pipe");
+    const auto reply=reinterpret_cast<HANDLE>(quintptr(replyValue));
+    HANDLE token=nullptr;check(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token),"ordinary application token");
+    TOKEN_ELEVATION elevation{};DWORD bytes=0;
+    const auto inspected=GetTokenInformation(token,TokenElevation,&elevation,sizeof(elevation),&bytes);CloseHandle(token);
+    check(inspected && !elevation.TokenIsElevated,"Qt, application and Go core remain ordinary");
+    QLibrary runtime(QCoreApplication::applicationDirPath()+"/"+QStringLiteral(JC_SHARED_LIBRARY));runtime.setLoadHints(QLibrary::PreventUnloadHint);
+    check(runtime.load(),"load the actual embedded Windows core runtime");
+    WindowsCoexistenceFixture coexistence;
+    const bool composed=!coexistence.runtime.isEmpty();
+    check(!composed || (!policyChanges && !exitChange && fault.isEmpty()),"composed matrix has its own native session scenario");
+    const bool originalDNS=!qgetenv("JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER").isEmpty();
+    const auto queryOriginal=[&](const QString &expected,const QString &name=QStringLiteral("host.campus.test")){
+        auto lookup=QtConcurrent::run([name]{return systemIPv4(name);});
+        until("ordinary protected-name lookup",[&]{return lookup.isFinished();});
+        const auto result=lookup.result();
+        check(result["status"].toInt()==0 && result["addresses"].toArray().contains(expected),"original/campus name choice follows its confirmed source");
+    };
+    const auto queryOriginalDefault=[&]{
+        queryOriginal("203.0.113.77","outside-"+QUuid::createUuid().toString(QUuid::WithoutBraces)+".original.test");
+    };
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();} // Prewarm the actual Windows DNS cache before connection.
+    const auto initialDns=dnsSnapshot();const auto initialAddresses=interfaceAddresses();
+    WindowsNetworkFingerprint baseline;
+    const auto dnsHash=QCryptographicHash::hash(QJsonDocument(initialDns).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256);
+    const auto interfaceHash=QCryptographicHash::hash(initialAddresses.join('\n').toUtf8(),QCryptographicHash::Sha256);
+    std::memcpy(baseline.dns.data(),dnsHash.constData(),baseline.dns.size());
+    std::memcpy(baseline.interfaces.data(),interfaceHash.constData(),baseline.interfaces.size());
+    const auto config=QJsonDocument::fromJson(qgetenv("JC_WINDOWS_SESSION_CONFIG")).object();
+    const auto server=config["server"].toObject(),auth=config["auth"].toObject();ConnectionOptions profile;
+    profile.endpoint.server=server["host"].toString();profile.endpoint.port=server["port"].toInt();
+    profile.endpoint.authType=auth["method"].toString().mid(QStringLiteral("auth/").size());
+    profile.endpoint.phone=auth["phone"].toString();profile.endpoint.loginDomain=auth["domain"].toString();
+    profile.tls.caPem=config["tls"].toObject()["ca_pem"].toString();profile.keepAlive.mode="off";
+    if(composed){
+        profile.proxy.httpBind="127.0.0.1:0";profile.proxy.socksBind="127.0.0.1:0";
+    }
+    int authorizations=0,approvals=0;
+    auto *engine=new EmbeddedCoreEngine;
+    if(composed)coexistence.observe(engine);
+    NetworkPolicySession policy(engine,observeSystemDnsSnapshot());
+    SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
+    std::atomic<bool> delayEffectiveDns=false;
+    std::atomic<int> delayedReads=0;
+    auto *access=new WindowsNetworkAccess(engine,&policy,nullptr,[&](const QUuid &id,auto ready){
+        ++authorizations;
+        if(authorizations<=2){const DWORD error=authorizations==1?ERROR_ACCESS_DENIED:ERROR_CANCELLED;QTimer::singleShot(0,&app,[ready,error]{ready(nullptr,error);});return;}
+        check(++approvals<=1,"one approved helper process per GUI lifetime");
+        GUID requested{};const auto text=id.toString(QUuid::WithBraces);DWORD count=0;
+        check(SUCCEEDED(CLSIDFromString(reinterpret_cast<LPCOLESTR>(text.utf16()),&requested))
+            && WriteFile(reply,&requested,sizeof(requested),&count,nullptr) && count==sizeof(requested),"actual application UUID reaches the approval fixture");
+        if(fault.isEmpty() && !exitChange)CloseHandle(reply);WindowsControlFixtureInput input;
+        check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&input,sizeof(input),&count,nullptr) && count==sizeof(input),"approved native process handoff");
+        check(!input.hasBaseline || (input.baseline.dns==baseline.dns && input.baseline.interfaces==baseline.interfaces),"new ordinary application confirms complete pre-crash DNS and interface baseline");
+        const auto handle=reinterpret_cast<HANDLE>(input.server);QTimer::singleShot(0,&app,[ready,handle]{ready(handle,0);});
+    },[&]{
+        auto snapshot=readNativeDns();
+        if(snapshot.result.succeeded() && delayEffectiveDns.exchange(false)){
+            // Model a fresh registry source whose effective DNS policy has not appeared yet.
+            check(!snapshot.data["nrpt"].toArray().isEmpty(),"reconnect fixture has effective campus DNS");
+            snapshot.data["nrpt"]=QJsonArray{};
+            ++delayedReads;
+        }
+        return snapshot;
+    });
+    QJsonObject initialProtection;bool coreStarted=false,coreStopped=false,quiesced=false,networkStopped=false,normal=false,recoveryBlocked=false;int finished=0,coreFinishes=0;
+    QObject::connect(access,&NetworkAccess::quiesced,[&](const QUuid &){check(!networkStopped,"capture release precedes final network release");quiesced=true;});
+    QObject::connect(access,&NetworkAccess::stopped,[&](const QUuid &,PlatformOperationResult result){
+        std::cerr<<"network stopped status="<<int(result.status)<<" changed="<<result.mayHaveChanged
+            <<" core_started="<<coreStarted<<" core_stopped="<<coreStopped<<" quiesced="<<quiesced
+            <<" normal="<<normal<<" fault="<<fault.constData()<<" detail="<<result.detail.toStdString()<<'\n';
+        if(normal && !fault.isEmpty()){check(!result.succeeded(),"lost helper cannot confirm an owned release");recoveryBlocked=true;return;}
+        check(result.succeeded() && (normal?coreStopped:!coreStarted),"final network release follows core shutdown, or no core started after refusal");
+        if(normal)networkStopped=true;
+    });
+    NetworkAccess *network=access;
+    if(composed){
+        auto *handoff=new CoexistenceNetworkAccess(access,engine,&policy,&proxy);network=handoff;
+        auto *changes=new ProxyChanges(handoff);
+        QObject::connect(changes,&ProxyChanges::changed,handoff,&CoexistenceNetworkAccess::systemProxyChanged);
+    }
+    ConnectionSession session(engine,nullptr,network);
+    bool manualStop=false, teardownDiagnostic=false;
+    QObject::connect(&session,&ConnectionSession::stateChanged,[&](ConnectionState state){
+        if(state==ConnectionState::Stopping && manualStop){
+            policy.clear(); // Match the real coordinator before NetworkAccess::stop is entered.
+            QCoreApplication::processEvents();
+        }
+    });
+    QObject::connect(&session,&ConnectionSession::diagnostic,[&](const QString &value){
+        if(manualStop)teardownDiagnostic=true;
+        std::cerr<<value.toStdString()<<'\n';
+    });
+    QObject::connect(&session,&ConnectionSession::progressChanged,[&]{std::cerr<<"application phase="<<int(session.phase())<<'\n';});
+    QObject::connect(access,&NetworkAccess::ready,[](const QUuid &,PlatformOperationResult result){std::cerr<<"network ready="<<result.succeeded()<<" "<<result.detail.toStdString()<<'\n';});
+
+    QObject::connect(engine,&CoreEngine::authenticationRequired,[engine](const QJsonObject &request){engine->respond(CoreEngine::responseFor(request,{{"action","submit"},{"code","fixture-code"}}));});
+    QObject::connect(engine,&CoreEngine::sessionStarted,[&]{
+        if(exitChange && coreStopped)coreStopped=quiesced=networkStopped=false;
+        coreStarted=true;
+    });
+    QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value){initialProtection=value;});
+    QObject::connect(engine,&CoreEngine::finished,[&](ConnectionError error){
+        if(fault.isEmpty())check(error==ConnectionError::NONE && quiesced && !networkStopped,"normal core shutdown occurs between capture and device release");
+        else check(!networkStopped,"helper loss does not report a final network release");
+        coreStopped=true;++coreFinishes;
+    });
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error){
+        if(!normal)check(error==(finished==0?ConnectionError::PERMISSION_DENIED:ConnectionError::NONE) && !coreStarted,"refused/cancelled authorization terminates without starting the core");
+        else check(error==ConnectionError::NONE && networkStopped,"application confirms every owned release before finishing");
+        ++finished;
+    });
+    for(int prefix=1;prefix<=2;++prefix){
+        check(session.start(profile,{}),"start explicit refusal/cancellation attempt");until("finish refused or cancelled authorization",[&]{return finished==prefix;});
+        check(authorizations==prefix && !session.isActive() && !coreStarted,"permission refusal never loops authorization or starts the core");
+    }
+    normal=true;
+    check(session.start(profile,{exitChange,1000}),"start complete Windows application connection");
+    until("reach CampusReady after native attachment",[&]{return session.state()==ConnectionState::Running || finished>2;},20000);
+    check(finished==2 && session.phase()==ConnectionPhase::CampusReady,"application reports campus readiness only after authorized device attachment");
+    const auto waitForProtection=[&]{
+        until("finish original-network policy observation and confirmation",[&]{
+            if(policy.isBusy())return false;
+            if(policy.status()!=CoreEngine::RequestStatus::Success)return true;
+            const auto model=policy.model();
+            const auto observed=protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray());
+            const auto confirmed=policy.confirmedProtection();
+            return observed["protected"]==confirmed["protected"] && observed["protected_names"]==confirmed["protected_names"];
+        });
+    };
+    const auto traffic=[&]{
+        waitForProtection();
+        check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
+            "only the actual external proxy may add original protection; owned routes/DNS remain absent");
+        const auto chooseCampus=[&](bool campus){
+            for(const auto *address:{"198.18.0.6","198.18.0.7"}){
+                check(policy.setCampusAddress(QString::fromLatin1(address),campus),"choose each overlapping TCP/UDP target");
+                until("confirm core and helper target policy",[&]{return !policy.isBusy();});
+                check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and native helper confirm the target choice");
+            }
+        };
+        if(policyChanges){
+            check(policy.campusAddresses().isEmpty(),"overlapping targets default to their original network");
+            exerciseOriginalNetworkTraffic();
+            chooseCampus(true);
+        }
+        auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
+        const auto answer=lookup.result();
+        const bool campusResolved=answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7"));
+        if(!campusResolved){
+            QJsonArray addresses;for(const auto &address:answer.addresses())addresses.append(address.toString());
+            const QJsonObject originalFailure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses}};
+            std::cerr<<"system_campus_dns="<<QJsonDocument(originalFailure).toJson(QJsonDocument::Compact).constData()<<'\n';
+            auto ipv4=QtConcurrent::run([]{return systemIPv4(QStringLiteral("campus.test"));});
+            until("inspect the failed system IPv4 lookup",[&]{return ipv4.isFinished();});
+            const auto native=dnsSnapshot();
+            const QJsonObject failure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses},
+                {"ipv4",ipv4.result()},{"nrpt",native["nrpt"]},{"interfaces",native["interfaces"]},
+                {"network",policy.model()["network"]}};
+            std::cerr<<"system_campus_dns_observation="<<QJsonDocument(failure).toJson(QJsonDocument::Compact).constData()<<'\n';
+        }
+        check(campusResolved,"ordinary Windows system DNS follows campus CNAME through the actual core");
+        exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+        exerciseNativeSSH(QHostAddress("198.18.0.7"));
+        if(policyChanges)exerciseNonCampusNetworkTraffic();
+        waitForProtection();check(policy.refresh(),"refresh original view after DNS capture publication");waitForProtection();
+        check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
+            "new DNS captures remain excluded from original protection");
+        exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+        if(policyChanges){
+            const auto generation=policy.currentGeneration();
+            chooseCampus(false);
+            check(policy.campusAddresses().isEmpty() && session.state()==ConnectionState::Running && policy.currentGeneration()==generation,
+                "returning to the original network preserves the authenticated session");
+            exerciseOriginalNetworkTraffic();
+        }
+    };
+    if(composed)coexistence.exercise(session,proxy,policy,traffic);
+    else traffic();
+    if(originalDNS){
+        queryOriginal("203.0.113.9");
+        queryOriginalDefault();
+        for(const bool campus:{true,false}){
+            until("finish original DNS observation before choosing",[&]{return !policy.isBusy() || session.state()!=ConnectionState::Running;});
+            check(session.state()==ConnectionState::Running && policy.status()==CoreEngine::RequestStatus::Success,
+                "original DNS view is complete before a new choice");
+            check(policy.setCampusName("host.campus.test",campus),"choose the overlapping original DNS name");
+            until("confirm original-name policy",[&]{return !policy.isBusy();});
+            check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and helper confirm the name choice");
+            queryOriginal(campus?"198.18.0.7":"203.0.113.9");
+        }
+    }
+    WindowsExitChangeFixtureInput changed;
+    if(exitChange){
+        const auto previousGeneration=policy.currentGeneration();const auto model=policy.model();
+        const auto exit=originalExitSnapshot(model["network"].toObject(),{});
+        check(exit.has_value(),"complete original exit snapshot before address change");
+        QSet<int> indexes;
+        for(const auto &value:(*exit)["routes"].toArray()){
+            const auto route=value.toObject();if(route["destination"]=="0.0.0.0/0")indexes.insert(route["interface_index"].toInt());
+        }
+        check(indexes.size()==1 && *indexes.begin()>0,"one actual IPv4 default interface for the exit change");
+        changed.interfaceIndex=quint32(*indexes.begin());
+        const auto barrier=QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int){
+            check(finished==2 && coreStopped && networkStopped && session.state()==ConnectionState::Reconnecting,
+                "changed exit restores the old helper and core before scheduling reconnect");
+            DWORD count=0;
+            check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed) && changed.address,
+                "native observer confirms old ownership release and the external exit alias");
+            delayEffectiveDns=true;
+        });
+        DWORD count=0;
+        check(WriteFile(reply,&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed),"actual default interface reaches the external change observer");
+        until("automatic reconnect after original exit address change",[&]{return (session.state()==ConnectionState::Running && coreFinishes==1) || finished>2;},20000);
+        QObject::disconnect(barrier);
+        check(finished==2 && session.phase()==ConnectionPhase::CampusReady && session.reconnectAttempt()==1
+            && policy.currentGeneration()!=previousGeneration,"changed exit reconnects once with a fresh generation");
+        check(delayedReads==1,"reconnect survived one incomplete effective DNS snapshot");
+        until("complete changed original-network policy view",[&]{return !policy.isBusy();});
+        bool adopted=false;
+        for(const auto &value:policy.model()["network"].toObject()["interfaces"].toArray()){
+            const auto row=value.toObject();if(row["index"].toInt()!=int(changed.interfaceIndex))continue;
+            adopted=row["addresses"].toArray().contains(QHostAddress(changed.address).toString()+"/32");
+        }
+        check(adopted,"fresh connection adopts the actual external exit address");
+        traffic();
+    }
+    if(!fault.isEmpty()){
+        DWORD count=0;
+        check(WriteFile(reply,&baseline,sizeof(baseline),&count,nullptr) && count==sizeof(baseline),"real traffic checkpoint reaches root fixture");CloseHandle(reply);
+        if(fault=="dual-kill")until("root fixture kills the live Qt/core process",[]{return false;},20000);
+        until("helper loss stops the actual core and retains recovery responsibility",[&]{return coreStopped && recoveryBlocked;},20000);
+        check(finished==2 && session.isActive() && !session.start(profile,{}) && authorizations==3,"pending recovery blocks a new connection and repeated authorization");
+        unsigned char restored=0;
+        check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&restored,1,&count,nullptr) && count==1 && restored==1,"independent service confirms its durable recovery receipt");
+        check(sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses()),"independent service restores complete DNS and interfaces while the application remains alive");
+        std::cout<<"PASS: helper loss stops core, blocks new authorization and preserves responsibility through independent restoration\n";return 0;
+    }
+    manualStop=true;
+    session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
+    check(!teardownDiagnostic,"manual stop treated a cleared policy generation as a failed network read");
+    if(composed){
+        check(!proxy.isBusy() && !proxy.needsCleanup(),"composed stop restores browser ownership before the native session finishes");
+        coexistence.restore();
+    }
+    if(exitChange){
+        unsigned char complete=1;DWORD count=0;
+        check(coreFinishes==2 && WriteFile(reply,&complete,1,&count,nullptr) && count==1,"both real cores and owned network generations finish before fixture cleanup");CloseHandle(reply);
+        check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&complete,1,&count,nullptr) && count==1 && complete==1,"external observer removes only its own exit alias after network restoration");
+    }
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();}
+    // Ending the application-owned network object releases its otherwise empty cached adapter.
+    delete network;network=nullptr;access=nullptr;
+    const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
+    check(authorizations==3 && approvals==1 && !session.isActive() && restored,
+        "single approval, owned device removal and complete original DNS/interface restoration");
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();std::cout<<"PASS: prewarmed Windows root/scoped NRPT source, unmatched native default, automatic listener, name choice/withdrawal and exact restoration\n";}
+    if(exitChange)std::cout<<"PASS: changed Windows original exit restores before automatic reconnect, fresh generation, system DNS/TCP/UDP/SSH and complete final restoration\n";
+    if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
+    std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";
+    return 0;
+}catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

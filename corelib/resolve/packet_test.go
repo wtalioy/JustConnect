@@ -1,0 +1,264 @@
+package resolve
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/netip"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/miekg/dns"
+	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/policy"
+)
+
+func TestDomainDNSOverridesExactNamesWithoutCreatingGrants(t *testing.T) {
+	rules, err := ParseDomainDNSRules("gateway.test\nExplicit.Test. 192.0.2.53")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"*.test", "a.test\nA.test.", "a.test 127.0.0.1", "a.test 192.0.2.53:53", "a.localhost"} {
+		if _, err := ParseDomainDNSRules(text); err == nil {
+			t.Fatalf("accepted malformed rule %q", text)
+		}
+	}
+	r := NewResolver(nil, "192.0.2.54", "", 30, nil, nil, true)
+	defer r.Close()
+	r.DomainDNS = rules
+	for host, endpoint := range map[string]string{"explicit.test.": "192.0.2.53:53", "gateway.test.": "192.0.2.54:53"} {
+		dial := func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != endpoint {
+				t.Fatalf("DNS went to %s %s, wanted %s", network, address, endpoint)
+			}
+			left, right := net.Pipe()
+			go func() {
+				defer right.Close()
+				wire := &dns.Conn{Conn: right}
+				if request, err := wire.ReadMsg(); err == nil {
+					reply := new(dns.Msg).SetReply(request)
+					reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: host, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 30}, A: net.IPv4(203, 0, 113, 9)}}
+					_ = wire.WriteMsg(reply)
+				}
+			}()
+			return left, nil
+		}
+		request := new(dns.Msg).SetQuestion(host, dns.TypeA)
+		reply, err := r.ExchangeTUN(t.Context(), request, "tcp", dial, func(context.Context, []netip.Addr, bool) error {
+			t.Fatal("a DNS preference published a route for an unlisted name")
+			return nil
+		})
+		if err != nil || len(reply.Answer) != 1 {
+			t.Fatalf("override reply %v, %v", reply, err)
+		}
+		if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion("child."+host, dns.TypeA), "tcp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+			t.Fatalf("override was inherited by a child: %v", err)
+		}
+	}
+	if len(r.CampusDNSRecords()) != 0 {
+		t.Fatal("unlisted names gained campus DNS authorization")
+	}
+}
+
+func TestSupplementalDomainDNSPreservesOriginalChildLookup(t *testing.T) {
+	socket, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const child = "child.exact.campus.test."
+	var calls atomic.Int32
+	server := &dns.Server{PacketConn: socket, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		calls.Add(1)
+		reply := new(dns.Msg).SetReply(request)
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(192, 0, 2, 12)}}
+		_ = w.WriteMsg(reply)
+	})}
+	go func() { _ = server.ActivateAndServe() }()
+	t.Cleanup(func() { _ = server.Shutdown(); _ = socket.Close() })
+	r := NewResolver(nil, "192.0.2.54", "", 30, nil, nil, true)
+	defer r.Close()
+	r.DomainDNS = map[string]string{"exact.campus.test": ""}
+	r.OriginalDNS, err = NewOriginalDNS([]OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "exact.campus.test"},
+		Servers: []string{socket.LocalAddr().String()}, SupplementalFallback: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("ordinary child lookup used campus DNS")
+		return nil, nil
+	}
+	request := new(dns.Msg).SetQuestion(child, dns.TypeA)
+	reply, err := r.ExchangeTUN(ctx, request, "udp", dial, func(context.Context, []netip.Addr, bool) error {
+		t.Fatal("ordinary child lookup changed data routes")
+		return nil
+	})
+	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "192.0.2.12" || calls.Load() != 1 {
+		t.Fatalf("original child reply %v, %v", reply, err)
+	}
+	nextSocket, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextServer := &dns.Server{PacketConn: nextSocket, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		reply := new(dns.Msg).SetReply(request)
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(192, 0, 2, 13)}}
+		_ = w.WriteMsg(reply)
+	})}
+	go func() { _ = nextServer.ActivateAndServe() }()
+	t.Cleanup(func() { _ = nextServer.Shutdown(); _ = nextSocket.Close() })
+	nextRoute := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "exact.campus.test"},
+		Servers: []string{nextSocket.LocalAddr().String()}, SupplementalFallback: true}
+	replacement, err := NewOriginalDNS([]OriginalDNSRoute{nextRoute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.OriginalDNS.ReplaceSupplementalFallbacks(replacement); err != nil {
+		t.Fatal(err)
+	}
+	nextRoute.Name.Value = "other.test"
+	widened, err := NewOriginalDNS([]OriginalDNSRoute{nextRoute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.OriginalDNS.ReplaceSupplementalFallbacks(widened); err == nil {
+		t.Fatal("replacement changed the installed DNS scope")
+	}
+	reply, err = r.ExchangeTUN(ctx, request, "udp", dial, nil)
+	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "192.0.2.13" || calls.Load() != 1 {
+		t.Fatalf("child query did not use the new ordinary DNS upstream: %v, %v", reply, err)
+	}
+	if _, err := r.ExchangeCampus(ctx, request, "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+		t.Fatalf("campus-only listener accepted an ordinary child: %v", err)
+	}
+	if _, err := r.ExchangeTUN(ctx, new(dns.Msg).SetQuestion("outside.test.", dns.TypeA), "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+		t.Fatalf("fallback applied outside its suffix: %v", err)
+	}
+}
+
+func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
+	r := NewResolver(nil, "203.0.113.53", "", 30, client.DomainResources{"*.campus.test": {{Protocol: "all", PortMin: 1, PortMax: 65535}}},
+		map[string][]net.IP{"static.campus.test": {net.IPv4(203, 0, 113, 7), net.ParseIP("2001:db8::7")}}, true)
+	defer r.Close()
+	var calls atomic.Int32
+	udp, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &dns.Server{PacketConn: udp, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		calls.Add(1)
+		reply := new(dns.Msg).SetReply(request)
+		reply.Answer = []dns.RR{&dns.CNAME{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 10}, Target: "target.campus.test."},
+			&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 5}, A: net.IPv4(203, 0, 113, 9)}}
+		_ = w.WriteMsg(reply)
+	})}
+	ready := make(chan struct{})
+	server.NotifyStartedFunc = func() { close(ready) }
+	go func() { _ = server.ActivateAndServe() }()
+	<-ready
+	t.Cleanup(func() { _ = server.Shutdown() })
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if network != "udp" || address != "203.0.113.53:53" {
+			t.Errorf("wrong campus DNS route %s %s", network, address)
+		}
+		return (&net.Dialer{}).DialContext(ctx, "udp", udp.LocalAddr().String())
+	}
+	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
+	reply, err := r.ExchangeCampus(t.Context(), request, "udp", dial, nil)
+	if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME || reply.Answer[0].Header().Ttl != 5 || reply.Answer[1].Header().Ttl != 5 || reply.Id != request.Id {
+		t.Fatalf("records lost: %v %v", reply, err)
+	}
+	for _, kind := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		reply, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion("static.campus.test.", kind), "udp", dial, nil)
+		if err != nil || len(reply.Answer) != 1 || reply.Answer[0].Header().Rrtype != kind || reply.Answer[0].Header().Ttl != 30 {
+			t.Fatalf("static records: %v %v", reply, err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatal("static records unnecessarily queried the campus", calls.Load())
+	}
+	for _, host := range []string{"public.test.", "localhost."} {
+		if _, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion(host, dns.TypeA), "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+			t.Fatal("ungranted name queried campus", host, err)
+		}
+	}
+	protection, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "campus.test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protection }
+	if _, err := r.ExchangeCampus(t.Context(), request, "udp", dial, nil); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatal("protected name escaped to campus", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("refused name generated network traffic")
+	}
+	bad := request.Copy()
+	bad.Question = append(bad.Question, bad.Question[0])
+	if _, err := r.ExchangeCampus(t.Context(), bad, "udp", dial, nil); !errors.Is(err, ErrInvalidDNSQuestion) {
+		t.Fatal("multi-question request accepted", err)
+	}
+}
+
+func TestCampusDNSPacketCancellationAndCloseJoinNetworkIO(t *testing.T) {
+	for _, closeResolver := range []bool{false, true} {
+		t.Run(map[bool]string{false: "request", true: "resolver"}[closeResolver], func(t *testing.T) {
+			r := NewResolver(nil, "203.0.113.53", "", 30, client.DomainResources{"campus.test": {{Protocol: "tcp", PortMin: 1, PortMax: 65535}}}, nil, true)
+			defer r.Close()
+			left, right := net.Pipe()
+			defer right.Close()
+			started := make(chan struct{})
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				_, err := r.ExchangeCampus(ctx, new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "tcp",
+					func(context.Context, string, string) (net.Conn, error) { close(started); return left, nil }, nil)
+				done <- err
+			}()
+			<-started
+			if closeResolver {
+				r.Close()
+			} else {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("network I/O outlived cancellation", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("DNS cancellation did not interrupt packet I/O")
+			}
+		})
+	}
+}
+
+func TestCampusDNSRejectsMismatchedUpstreamQuestion(t *testing.T) {
+	r := NewResolver(nil, "203.0.113.53", "", 30, client.DomainResources{"campus.test": {{Protocol: "all", PortMin: 1, PortMax: 65535}}}, nil, true)
+	defer r.Close()
+	left, right := net.Pipe()
+	defer right.Close()
+	done := make(chan error, 1)
+	go func() {
+		wire := &dns.Conn{Conn: right}
+		request, err := wire.ReadMsg()
+		if err == nil {
+			reply := new(dns.Msg).SetReply(request)
+			reply.Question[0].Name = "unrelated.test."
+			err = wire.WriteMsg(reply)
+		}
+		done <- err
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := r.ExchangeCampus(ctx, new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "tcp",
+		func(context.Context, string, string) (net.Conn, error) { return left, nil }, nil); !errors.Is(err, ErrInvalidDNSResponse) {
+		t.Fatal("mismatched upstream question accepted", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

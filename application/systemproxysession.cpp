@@ -1,6 +1,7 @@
 #include "systemproxysession.h"
 
 #include <QtConcurrent>
+#include <utility>
 
 SystemProxySession::SystemProxySession(
     std::unique_ptr<SystemProxyBackend> backend,
@@ -18,24 +19,26 @@ SystemProxySession::~SystemProxySession()
     operationWatcher.waitForFinished();
 }
 
-bool SystemProxySession::checkConflict(const SystemProxyConfig &config)
-{
-    return startOperation(Operation::CheckConflict, config);
-}
+bool SystemProxySession::inspect() { return startOperation(Operation::Inspect); }
 
-bool SystemProxySession::enable(const SystemProxyConfig &config)
+bool SystemProxySession::handoff(const SystemProxyConfig &config)
 {
+    if (config.upstream.isEmpty() || needsCleanup()) return false;
     return startOperation(Operation::Enable, config);
 }
 
 bool SystemProxySession::disable()
 {
+    if (currentOperation==Operation::Enable || currentOperation==Operation::Inspect) {
+        restoreRequested=true;return true;
+    }
+    if (!needsCleanup()) return false;
     return startOperation(Operation::Disable);
 }
 
 bool SystemProxySession::isEnabled() const
 {
-    return enabled;
+    return enabled && !uncertain;
 }
 
 bool SystemProxySession::isBusy() const
@@ -43,31 +46,28 @@ bool SystemProxySession::isBusy() const
     return currentOperation != Operation::None;
 }
 
-void SystemProxySession::clearBeforeShutdown()
+bool SystemProxySession::needsCleanup() const { return enabled || uncertain; }
+
+void SystemProxySession::updateState(Operation operation, const PlatformOperationResult &result)
 {
-    const Operation operation = currentOperation;
-    disconnect(&operationWatcher, nullptr, this, nullptr);
-    operationWatcher.waitForFinished();
-
-    if (operation != Operation::Disable
-        && (enabled || operation == Operation::Enable))
-    {
-        backend->clear();
+    if (operation == Operation::Inspect) {
+        uncertain |= result.mayHaveChanged;
+        return;
     }
-
-    currentOperation = Operation::None;
-    enabled = false;
+    if (result.succeeded()) {
+        enabled = operation == Operation::Enable;
+        uncertain = false;
+    } else if (result.mayHaveChanged) uncertain = true;
 }
 
 bool SystemProxySession::startOperation(Operation operation, const SystemProxyConfig &config)
 {
-    if (isBusy())
-    {
-        return false;
-    }
+    const bool continuing=operation==Operation::Disable
+        && (currentOperation==Operation::Enable || currentOperation==Operation::Inspect) && operationWatcher.isFinished();
+    if (isBusy() && !continuing) return false;
 
     currentOperation = operation;
-    emit busyChanged(true);
+    if (!continuing) emit busyChanged(true);
 
     SystemProxyBackend *proxyBackend = backend.get();
     operationWatcher.setFuture(QtConcurrent::run(
@@ -76,14 +76,15 @@ bool SystemProxySession::startOperation(Operation operation, const SystemProxyCo
             OperationResult result{operation};
             switch (operation)
             {
-            case Operation::CheckConflict:
-                result.conflict = proxyBackend->hasConflict(config);
+            case Operation::Inspect:
+                result.check = proxyBackend->inspect();
+                result.result = result.check.result;
                 break;
             case Operation::Enable:
-                result.succeeded = proxyBackend->apply(config);
+                result.result = proxyBackend->apply(config);
                 break;
             case Operation::Disable:
-                result.succeeded = proxyBackend->clear();
+                result.result = proxyBackend->clear();
                 break;
             case Operation::None:
                 break;
@@ -97,33 +98,26 @@ bool SystemProxySession::startOperation(Operation operation, const SystemProxyCo
 void SystemProxySession::handleOperationFinished()
 {
     const OperationResult result = operationWatcher.result();
-    currentOperation = Operation::None;
+    const bool wasEnabled = enabled, wasUncertain = uncertain;
+    updateState(result.operation, result.result);
+    const bool stateChanged = enabled != wasEnabled || uncertain != wasUncertain;
 
-    bool stateChanged = false;
-    if (result.succeeded && result.operation == Operation::Enable && !enabled)
-    {
-        enabled = true;
-        stateChanged = true;
-    }
-    else if (result.succeeded && result.operation == Operation::Disable && enabled)
-    {
-        enabled = false;
-        stateChanged = true;
-    }
-
-    emit busyChanged(false);
+    const bool restoring=std::exchange(restoreRequested,false) && needsCleanup();
+    // A completed apply and its requested restoration are one busy interval.
+    if (restoring) startOperation(Operation::Disable);
+    else { currentOperation=Operation::None;emit busyChanged(false); }
 
     if (stateChanged)
     {
-        emit enabledChanged(enabled);
+        emit enabledChanged(isEnabled());
     }
 
-    if (result.operation == Operation::CheckConflict)
+    if (result.operation == Operation::Inspect)
     {
-        emit conflictCheckFinished(result.conflict);
+        emit inspectionFinished(result.check);
     }
     else
     {
-        emit operationFinished(enabled);
+        emit operationFinished(isEnabled(), result.result);
     }
 }

@@ -1,0 +1,505 @@
+package auth
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	mathrand "math/rand"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
+)
+
+// Keep the proven gateway client identity independent of the host OS.
+const (
+	ClientPlatform       = "Linux"
+	Language             = "en-US"
+	UserAgent            = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) aTrustTray/2.4.10.50 Chrome/83.0.4103.94 Electron/9.0.2 Safari/537.36 aTrustTray-Linux-Plat-Ubuntu-x64 SPCClientType"
+	maxAttempts          = 5
+	maxAuthSteps         = 8
+	maxAuthResponseBytes = 8 << 20
+)
+
+var sharedParams = url.Values{
+	"clientType": {"SDPClient"},
+	"platform":   {ClientPlatform},
+	"lang":       {Language},
+}
+
+func WithSharedParams(extra url.Values) url.Values {
+	combined := make(url.Values, len(sharedParams)+len(extra))
+	for k, v := range sharedParams {
+		combined[k] = append([]string(nil), v...)
+	}
+
+	for k, v := range extra {
+		for _, val := range v {
+			// notice: not Add()
+			combined.Set(k, val)
+		}
+	}
+
+	return combined
+}
+
+type Cookie struct {
+	Host   string `json:"host"`
+	Scheme string `json:"scheme"`
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+}
+
+type ClientIdentity struct {
+	ServerHost    string `json:"server_host"`
+	Username      string `json:"username"`
+	LoginUsername string `json:"login_username"`
+	AuthID        string `json:"auth_id"`
+	AuthSubType   string `json:"auth_sub_type"`
+	AuthType      string `json:"auth_type"`
+	LoginDomain   string `json:"login_domain"`
+	Phone         string `json:"phone"`
+}
+
+type ClientAuthData struct {
+	Identity          ClientIdentity  `json:"identity"`
+	Cookies           []Cookie        `json:"cookies"`
+	DeviceID          string          `json:"device_id"`
+	ServerVersionInfo json.RawMessage `json:"server_version_info,omitempty"`
+}
+
+type ServerVersionInfo struct {
+	Code int `json:"code"`
+	Data struct {
+		Capacities struct {
+			ZeroRTT struct {
+				Version string `json:"version"`
+			} `json:"zeroRTT"`
+		} `json:"capacities"`
+		Options struct {
+			Tun0RTT struct {
+				Enable bool `json:"enable"`
+			} `json:"tun0rtt"`
+		} `json:"options"`
+	} `json:"data"`
+}
+
+func ParseServerVersionInfo(data []byte) (ServerVersionInfo, error) {
+	var info ServerVersionInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return info, fmt.Errorf("failed to parse aTrust server manifest: %w", err)
+	}
+	if info.Code != 0 {
+		return info, fmt.Errorf("aTrust server manifest failed with code %d", info.Code)
+	}
+	return info, nil
+}
+
+func (i ServerVersionInfo) TCPTunnelZeroRTT() bool {
+	return i.Data.Capacities.ZeroRTT.Version != "" && i.Data.Options.Tun0RTT.Enable
+}
+
+type Session struct {
+	Language   string
+	Diagnostic func(string)
+	ctx        context.Context
+	client     *http.Client
+	deviceID   string
+	username   string
+	totpSecret string
+
+	baseHost string
+	baseURL  string
+
+	rid            string
+	env            string
+	csrfToken      string
+	pubKey         string
+	pubKeyExp      string
+	antiReplayRand string
+	ticket         string
+	nextService    string
+
+	response         map[string]json.RawMessage
+	challengeHandler authchallenge.Handler
+}
+
+func NewSession(server string, config *tls.Config, dialContext ...client.DialContextFunc) *Session {
+	return NewSessionContext(context.Background(), server, config, dialContext...)
+}
+
+func NewSessionContext(ctx context.Context, server string, config *tls.Config, dialContext ...client.DialContextFunc) *Session {
+	if config == nil {
+		config = &tls.Config{}
+	} else {
+		config = config.Clone()
+	}
+	dial := client.DialContextFunc((&net.Dialer{}).DialContext)
+	if len(dialContext) > 0 && dialContext[0] != nil {
+		dial = dialContext[0]
+	}
+	tr := &http.Transport{TLSClientConfig: config, DialContext: dial}
+	tr.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return client.DialTLSContext(ctx, dial, network, address, config)
+	}
+	jar, _ := cookiejar.New(nil)
+	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second}
+
+	return &Session{
+		ctx:      ctx,
+		client:   httpClient,
+		baseHost: server,
+		baseURL:  "https://" + server,
+		rid:      base64.StdEncoding.EncodeToString([]byte(server)),
+		response: make(map[string]json.RawMessage),
+	}
+}
+
+// SetContext changes the lifetime between serialized setup and maintenance calls.
+func (s *Session) SetContext(ctx context.Context) { s.ctx = ctx }
+
+func (s *Session) Close() { s.client.CloseIdleConnections() }
+
+func (s *Session) request(req *http.Request) (*http.Response, error) {
+	if s.Language != "" && req.URL.Query().Has("lang") {
+		req = req.Clone(req.Context())
+		query := req.URL.Query()
+		query.Set("lang", s.Language)
+		req.URL.RawQuery = query.Encode()
+	}
+	ctx, cancel := context.WithCancel(req.Context())
+	stop := context.AfterFunc(s.ctx, cancel)
+	if s.ctx.Err() != nil {
+		cancel()
+	}
+	response, err := s.client.Do(req.WithContext(ctx))
+	if err != nil {
+		stop()
+		cancel()
+		if req.Context().Err() != nil {
+			return nil, req.Context().Err()
+		}
+		if s.ctx.Err() != nil {
+			return nil, s.ctx.Err()
+		}
+		return nil, err
+	}
+	response.Body = &responseBody{ReadCloser: http.MaxBytesReader(nil, response.Body, maxAuthResponseBytes), release: func() { stop(); cancel() }}
+	return response, nil
+}
+
+func (s *Session) postJSON(path string, payload, result any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.baseURL+path+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Content-Type", "application/json;charset=utf-8")
+	req.Header.Set("x-csrf-token", s.csrfToken)
+	req.Header.Set("x-sdp-env", s.env)
+	req.Header.Set("x-sdp-traceid", s.randSdpId())
+	resp, err := s.request(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, result)
+}
+
+// Keep cancellation attached until the caller has finished reading the body.
+type responseBody struct {
+	io.ReadCloser
+	release func()
+}
+
+func (b *responseBody) Close() error {
+	defer b.release()
+	return b.ReadCloser.Close()
+}
+
+var ErrAuthMethodChanged = errors.New("authentication identity is stale or ambiguous")
+var ErrCredentialsRequired = errors.New("password credentials are required")
+
+type AuthInfo struct {
+	AuthID      string `json:"authId"`
+	SubType     string `json:"subType"`
+	LoginDomain string `json:"loginDomain"`
+	AuthType    string `json:"authType"`
+	AuthName    string `json:"authName"`
+	LoginURL    string `json:"loginUrl"`
+}
+
+type LoginOptions struct {
+	AuthID           string
+	SubType          string
+	DeviceID         string
+	Cookies          []Cookie
+	TOTPSecret       string
+	ChallengeHandler authchallenge.Handler
+}
+
+type LoginResult struct {
+	Username string
+	SID      string
+	Cookies  []Cookie
+}
+
+type LoginMethod interface {
+	AuthType() string
+	LoginDomain() string
+	login(*Session, AuthInfo) error
+}
+
+func (s *Session) randSdpId(n ...int) string {
+	length := 8
+	if len(n) > 0 {
+		length = n[0]
+	}
+	hexes := make([]byte, length)
+	for i := 0; i < length; i++ {
+		hexes[i] = "0123456789abcdef"[mathrand.Intn(16)]
+	}
+	return string(hexes)
+}
+
+func (s *Session) withGraphCheckCode(process func(string) (int, error)) error {
+	graphCheckCodeEnable, err := process("")
+	if err != nil {
+		return err
+	}
+
+	for attempt := 1; graphCheckCodeEnable == 1 && attempt <= maxAttempts; attempt++ {
+
+		imgData, err := s.checkCode()
+		if err != nil {
+			return err
+		}
+
+		_, _, err = s.authConfig(false, true)
+		if err != nil {
+			return err
+		}
+
+		captchaResponse, err := s.challengeHandler.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{
+			Image: imgData,
+		})
+		if err != nil {
+			return fmt.Errorf("complete aTrust captcha challenge: %w", err)
+		}
+		graphCheckCode, err := graphCheckCodeFromResponse(captchaResponse, imgData)
+		if err != nil {
+			return fmt.Errorf("encode aTrust captcha response: %w", err)
+		}
+
+		graphCheckCodeEnable, err = process(graphCheckCode)
+		if err != nil {
+			return err
+		}
+
+		if graphCheckCodeEnable == 0 {
+			return nil
+		}
+
+	}
+
+	if graphCheckCodeEnable != 0 {
+		return fmt.Errorf("captcha verification failed after %d attempts", maxAttempts)
+	}
+	return nil
+}
+
+func (s *Session) GetAuthInfoList() ([]AuthInfo, error) {
+	_, list, err := s.authConfig(false, true)
+	return list, err
+}
+
+func (s *Session) continueAuth(step authStep) error {
+	for attempt := 0; attempt < maxAuthSteps; attempt++ {
+
+		var err error
+		switch step.Service {
+		case "":
+			return nil
+		case "auth/authCheck":
+			step, err = s.authCheck()
+		case "auth/sms":
+			step, err = s.completeSMS(step)
+		case "auth/customSms":
+			step, err = s.completeCustomSMS()
+		case "auth/totp":
+			step, err = s.completeTOTP()
+		case "auth/radius":
+			step, err = s.completeRadius("auth/token")
+		case "auth/challenge":
+			step, err = s.completeRadius("auth/challenge")
+		case "auth/accessCheck":
+			step, err = s.accessCheck()
+		case "auth/preEnhancedAuth", "auth/enhancedConfirm", "auth/enhancedDone":
+			step, err = s.completeEnhancedAuth(step)
+		case "auth/bindAuthDevice":
+			step, err = s.bindAuthDevice(step)
+		case "auth/token":
+			return fmt.Errorf("%w: missing token type", authchallenge.ErrUnsupported)
+		default:
+			return fmt.Errorf("%w: next service %s", authchallenge.ErrUnsupported, step.Service)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return fmt.Errorf("authentication chain exceeded %d steps", maxAuthSteps)
+}
+
+func (s *Session) completeSMS(step authStep) (authStep, error) {
+	switch step.SMSMode {
+	case smsWithAuthID:
+		// HITSZ-style gateways refresh the ticket-bearing auth config before
+		// querying the phone number and sending the SMS.
+		if _, _, err := s.authConfig(true, true); err != nil {
+			return authStep{}, err
+		}
+	case smsWithoutAuthID:
+		// SARI-style gateways refresh auth config after sending the SMS.
+	default:
+		return authStep{}, fmt.Errorf("%w: SMS mode", authchallenge.ErrUnsupported)
+	}
+
+	if _, err := s.phoneNumber(step.AuthID); err != nil && s.Diagnostic != nil {
+		s.Diagnostic("auth_detail_unavailable")
+	}
+
+	if err := s.authSms(step); err != nil {
+		return authStep{}, err
+	}
+	if step.SMSMode == smsWithoutAuthID {
+		if _, _, err := s.authConfig(true, true); err != nil {
+			return authStep{}, err
+		}
+	}
+
+	return s.smsCheckCode(step)
+}
+
+func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, error) {
+	if len(opts.Cookies) > 0 {
+		for _, cookie := range opts.Cookies {
+			c := &http.Cookie{
+				Name:  cookie.Name,
+				Value: cookie.Value,
+			}
+			s.client.Jar.SetCookies(&url.URL{Host: cookie.Host, Scheme: cookie.Scheme}, []*http.Cookie{c})
+		}
+	}
+
+	s.deviceID = opts.DeviceID
+	s.totpSecret = opts.TOTPSecret
+	s.challengeHandler = opts.ChallengeHandler
+	if s.challengeHandler == nil {
+		s.challengeHandler = authchallenge.UnsupportedHandler{}
+	}
+	environment, _ := json.Marshal(map[string]string{"deviceId": opts.DeviceID})
+	s.env = base64.StdEncoding.EncodeToString(environment)
+
+	isLogin, authInfoList, err := s.authConfig(false, true)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if isLogin == 1 {
+
+		username, err := s.onlineInfo()
+		if err != nil {
+			return LoginResult{}, err
+		}
+		sid, cookies := sessionCookies(s)
+		return LoginResult{
+			Username: username,
+			SID:      sid,
+			Cookies:  cookies,
+		}, nil
+	}
+
+	if method == nil {
+		return LoginResult{}, ErrSessionInvalid
+	}
+	var foundAuthInfo *AuthInfo
+	for _, info := range authInfoList {
+		if info.AuthType != method.AuthType() || info.LoginDomain != method.LoginDomain() ||
+			(opts.AuthID != "" && opts.AuthID != info.AuthID) || (opts.SubType != "" && opts.SubType != info.SubType) {
+			continue
+		}
+		if foundAuthInfo != nil {
+			return LoginResult{}, ErrAuthMethodChanged
+		}
+		copy := info
+		foundAuthInfo = &copy
+	}
+	if foundAuthInfo == nil {
+		return LoginResult{}, ErrAuthMethodChanged
+	}
+
+	err = method.login(s, *foundAuthInfo)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	err = s.reportEnv()
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	nextService := s.nextService
+	if nextService == "" {
+		nextService = "auth/authCheck"
+	}
+	err = s.continueAuth(authStep{Service: nextService})
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	username, err := s.onlineInfo()
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	sid, cookies := sessionCookies(s)
+	return LoginResult{
+		Username: username,
+		SID:      sid,
+		Cookies:  cookies,
+	}, nil
+}
+
+func sessionCookies(s *Session) (string, []Cookie) {
+	cookies := make([]Cookie, 0)
+	sid := ""
+	for _, cookie := range s.client.Jar.Cookies(&url.URL{Host: s.baseHost, Scheme: "https"}) {
+		if cookie.Name == "sid" {
+			sid = cookie.Value
+		}
+		cookies = append(cookies, Cookie{
+			Host:   s.baseHost,
+			Scheme: "https",
+			Name:   cookie.Name,
+			Value:  cookie.Value,
+		})
+	}
+	return sid, cookies
+}

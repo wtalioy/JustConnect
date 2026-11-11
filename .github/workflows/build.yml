@@ -1,111 +1,129 @@
 name: Build packages
+run-name: Build ${{ inputs.version || 'preview' }} (${{ github.ref_name }})
 
 on:
-  push:
-    branches: [main]
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      nightly:
-        type: boolean
-        default: true
-        description: Nightly build
-      zju_connect_nightly:
-        type: boolean
-        default: false
-        description: Use nightly zju-connect (before the pinned core is implemented)
       version:
         type: string
         default: ''
-        description: Version for a non-nightly manual build (e.g. v0.1.0)
+        description: Version such as v0.0.1 (empty for preview; versioned main builds prepare a draft)
+      release_date:
+        type: string
+        default: ''
+        description: Release date shown in About (YYYY-MM-DD; optional for versioned builds)
+      verify_macos_27:
+        type: boolean
+        default: false
+        description: Open the Apple Silicon DMG on macOS 27 (always checked before drafting a release)
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name != 'release' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/develop' }}
 
 env:
-  QT_VERSION: '6.10.3'
   TARGET_NAME: JustConnect
   DISPLAY_NAME: JustConnect
 
 jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.arch }}
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2022, platform: windows, arch: x64, core_arch: amd64, qt_host: windows, qt_arch: win64_msvc2022_64}
-          - {os: windows-11-arm, platform: windows, arch: arm64, core_arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
-          - {os: macos-15-intel, platform: macos, arch: x64, core_arch: x86_64, qt_host: mac, qt_arch: clang_64}
-          - {os: macos-15, platform: macos, arch: arm64, core_arch: arm64, qt_host: mac, qt_arch: clang_64}
-          - {os: ubuntu-22.04, platform: linux, arch: x64, core_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
-          - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, core_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-15-intel, platform: macos, arch: x64, native_arch: x86_64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-26, platform: macos, arch: arm64, native_arch: arm64, qt_host: mac, qt_arch: clang_64}
     env:
-      ARCHIVE_NAME: JustConnect-${{ inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
-      NIGHTLY_BUILD: ${{ (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
-      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
-      MACOS_SIGNING: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
-      MACOS_NOTARIZATION: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-${{ matrix.platform }}-${{ matrix.arch }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_DATE: ${{ inputs.release_date }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
+      - name: Verify local macOS signing without external credentials
+        if: runner.os == 'macOS'
+        run: python3 tests/macos_signing_smoke.py
 
       - name: Install Qt
-        if: matrix.qt_host != 'linux_arm64'
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/setup-qt
         with:
-          version: ${{ env.QT_VERSION }}
           host: ${{ matrix.qt_host }}
-          target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: ${{ matrix.platform == 'linux' && 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine' || 'qt5compat qtpositioning qtwebchannel qtwebengine' }}
-          cache: true
-          cache-key-prefix: qt-${{ matrix.platform }}-${{ matrix.arch }}
-          # Windows ARM64 WebEngine requires the upstream aqt workaround.
-          aqtsource: ${{ matrix.qt_host == 'windows_arm64' && 'git+https://github.com/miurahr/aqtinstall.git' || '' }}
 
-      - name: Install Qt for Linux ARM64
-        if: matrix.qt_host == 'linux_arm64'
-        uses: jdpurcell/install-qt-action@v5
+      - name: Restore static macOS Qt
+        if: runner.os == 'macOS'
+        id: macos-qt
+        uses: actions/cache/restore@v5
         with:
-          version: ${{ env.QT_VERSION }}
-          host: linux_arm64
-          target: desktop
-          arch: linux_gcc_arm64
-          modules: qt5compat qtpositioning qtserialport qtwebchannel qtwebengine
-          cache: true
-          cache-key-prefix: qt-linux-arm64
+          path: ${{ runner.temp }}/qt-static
+          key: macos-static-qt-${{ matrix.os }}-${{ hashFiles('scripts/build-macos-qt.sh') }}
+
+      - name: Build static macOS Qt
+        if: runner.os == 'macOS' && steps.macos-qt.outputs.cache-hit != 'true'
+        run: bash scripts/build-macos-qt.sh "$RUNNER_TEMP/qt-static" "${{ matrix.native_arch }}"
+
+      - name: Save static macOS Qt
+        if: runner.os == 'macOS' && steps.macos-qt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/qt-static
+          key: ${{ steps.macos-qt.outputs.cache-primary-key }}
+
+      - name: Prepare Go and cgo toolchain
+        uses: ./.github/actions/setup-core-toolchain
+
+      - name: Verify module, formatting, vet and packaging checks
+        shell: bash
+        run: |
+          python scripts/test-corelib.py
+          python -m unittest discover -s tests -p '*_test.py'
 
       - name: Configure
         shell: bash
         env:
-          BUILD_ARCH: ${{ matrix.core_arch }}
+          BUILD_ARCH: ${{ matrix.native_arch }}
         run: |
-          if [[ "$NIGHTLY_BUILD" == 'true' ]]; then
-            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)")
+          if [[ -z "$RELEASE_VERSION" ]]; then
+            if [[ -n "$RELEASE_DATE" ]]; then
+              echo 'A release date requires a version.' >&2
+              exit 1
+            fi
+            short_revision=$(git rev-parse --short=7 HEAD)
+            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$short_revision")
+            echo "APP_VERSION=$short_revision-nightly" >> "$GITHUB_ENV"
           else
-            if [[ ! "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
-              echo 'A release version such as v0.1.0 is required.' >&2
+            if [[ ! "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo 'Use a version tag such as v0.0.1.' >&2
               exit 1
             fi
             version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
+            if [[ -n "$RELEASE_DATE" ]]; then
+              if ! python -c 'from datetime import date; import os, sys; value = os.environ["RELEASE_DATE"]; sys.exit(date.fromisoformat(value).isoformat() != value)' 2>/dev/null; then
+                echo 'Use a valid release date in YYYY-MM-DD format.' >&2
+                exit 1
+              fi
+              version_args+=("-DREL_DATE=$RELEASE_DATE")
+            fi
+            echo "APP_VERSION=${RELEASE_VERSION#v}" >> "$GITHUB_ENV"
           fi
           platform_args=()
           if [[ "$RUNNER_OS" == 'macOS' ]]; then
-            platform_args=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH")
+            platform_args=(
+              "-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH"
+              "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.4"
+              "-DMACOSX_BUNDLE_BUNDLE_VERSION=$GITHUB_RUN_NUMBER"
+              "-DQt6_DIR=$RUNNER_TEMP/qt-static/lib/cmake/Qt6"
+              "-DQt6LinguistTools_DIR=$QT_ROOT_DIR/lib/cmake/Qt6LinguistTools"
+              "-DQT_INTERNAL_ABSOLUTE_TRANSLATIONS_DIR=$QT_ROOT_DIR/translations"
+            )
           fi
           cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release "${version_args[@]}" "${platform_args[@]}"
 
@@ -117,52 +135,75 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
+      - name: Build Windows system permission helper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          $nativeArch = if ($env:PACKAGE_ARCH -eq 'arm64') { 'arm64' } else { 'amd64' }
+          $cmakeArch = if ($env:PACKAGE_ARCH -eq 'arm64') { 'ARM64' } else { 'x64' }
+          $metadata = python scripts/windows_helper_sdk.py --destination build/windows-sdk --arch $nativeArch | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native Windows SDK staging failed' }
+          $sdk = Split-Path -Parent $metadata.header
+          cmake -S infrastructure/networkhelper/windows/helper -B build/windows-helper -A $cmakeArch "-DWINTUN_INCLUDE_DIR=$sdk" "-DJC_HELPER_DRIVER_SHA256=$($metadata.driver_sha256)" "-DJC_HELPER_LICENSE_SHA256=$($metadata.license_sha256)"
+          if ($LASTEXITCODE -ne 0) { throw 'Native network helper configuration failed' }
+          cmake --build build/windows-helper --config Release --parallel 3
+          if ($LASTEXITCODE -ne 0) { throw 'Native network helper build failed' }
+
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          CORE_ARCH: ${{ matrix.core_arch }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
         run: |
-          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH -Nightly $env:CORE_NIGHTLY
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:PACKAGE_ARCH
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
+          Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
+          $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
+          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json" --browser-probe "build/Release/signinbrowser_test.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
 
-      - name: Package Linux
-        if: runner.os == 'Linux'
+      - name: Build and test Windows installer
+        if: runner.os == 'Windows'
+        id: windows-installer
+        shell: pwsh
         env:
-          CORE_ARCH: ${{ matrix.core_arch }}
+          PACKAGE_ARCH: ${{ matrix.arch }}
         run: |
-          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
-          mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
+          ./scripts/package-windows-installer.ps1 -Payload "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME" -Version $env:APP_VERSION -Architecture $env:PACKAGE_ARCH -OutputName "$env:ARCHIVE_NAME-setup"
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        id: installer-upload
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ env.ARCHIVE_NAME }}-setup.exe
+
+      - name: Confirm the upload matches the verified Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERIFIED_DIGEST: ${{ steps.windows-installer.outputs.sha256 }}
+          UPLOADED_DIGEST: ${{ steps.installer-upload.outputs.artifact-digest }}
+        run: |
+          if (!$env:VERIFIED_DIGEST -or ($env:UPLOADED_DIGEST -replace '^sha256:', '') -ne $env:VERIFIED_DIGEST) {
+            throw 'Uploaded installer differs from the verified executable'
+          }
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
-        env:
-          CORE_ARCH: ${{ matrix.core_arch }}
-        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
-
-      - name: Import macOS signing certificate
-        if: env.MACOS_SIGNING == 'true'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
-        run: |
-          printf '%s' "$MACOS_CERT_P12" | base64 -D > "$RUNNER_TEMP/signing.p12"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/signing.keychain-db"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security import "$RUNNER_TEMP/signing.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/signing.keychain-db"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security list-keychains -d user -s "$RUNNER_TEMP/signing.keychain-db"
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$RUNNER_TEMP/qt-static"
 
       - name: Sign macOS bundle
         if: runner.os == 'macOS'
         env:
-          CODESIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.MACOS_CERT_IDENTITY || '-' }}
+          JC_MAC_SIGNING_P12: ${{ secrets.JC_MAC_SIGNING_P12 }}
         run: |
-          if [[ "$MACOS_SIGNING" != 'true' ]]; then
-            echo '::notice::No Apple signing credentials; creating an ad-hoc signed test build without notarization.'
-          fi
+          : "${JC_MAC_SIGNING_P12:?Configure the persistent macOS project signing identity}"
           ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
           codesign --verify --deep --strict "$TARGET_NAME.app"
 
@@ -170,54 +211,165 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir dmg-root
-          cp -R "$TARGET_NAME.app" dmg-root/
+          mv "$TARGET_NAME.app" dmg-root/
           ln -s /Applications dmg-root/Applications
           hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
+          codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
+          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" --browser-probe "build/signinbrowser_test"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
-      - name: Notarize macOS package
-        if: env.MACOS_NOTARIZATION == 'true'
+      - name: Upload install package
+        id: package
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ env.ARCHIVE_NAME }}.${{ runner.os == 'Windows' && 'zip' || 'dmg' }}
+
+      - name: Confirm the upload matches the verified install package
+        shell: python
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ./scripts/macos-notarize-dmg.sh "$ARCHIVE_NAME.dmg"
-
-      - name: Remove temporary signing credentials
-        if: always() && env.MACOS_SIGNING == 'true'
+          UPLOADED_DIGEST: ${{ steps.package.outputs.artifact-digest }}
         run: |
-          security delete-keychain "$RUNNER_TEMP/signing.keychain-db"
-          rm -f "$RUNNER_TEMP/signing.p12"
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path(f"build/{os.environ['ARCHIVE_NAME']}.json").read_text(encoding='utf-8'))
+          if os.environ['UPLOADED_DIGEST'].removeprefix('sha256:') != report['archive_sha256']:
+              raise RuntimeError('Uploaded install package differs from the verified archive')
 
-      - name: Upload package
-        uses: actions/upload-artifact@v4
+      - name: Upload package verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ env.ARCHIVE_NAME }}-checks
+          retention-days: 14
+          path: |
+            build/${{ env.ARCHIVE_NAME }}.json
+
+  macos_preview_launch:
+    name: Open macOS 27 Apple Silicon DMG
+    if: inputs.verify_macos_27 || (github.ref == 'refs/heads/main' && inputs.version != '')
+    needs: build
+    runs-on: xcode-27
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-macos-arm64.dmg
+          path: ${{ runner.temp }}/preview
+
+      - name: Open an installed DMG app after simulated first-open approval
+        run: |
+          set -euo pipefail
+          sw_vers
+          spctl --status | grep -Fx 'assessments enabled'
+          mount="$RUNNER_TEMP/preview-dmg"
+          app=/Applications/JustConnect.app
+          test ! -e "$app"
+          hdiutil attach "$RUNNER_TEMP/preview"/*.dmg -readonly -nobrowse -mountpoint "$mount"
+          ditto "$mount/JustConnect.app" "$app"
+          hdiutil detach "$mount"
+          codesign --verify --deep --strict "$app"
+          exe="$app/Contents/MacOS/JustConnect"
+          "$exe" --core-self-test | jq -e --arg rev "$GITHUB_SHA" '.ok and .core.build.revision == $rev'
+          # Exercise a quarantined launch after the per-app approval step.
+          xattr -r -w com.apple.quarantine "00c3;$(printf %x "$(date +%s)");JustConnectPreview;" "$app"
+          open -n -a "$app"
+          for attempt in {1..10}; do
+            pid=$(pgrep -fx "$exe" || pgrep -f '^/private/var/folders/.*/AppTranslocation/[^/]+/d/JustConnect[.]app/Contents/MacOS/JustConnect$' || true)
+            if [[ -n "$pid" ]]; then break; fi
+            sleep 1
+          done
+          test -n "$pid"
+          sleep 3
+          kill -0 "$pid"
+          cat > "$RUNNER_TEMP/quit-preview.swift" <<'SWIFT'
+          import AppKit
+          import Darwin
+
+          let pid = pid_t(CommandLine.arguments[1])!
+          let clock = ContinuousClock()
+          let started = clock.now
+          guard let app = NSRunningApplication(processIdentifier: pid), app.terminate() else {
+              fatalError("AppKit rejected the quit request")
+          }
+          while clock.now - started < .seconds(3) {
+              if kill(pid, 0) == -1 && errno == ESRCH {
+                  print("Installed idle app quit in \(clock.now - started)")
+                  exit(0)
+              }
+              usleep(25_000)
+          }
+          fatalError("Installed idle app did not quit within 3 seconds")
+          SWIFT
+          xcrun swiftc "$RUNNER_TEMP/quit-preview.swift" -o "$RUNNER_TEMP/quit-preview"
+          "$RUNNER_TEMP/quit-preview" "$pid"
+
+  source:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-26.04
+    env:
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || format('preview-{0}', github.sha) }}-source
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Verify corresponding-source export
+        run: python -m unittest discover -s tests -p archive_source_test.py
+      - name: Export maintained source tree
+        run: python scripts/archive-source.py "$ARCHIVE_NAME.tar.gz"
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ env.ARCHIVE_NAME }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            ${{ env.ARCHIVE_NAME }}.zip
-            ${{ env.ARCHIVE_NAME }}.dmg
-            ${{ env.ARCHIVE_NAME }}.AppImage
+            ${{ env.ARCHIVE_NAME }}.tar.gz
+            ${{ env.ARCHIVE_NAME }}.tar.gz.sha256
 
   release:
-    if: github.event_name == 'release'
-    needs: build
-    runs-on: ubuntu-24.04
+    name: Prepare release draft
+    if: github.ref == 'refs/heads/main' && inputs.version != ''
+    needs: [build, source, macos_preview_launch]
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7.0.1
+
       - name: Download packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.2
         with:
-          pattern: JustConnect-${{ github.event.release.tag_name }}-*
+          pattern: JustConnect-${{ inputs.version }}-*.{zip,dmg,exe}
+          skip-decompress: true
           merge-multiple: true
           path: packages
 
-      - name: Upload to this repository's release
+      - name: Download corresponding source
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: JustConnect-${{ inputs.version }}-source
+          path: packages
+
+      - name: Attach verified files to an unpublished draft
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" packages/* --repo "$GITHUB_REPOSITORY"
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          existing=$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")
+          test -z "$existing"
+          notes="$PWD/docs/releases/$RELEASE_TAG.md"
+          test -s "$notes"
+          cd packages
+          prefix="JustConnect-$RELEASE_TAG"
+          sha256sum --check "$prefix-source.tar.gz.sha256"
+          assets=("$prefix"-windows-{x64,arm64}.zip "$prefix"-windows-{x64,arm64}-setup.exe
+                  "$prefix"-macos-{x64,arm64}.dmg "$prefix-source.tar.gz")
+          sha256sum -- "${assets[@]}" > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" "${assets[@]}" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
+            --draft --target "$GITHUB_SHA" --title "JustConnect $RELEASE_TAG" --notes-file "$notes"

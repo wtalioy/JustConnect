@@ -1,0 +1,88 @@
+package underlay
+
+import (
+	"context"
+	"net"
+	"time"
+
+	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
+)
+
+var discoverController = mihomo.Discover
+
+func (d *Dialer) ensureController(ctx context.Context) error {
+	d.mu.Lock()
+	if d.controllerGate == nil {
+		d.controllerGate = make(chan struct{}, 1)
+	}
+	gate := d.controllerGate
+	d.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-gate }()
+	d.mu.RLock()
+	ready := d.controller != nil && d.controller.Alive()
+	d.mu.RUnlock()
+	if ready {
+		return nil
+	}
+	d.mu.Lock()
+	if d.controller != nil {
+		d.controller.Close()
+		d.controller, d.resolver, d.tunDevice = nil, nil, ""
+	}
+	d.mu.Unlock()
+	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	controller, err := discoverController(deadline, d.controllerAddress)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if d.diagnostic != nil {
+			if err == mihomo.ErrAmbiguous {
+				d.diagnostic("local_controller_ambiguous")
+			} else {
+				d.diagnostic("local_controller_unavailable")
+			}
+		}
+		return err
+	}
+	if controller == nil {
+		return nil
+	}
+	d.mu.Lock()
+	d.controller = controller
+	if d.localDNSServer == "" {
+		d.resolver = controller.Resolver()
+	}
+	if controller.TunEnabled {
+		d.tunDevice = controller.TunDevice
+		d.requireOriginalExit()
+		if d.autoDetect && mihomo.SameInterface(d.interfaceName, d.tunDevice) {
+			d.interfaceName = ""
+		}
+	}
+	if d.autoDetect && d.interfaceName == "" && controller.OutboundInterface != "" && usableInterface(controller.OutboundInterface, d.excludedIPs) && !mihomo.SameInterface(controller.OutboundInterface, d.tunDevice) {
+		d.updateInterfaceName(controller.OutboundInterface)
+	}
+	d.mu.Unlock()
+	if d.diagnostic != nil {
+		d.diagnostic("local_controller_real_dns")
+	}
+	return nil
+}
+
+func (d *Dialer) dial(ctx context.Context, network, address, interfaceName string) (net.Conn, error) {
+	d.mu.RLock()
+	resolver := d.resolver
+	d.mu.RUnlock()
+	if resolver == nil {
+		return dialOnInterface(ctx, network, address, interfaceName, d.localDNSServer)
+	}
+	return (&socketdialer.Dialer{InterfaceName: interfaceName, Resolver: resolver, UnboundLoopback: true}).DialContext(ctx, network, address)
+}

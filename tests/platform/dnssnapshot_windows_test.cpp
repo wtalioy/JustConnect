@@ -1,0 +1,233 @@
+#include "infrastructure/dns/windows/dnssnapshot.h"
+#include <QCoreApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QDir>
+#include <QFile>
+#include <iostream>
+#include <stdexcept>
+#ifdef Q_OS_WIN
+#include "infrastructure/dns/windows/observedsnapshot.h"
+#include <QUuid>
+#include <thread>
+#endif
+
+static void check(bool ok, const char *message) {
+    if (!ok) throw std::runtime_error(message);
+}
+
+#ifdef Q_OS_WIN
+static void observedSnapshots()
+{
+    struct Registry {
+        std::wstring path = L"Software\\JustConnect-DnsObservation-" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdWString();
+        HKEY key = nullptr;
+        ~Registry() { if(key)RegCloseKey(key);RegDeleteTreeW(HKEY_CURRENT_USER,path.c_str()); }
+    } registry;
+    check(RegCreateKeyExW(HKEY_CURRENT_USER,registry.path.c_str(),0,nullptr,0,KEY_ALL_ACCESS,nullptr,&registry.key,nullptr)==ERROR_SUCCESS,
+        "create private DNS observation fixture");
+    std::shared_ptr<WindowsDNS::Changes> changes;
+    std::thread([&]{changes=std::make_shared<WindowsDNS::Changes>(std::initializer_list<WindowsDNS::Changes::Key>{{HKEY_CURRENT_USER,registry.path.c_str()}});}).join();
+    check(changes->available() && !changes->changed(),"DNS watches were unavailable or followed a finished worker thread");
+    DWORD value=0;
+    const auto change=[&]{++value;check(RegSetValueExW(registry.key,L"value",0,REG_DWORD,reinterpret_cast<const BYTE *>(&value),sizeof(value))==ERROR_SUCCESS,
+        "change private observation fixture");};
+    int reads=0;bool fail=false,changeDuringRead=false;
+    WindowsObservedDnsSnapshot observation([&]{
+        ++reads;
+        if(changeDuringRead){changeDuringRead=false;change();}
+        return fail ? DnsSnapshot{{PlatformOperationResult::Status::Failed,"read failed"},{}}
+            : DnsSnapshot{{},QJsonObject{{"value",int(value)}}};
+    },changes);
+    check(observation.read().result.succeeded() && reads==1,"first observation did not read native DNS");
+    check(observation.read().result.succeeded() && reads==1,"unchanged observation repeated the expensive read");
+    change();check(observation.read().data["value"].toInt()==int(value) && reads==2,"changed source returned a cached DNS view");
+    HKEY child=nullptr;
+    check(RegCreateKeyExW(registry.key,L"nested",0,nullptr,0,KEY_ALL_ACCESS,nullptr,&child,nullptr)==ERROR_SUCCESS,"create nested observation fixture");
+    RegCloseKey(child);observation.read();check(reads==3,"new nested source did not invalidate DNS");
+    check(RegDeleteTreeW(registry.key,L"nested")==ERROR_SUCCESS,"remove nested observation fixture");
+    fail=true;check(!observation.read().result.succeeded() && reads==4,"source read failure was hidden by the cache");
+    fail=false;check(observation.read().result.succeeded() && reads==5,"failed DNS read was cached");
+    change();changeDuringRead=true;observation.read();check(reads==6,"change before read was missed");
+    observation.read();check(reads==7,"change during read published a reusable stale snapshot");
+    std::thread first([&]{observation.read();}),second([&]{observation.read();});first.join();second.join();
+    check(reads==7,"concurrent readers repeated an unchanged native read");
+    check(RegDeleteKeyW(HKEY_CURRENT_USER,registry.path.c_str())==ERROR_SUCCESS,"remove watched observation fixture");
+    observation.read();observation.read();check(reads==9 && !changes->available(),"deleted source kept a reusable snapshot");
+    const auto missing=registry.path+L"-missing";
+    auto unavailable=std::make_shared<WindowsDNS::Changes>(std::initializer_list<WindowsDNS::Changes::Key>{{HKEY_CURRENT_USER,missing.c_str()}});
+    WindowsObservedDnsSnapshot uncached([&]{++reads;return DnsSnapshot{};},unavailable);
+    uncached.read();uncached.read();check(reads==11,"missing observation coverage reused unverified DNS data");
+}
+#endif
+
+int main(int argc, char **argv) try
+{
+    QCoreApplication app(argc, argv);
+    if (app.arguments().contains("--native") || app.arguments().contains("--system-library")
+        || app.arguments().contains("--missing-doh") || app.arguments().contains("--missing-nrpt")
+        || app.arguments().contains("--empty-nrpt") || app.arguments().contains("--timeout")) {
+        const bool scope = app.arguments().contains("--system-library");
+        const bool missing = app.arguments().contains("--missing-doh");
+        const bool missingNrpt = app.arguments().contains("--missing-nrpt");
+        const bool emptyNrpt = app.arguments().contains("--empty-nrpt");
+        const bool timeout = app.arguments().contains("--timeout");
+        QTemporaryDir directory;
+        PlatformCommandRunner runner;
+        const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_DNS_READER");
+        if (!program.isEmpty() || scope || missing || missingNrpt || emptyNrpt || timeout) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
+            auto modified = arguments;
+            if (missing) modified.append("--missing-doh");
+            if (missingNrpt) modified.append("--missing-nrpt");
+            if (emptyNrpt) modified.append("--empty-nrpt");
+            if (timeout) modified.append("--stall");
+            const bool fixture = missing || missingNrpt || emptyNrpt || timeout;
+            const auto executable = !program.isEmpty() ? program : fixture
+                ? QDir(QCoreApplication::applicationDirPath()).filePath("windows_dnsreader_test.exe") : nativeProgram;
+            if (scope) {
+                const auto copy = directory.filePath("JustConnectDnsReader.exe");
+                check(directory.isValid() && QFile::copy(executable, copy), "Copy the native reader into a private library fixture");
+                check(QFile::setPermissions(copy, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner), "Set private reader permissions");
+                QFile foreign(directory.filePath("mi.dll"));
+                const QByteArray poison("Invalid foreign MI library; must never be loaded.");
+                check(foreign.open(QIODevice::WriteOnly) && foreign.write(poison) == poison.size(), "Write the foreign MI library fixture");
+                foreign.close();
+                return runPlatformCommand(copy, modified, 10000);
+            }
+            return runPlatformCommand(executable, modified, timeout ? 1000 : 10000);
+        };
+        const auto snapshot = runner ? readWindowsDnsSnapshot(runner) : readSystemDnsSnapshot();
+        if (timeout) {
+            check(snapshot.result.status == PlatformOperationResult::Status::TimedOut && snapshot.data.isEmpty(),
+                  "Stalled native DNS reader escaped the deadline or published partial facts");
+            std::cout << "Stalled native DNS process stopped without a partial snapshot\n";
+            return 0;
+        }
+        if (missingNrpt) {
+            check(!snapshot.result.succeeded() && snapshot.data.isEmpty(), "Missing required provider published partial DNS facts");
+            std::cout << "Required native resolver provider failure rejected without partial data\n";
+            return 0;
+        }
+        check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
+        check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
+        const auto adapters=snapshot.data["adapters"].toArray();
+        check(!adapters.isEmpty(),"Native ordered DNS adapter facts missing");
+        bool source=false;
+        std::cout<<"Native DNS global settings status="<<snapshot.data["native_global"].toObject()["Status"].toInteger()<<'\n';
+        for(const auto &value:adapters){
+            const auto row=value.toObject();
+            if(row["OperStatus"]==1 && !row["DnsServers"].toArray().isEmpty())
+                std::cout<<"Active DNS source settings status="<<row["Settings"].toObject()["Status"].toInteger()
+                    <<", servers="<<row["DnsServers"].toArray().size()<<'\n';
+            source|=row["OperStatus"]==1 && !row["DnsServers"].toArray().isEmpty()
+                && row["Settings"].toObject()["Status"]==0;
+        }
+        check(source && snapshot.data["native_global"].toObject()["Status"]==0,
+              "Disposable runner did not expose an active native DNS source and global encryption settings");
+        if (missing) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
+                           "Missing optional DNS provider did not remain unavailable");
+        if (emptyNrpt) check(snapshot.data["nrpt"].toArray().isEmpty(), "Successful empty NRPT provider result became an error or partial policy");
+        std::cout << "Native resolver order/ports, adapter identity, DoH/DoT/DDR settings and effective NRPT inspected without writes\n";
+        return 0;
+    }
+#ifdef Q_OS_WIN
+    observedSnapshots();
+#endif
+    auto data = QJsonDocument::fromJson(R"JSON({
+        "interfaces":[{"InterfaceIndex":7,"AddressFamily":23,"ServerAddresses":["2001:db8::53"]}],
+        "clients":[{"InterfaceIndex":7,"ConnectionSpecificSuffix":"overlay.test","ConnectionSpecificSuffixSearchList":["overlay.test"]}],
+        "global":{"SuffixSearchList":[]},
+        "nrpt":[{"Namespace":[".overlay.test"],"NameServers":["192.0.2.53"],"DirectAccessEnabled":false,"DirectAccessDnsServers":[],"QueryPolicy":"QueryIPv6Only","SecureNameQueryFallback":"Disable","DnsSecValidationRequired":null}],
+        "doh_supported":false,"doh":[],"configured_encryption":["192.0.2.53","2001:db8::53"],
+        "nrpt_sources":[{"store":"local","id":"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}","class":"original provider",
+            "namespaces":[".overlay.test"],"servers":" 192.0.2.53 ; 2001:db8::53 ","version":1,"options":8,"owner":null}],
+        "native_global":{"Status":0,"Value":{"Flags":"0","SettingFlags":"18446744073709551615","Domain":null,"SearchList":"overlay.test"}},
+        "adapters":[{"InterfaceIndex":7,"Ipv6IfIndex":7,"Guid":"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}","Luid":"18446744073709551615",
+            "IfType":6,"OperStatus":1,"Ipv4Metric":25,"Ipv6Metric":35,"DnsSuffix":"overlay.test",
+            "DnsServers":[{"Address":"fe80::53%7","Port":5353},{"Address":"192.0.2.53","Port":53}],
+            "Settings":{"Status":0,"Value":{"Flags":"8192","Domain":null,"NameServer":null,"SearchList":"overlay.test",
+                "ProfileNameServer":"192.0.2.53","SupplementalSearchList":null,"DisableUnconstrainedQueries":1,"EncryptedDnsAdapterFlags":3,
+                "ServerProperties":[{"Version":1,"ServerIndex":0,"Type":1,"Settings":{"Template":"https://resolver.test/dns-query","Flags":"2"}},
+                    {"Version":1,"ServerIndex":1,"Type":2,"Settings":{"Hostname":"resolver.test","Port":853,"Flags":"1"}},
+                    {"Version":2,"ServerIndex":1,"Type":99,"Settings":null}],"ProfileServerProperties":[]}}}]
+    })JSON").object();
+    PlatformOperationResult result;
+    QString output;
+    auto runner = [&](const QString &, const QStringList &arguments) {
+        check(arguments.isEmpty(), "Native read-only DNS reader gained arbitrary query arguments");
+        return PlatformCommandResult{result, output};
+    };
+    output = QString::fromUtf8(QJsonDocument(data).toJson());
+    const auto snapshot = readWindowsDnsSnapshot(runner);
+    check(snapshot.result.succeeded() && snapshot.data == data, "DNS source identity or NRPT security properties lost");
+    const auto complete=data;
+    auto rejects=[&](const QJsonObject &value){
+        output=QString::fromUtf8(QJsonDocument(value).toJson());
+        const auto read=readWindowsDnsSnapshot(runner);
+        check(!read.result.succeeded() && read.data.isEmpty(),"Incomplete or downgraded native source accepted");
+    };
+    for(const auto &field:{"nrpt_sources","configured_encryption"}){
+        auto missing=complete;missing.remove(field);rejects(missing);
+    }
+    auto sourceRows=complete["nrpt_sources"].toArray();sourceRows.append(sourceRows[0]);
+    auto invalidSources=complete;invalidSources["nrpt_sources"]=sourceRows;rejects(invalidSources);
+    sourceRows=complete["nrpt_sources"].toArray();auto sourceRow=sourceRows[0].toObject();
+    sourceRow["version"]=QJsonValue::Null;sourceRow["options"]=QJsonValue::Null;sourceRows[0]=sourceRow;
+    auto unknownSource=complete;unknownSource["nrpt_sources"]=sourceRows;output=QString::fromUtf8(QJsonDocument(unknownSource).toJson());
+    check(readWindowsDnsSnapshot(runner).data.value("nrpt_sources").toArray()==sourceRows,"Unknown native NRPT policy was invented or discarded");
+    sourceRow["owner"]=false;sourceRows[0]=sourceRow;unknownSource["nrpt_sources"]=sourceRows;rejects(unknownSource);
+    invalidSources=complete;invalidSources["configured_encryption"]=QJsonArray{"not-an-IP"};rejects(invalidSources);
+    auto adapters=data["adapters"].toArray();
+    auto adapter=adapters[0].toObject();
+    adapter["Settings"]=QJsonObject{{"Status",87},{"Value",QJsonValue::Null}};
+    adapters[0]=adapter;data["adapters"]=adapters;
+    output=QString::fromUtf8(QJsonDocument(data).toJson());
+    check(readWindowsDnsSnapshot(runner).result.succeeded(),"Unavailable API settings were guessed or lost");
+    adapter["Settings"]=QJsonObject{{"Status",5},{"Value",QJsonValue::Null}};
+    adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;data["native_global"]=QJsonObject{{"Status",0},{"Value",QJsonValue::Null}};rejects(data);
+    data=complete;data.remove("adapters");rejects(data);
+    data=complete;adapters=data["adapters"].toArray();adapter=adapters[0].toObject();
+    auto settings=adapter["Settings"].toObject(), details=settings["Value"].toObject();
+    details["Flags"]=8192;settings["Value"]=details;adapter["Settings"]=settings;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    details["Flags"]="18446744073709551616";settings["Value"]=details;adapter["Settings"]=settings;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;adapters=data["adapters"].toArray();adapter=adapters[0].toObject();
+    auto servers=adapter["DnsServers"].toArray();auto endpoint=servers[0].toObject();endpoint["Port"]=0;
+    servers[0]=endpoint;adapter["DnsServers"]=servers;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;output=QString::fromUtf8(QJsonDocument(data).toJson());
+    for (const auto status : {PlatformOperationResult::Status::PermissionDenied, PlatformOperationResult::Status::TimedOut}) {
+        result.status = status;
+        const auto denied = readWindowsDnsSnapshot(runner);
+        check(denied.result.status == status && denied.data.isEmpty(), "Failed command published partial facts");
+    }
+    result = {};
+    result.status = PlatformOperationResult::Status::TimedOut;
+    for (const auto &stage : {QString("nrpt"), QString("native"), QString("nrpt_sources"), QString("nrpt_consistency"), QString("adapter_dns"), QString("global_dns")}) {
+        auto traced = [&](const QString &p, const QStringList &a) {
+            auto command = runner(p,a);
+            command.standardError = "private.campus.test\nJCDNS phase=" + stage + " elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
+            return command;
+        };
+        const auto timed = readWindowsDnsSnapshot(traced);
+        check(timed.result.status==result.status && timed.data.isEmpty() && timed.result.detail.contains(stage+" at 321 ms")
+              && !timed.result.detail.contains("private"), "Timeout lost its safe native/CIM phase or exposed raw diagnostics");
+    }
+    result = {};
+    for (const auto &invalid : {QString("{}"), QString("warning\n") + output, QString(262145, 'x')}) {
+        output = invalid;
+        const auto bad = readWindowsDnsSnapshot(runner);
+        check(!bad.result.succeeded() && bad.data.isEmpty(), "Malformed or excessive output accepted");
+    }
+    auto policies = data["nrpt"].toArray();
+    auto policy = policies[0].toObject();
+    policy["NameServers"] = "192.0.2.53";
+    policies[0] = policy; data["nrpt"] = policies;
+    output = QString::fromUtf8(QJsonDocument(data).toJson());
+    check(!readWindowsDnsSnapshot(runner).result.succeeded(), "Collapsed native singleton array accepted");
+    std::cout << "Resolver facts, NRPT policy preservation and failure boundaries passed\n";
+    return 0;
+} catch (const std::exception &error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+}

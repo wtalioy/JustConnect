@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QList>
 #include <QSemaphore>
 #include <QThread>
 
@@ -18,32 +19,38 @@ public:
     int conflictChecks = 0;
     int applyCalls = 0;
     int clearCalls = 0;
+    PlatformOperationResult failure{PlatformOperationResult::Status::Failed, "operation failed"};
+    SystemProxyCheck checkResult;
     bool applySucceeds = true;
     bool clearSucceeds = true;
+    bool blockChecks = false;
     SystemProxyConfig lastConfig;
     QSemaphore operationStarted;
     QSemaphore allowOperationToFinish;
 
-    bool hasConflict(const SystemProxyConfig &config) override
+    SystemProxyCheck check(const SystemProxyConfig &config) override
     {
         ++conflictChecks;
         lastConfig = config;
-        return conflict;
+        if (blockChecks) { operationStarted.release();allowOperationToFinish.acquire(); }
+        auto result = checkResult; result.conflict = conflict; return result;
     }
 
-    bool apply(const SystemProxyConfig &config) override
+    SystemProxyCheck inspect() override { return check({}); }
+
+    PlatformOperationResult apply(const SystemProxyConfig &config) override
     {
         ++applyCalls;
         lastConfig = config;
         operationStarted.release();
         allowOperationToFinish.acquire();
-        return applySucceeds;
+        return applySucceeds ? PlatformOperationResult{} : failure;
     }
 
-    bool clear() override
+    PlatformOperationResult clear() override
     {
         ++clearCalls;
-        return clearSucceeds;
+        return clearSucceeds ? PlatformOperationResult{} : failure;
     }
 };
 
@@ -65,12 +72,15 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     FakeSystemProxyBackend *fake = backend.get();
     fake->conflict = true;
     SystemProxySession session(std::move(backend));
-    const SystemProxyConfig config{1081, 1080, "localhost"};
+    const SystemProxyConfig config{1081, 1080, "localhost", {"127.0.0.1:7890"}};
+    if(session.handoff({1081,1080,{}}) || fake->applyCalls!=0 || session.disable() || fake->clearCalls!=0) {
+        qCritical()<<"a session cannot set a manual proxy or clear another application's proxy";return false;
+    }
 
     bool conflictResult = false;
-    QObject::connect(&session, &SystemProxySession::conflictCheckFinished,
-                     [&](bool conflict) { conflictResult = conflict; });
-    if (!session.checkConflict(config)
+    QObject::connect(&session, &SystemProxySession::inspectionFinished,
+                     [&](const SystemProxyCheck &check) { conflictResult = check.result.succeeded() && check.conflict; });
+    if (!session.inspect()
         || !waitUntil([&]() { return !session.isBusy(); })
         || !conflictResult
         || fake->conflictChecks != 1
@@ -80,11 +90,11 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         return false;
     }
 
-    if (!session.enable(config)
+    if (!session.handoff(config)
         || !fake->operationStarted.tryAcquire(1, 1000)
         || !session.isBusy()
         || session.isEnabled()
-        || session.disable())
+        || session.inspect())
     {
         qCritical() << "delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState failed while enabling";
         return false;
@@ -102,6 +112,9 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         return false;
     }
 
+    if (session.handoff(config) || fake->applyCalls!=1) {
+        qCritical()<<"owned state must be restored before applying another configuration";return false;
+    }
     if (!session.disable()
         || !waitUntil([&]() { return !session.isBusy(); })
         || session.isEnabled()
@@ -111,16 +124,14 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         return false;
     }
 
-    if (!session.disable()
-        || !waitUntil([&]() { return !session.isBusy(); })
-        || fake->clearCalls != 2)
+    if (session.disable() || fake->clearCalls != 1)
     {
-        qCritical() << "disable must also support clearing externally-owned proxy state";
+        qCritical() << "an already restored session must not clear externally-owned proxy state";
         return false;
     }
 
     fake->applySucceeds = false;
-    if (!session.enable(config)
+    if (!session.handoff(config)
         || !fake->operationStarted.tryAcquire(1, 1000))
     {
         qCritical() << "failed enable did not start";
@@ -134,21 +145,132 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     }
     fake->applySucceeds = true;
 
-    if (!session.enable(config)
+    if (!session.handoff(config)
         || !fake->operationStarted.tryAcquire(1, 1000))
     {
-        qCritical() << "clearBeforeShutdown failed to start enable";
+        qCritical() << "asynchronous restoration failed to start enable";
         return false;
     }
+    if(!session.disable()) {fake->allowOperationToFinish.release();return false;}
     fake->allowOperationToFinish.release();
-    session.clearBeforeShutdown();
+    if (!waitUntil([&]{return !session.isBusy();})) return false;
     if (session.isBusy()
         || session.isEnabled()
         || fake->applyCalls != 3
-        || fake->clearCalls != 3)
+        || fake->clearCalls != 2)
     {
-        qCritical() << "clearBeforeShutdown must clear an in-flight enable";
+        qCritical() << "asynchronous restoration must clear an in-flight enable";
         return false;
+    }
+    return true;
+}
+
+bool restoresPendingOperationsOnce()
+{
+    using Status=PlatformOperationResult::Status;
+    for (int outcome : {0,1,2}) {
+        auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+        fake->applySucceeds=outcome==0;fake->failure={Status::PermissionDenied,"injected apply failure",outcome==1};
+        SystemProxySession session(std::move(backend));
+        int busy=0,idle=0;QList<Status> results;
+        QObject::connect(&session,&SystemProxySession::busyChanged,[&](bool value){value?++busy:++idle;});
+        QObject::connect(&session,&SystemProxySession::operationFinished,[&](bool,const PlatformOperationResult &result){results.append(result.status);});
+        if(!session.handoff({1081,1080,{}, {"127.0.0.1:7890"}}) || !fake->operationStarted.tryAcquire(1,1000))return false;
+        const bool requested=session.disable(),again=session.disable();
+        const bool held=session.isBusy() && fake->clearCalls==0;
+        fake->allowOperationToFinish.release();
+        if(!waitUntil([&]{return !session.isBusy();}) || !requested || !again || !held
+            || session.needsCleanup() || fake->applyCalls!=1 || fake->clearCalls!=(outcome==2?0:1)
+            || busy!=1 || idle!=1 || results.size()!=(outcome==2?1:2)
+            || results.front()!=(outcome==0?Status::Success:Status::PermissionDenied)
+            || (outcome!=2 && results.back()!=Status::Success)) {
+            qCritical()<<"pending apply must restore only its own changes, without an idle gap";return false;
+        }
+    }
+    auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+    fake->clearSucceeds=false;fake->failure={Status::PermissionDenied,"restore denied",true};
+    SystemProxySession session(std::move(backend));
+    if(!session.handoff({1081,1080,{}, {"127.0.0.1:7890"}}) || !fake->operationStarted.tryAcquire(1,1000))return false;
+    const bool requested=session.disable();fake->allowOperationToFinish.release();
+    if(!waitUntil([&]{return !session.isBusy();}) || !requested || !session.needsCleanup() || fake->clearCalls!=1)return false;
+    QCoreApplication::processEvents();
+    if(session.isBusy() || fake->clearCalls!=1)return false;
+    fake->clearSucceeds=true;
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=2)return false;
+    session.inspect();
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || fake->clearCalls!=2)return false;
+    session.handoff({1081,1080,{}, {"127.0.0.1:7890"}});fake->allowOperationToFinish.release();
+    if(!waitUntil([&]{return !session.isBusy();}) || !session.isEnabled())return false;
+    session.inspect();
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=3)return false;
+    return true;
+}
+
+bool reportsFailuresAndRetainsCleanupState()
+{
+    using Status = PlatformOperationResult::Status;
+    auto backend = std::make_unique<FakeSystemProxyBackend>();
+    auto *fake = backend.get();
+    SystemProxySession session(std::move(backend));
+    PlatformOperationResult received;
+    int completions = 0;
+    QObject::connect(&session, &SystemProxySession::operationFinished, [&](bool, const PlatformOperationResult &r) { received = r; ++completions; });
+    SystemProxyCheck checked;
+    QObject::connect(&session, &SystemProxySession::inspectionFinished, [&](const SystemProxyCheck &r) { checked = r; });
+    fake->checkResult.result = {Status::PermissionDenied, "query denied"};
+    session.inspect();
+    if (!waitUntil([&] { return !session.isBusy(); }) || checked.result.status != Status::PermissionDenied || fake->applyCalls != 0) return false;
+    for (auto status : {Status::Failed, Status::Cancelled, Status::PermissionDenied, Status::Unsupported, Status::TimedOut}) {
+        fake->applySucceeds = false; fake->failure = {status, "apply incomplete", true};
+        const int before = completions;
+        session.handoff({1081,1080,{}, {"127.0.0.1:7890"}}); fake->allowOperationToFinish.release();
+        if (!waitUntil([&] { return completions > before; }) || received.status != status || session.isEnabled() || !session.needsCleanup()) return false;
+        fake->clearSucceeds = false;
+        session.disable();
+        if (!waitUntil([&] { return !session.isBusy(); }) || !session.needsCleanup() || received.succeeded()) return false;
+        fake->clearSucceeds = true;
+        session.disable();
+        if (!waitUntil([&] { return !session.isBusy(); }) || session.needsCleanup()) return false;
+    }
+    fake->applySucceeds = true; session.handoff({1081,1080,{}, {"127.0.0.1:7890"}}); fake->allowOperationToFinish.release();
+    if (!waitUntil([&] { return !session.isBusy(); }) || !session.isEnabled()) return false;
+    fake->clearSucceeds = false; fake->failure = {Status::PermissionDenied,"shutdown denied",true};
+    PlatformOperationResult result;
+    QObject::connect(&session,&SystemProxySession::operationFinished,[&](bool,const PlatformOperationResult &r){result=r;});
+    session.disable();
+    if (!waitUntil([&]{return !session.isBusy();})) return false;
+    return result.status == Status::PermissionDenied && session.needsCleanup() && !session.isEnabled();
+}
+
+bool retainsQueryRecoveryAndRestoresWhenRequested()
+{
+    using Status=PlatformOperationResult::Status;
+    for (bool pending : {false,true}) for (bool changed : {false,true}) {
+        auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+        fake->blockChecks=pending;fake->checkResult.result={Status::PermissionDenied,"startup recovery unconfirmed",changed};
+        SystemProxySession session(std::move(backend));int busy=0,idle=0;
+        QObject::connect(&session,&SystemProxySession::busyChanged,[&](bool value){value?++busy:++idle;});
+        if (!session.inspect()) return false;
+        bool requested=true;
+        if (pending) {
+            if (!fake->operationStarted.tryAcquire(1,1000)) {fake->allowOperationToFinish.release();return false;}
+            requested=session.disable() && session.disable();
+            fake->allowOperationToFinish.release();
+        }
+        if (!waitUntil([&]{return !session.isBusy();}) || !requested || session.isEnabled()
+            || session.needsCleanup()!=(!pending && changed) || fake->clearCalls!=(pending && changed ? 1 : 0)
+            || fake->applyCalls!=0 || busy!=1 || idle!=1) {
+            qCritical()<<"query recovery responsibility or queued restoration was lost";return false;
+        }
+        if (!pending && changed) {
+            fake->clearSucceeds=false;fake->failure={Status::PermissionDenied,"recovery denied",true};
+            if (session.handoff({1081,1080,{}, {"127.0.0.1:7890"}}) || !session.disable()
+                || !waitUntil([&]{return !session.isBusy();}) || !session.needsCleanup()) return false;
+            fake->checkResult={};
+            if (!session.inspect() || !waitUntil([&]{return !session.isBusy();}) || !session.needsCleanup()) return false;
+            fake->clearSucceeds=true;
+            if (!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=2) return false;
+        }
     }
     return true;
 }
@@ -157,5 +279,6 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() ? 0 : 1;
+    return retainsQueryRecoveryAndRestoresWhenRequested() && restoresPendingOperationsOnce()
+        && delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
 }

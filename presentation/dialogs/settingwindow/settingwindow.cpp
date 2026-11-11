@@ -1,444 +1,577 @@
-#include <QFileInfo>
-#include <QFileDialog>
-#include <QDesktopServices>
-#include <QMessageBox>
-#include <QHostAddress>
-#include <QStandardPaths>
-
 #include "settingwindow.h"
 #include "ui_settingwindow.h"
-#include "application/applicationconstants.h"
+#include "presentation/widgets/alignedcheckbox.h"
+#include <QComboBox>
+#include <QCoreApplication>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QEvent>
+#include <QSignalBlocker>
+#include <QLabel>
+#include <QFile>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSettings>
+#include <QScrollBar>
+#include <QShowEvent>
+#include <QTemporaryDir>
+#include <QTimer>
+#include <QJsonArray>
+#include <QVBoxLayout>
 #include "application/defaultsettings.h"
-#include "infrastructure/platform/autostart.h"
-#include "infrastructure/storage/applicationpaths.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "application/settingsmigrator.h"
+#include "application/savedconnectionservice.h"
+#include "application/authmethodsquery.h"
+#include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
-#include "infrastructure/settings/profilemanager.h"
+#include "presentation/widgets/serversettingswidget.h"
 
-SettingWindow::SettingWindow(QWidget *parent, QSettings *inputSettings, const QString &profileId) :
-    QDialog(parent),
-    ui(new Ui::SettingWindow)
+namespace {
+constexpr int QueryProgressMinimumMs=250;
+constexpr struct {
+    const char *type;
+    const char *label;
+} DefaultAuthChoices[]{
+    {"psw", QT_TRANSLATE_NOOP("SettingWindow", "Password")},
+    {"smsCheckCode", QT_TRANSLATE_NOOP("SettingWindow", "SMS code")},
+    {"cas", QT_TRANSLATE_NOOP("SettingWindow", "CAS")},
+    {"httpsOauth2", QT_TRANSLATE_NOOP("SettingWindow", "Web sign-in")},
+};
+
+QString defaultAuthLabel(const QString &type)
 {
+    for (const auto &choice : DefaultAuthChoices)
+        if (type==QLatin1StringView(choice.type)) return QCoreApplication::translate("SettingWindow",choice.label);
+    return type;
+}
+}
+
+SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,
+    CoreEngine *queryEngine,DraftPublisher publishDraft)
+    : QDialog(parent),ui(new Ui::SettingWindow),publishDraft(std::move(publishDraft)),
+      settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
+    saveButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::AcceptRole);
+    saveButton->setObjectName("saveProfileButton");saveButton->setDefault(true);
+    dismissButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::RejectRole);
+    dismissButton->setObjectName("dismissSettingsButton");
+    profileHint=new QLabel(this);profileHint->setObjectName("profileReadOnlyHint");profileHint->setWordWrap(true);profileHint->setProperty("secondary",true);profileHint->hide();
+    profileHint->setContentsMargins(0,0,ui->footerLayout->contentsMargins().right(),0);
+    ui->dialogLayout->insertWidget(0,profileHint);
+    setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
+    serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
+    auto *layout = new QVBoxLayout(ui->serverSettingsContainer);
+    layout->setContentsMargins(0,0,0,0); layout->addWidget(serverEditor);
+    authQuery=new AuthMethodsQuery(queryEngine ? queryEngine : new EmbeddedCoreEngine,this);
+    controllerSelection=new ControllerSelectionCoordinator(this,this);
+    queryStatus=new QLabel(this);queryStatus->setObjectName("authQueryStatus");queryStatus->setWordWrap(true);queryStatus->hide();
+    ui->authLayout->addWidget(queryStatus);
+    connect(authQuery,&AuthMethodsQuery::settled,this,[this]{finishQueryPresentation();});
+    connect(authQuery,&AuthMethodsQuery::ready,this,[this](const QJsonArray &methods) {
+        if (closed) return;
+        if (methods.isEmpty()) {
+            queryStatusText=QT_TR_NOOP("No sign-in methods are available.");
+            queryStatus->setText(tr(queryStatusText));
+            queryStatus->setVisible(!querying);
+            return;
+        }
+        QSignalBlocker blocker(ui->authTypeComboBox);
+        auto currentMethod=ui->authTypeComboBox->currentData(Qt::UserRole+1).toJsonObject();
+        ui->authTypeComboBox->clear();
+        int selected=-1;
+        for (const auto &entry:methods) {
+            const auto method=entry.toObject();auto type=method["type"].toString();
+            if (type.startsWith("auth/")) type.remove(0,5);
+            const auto name=method["name"].toString();
+            ui->authTypeComboBox->addItem(name.isEmpty()?defaultAuthLabel(type):name,type);
+            const int index=ui->authTypeComboBox->count()-1;
+            ui->authTypeComboBox->setItemData(index,method,Qt::UserRole+1);
+            if (type==selectedAuthType && method["domain"].toString()==selectedAuthDomain
+                && method["auth_id"].toString()==selectedAuthId && method["sub_type"].toString()==selectedAuthSubType)
+                selected=index;
+        }
+        const bool keptPreviousChoice=selected<0 && !selectedAuthType.isEmpty();
+        if (keptPreviousChoice) {
+            selected=0;
+            currentMethod["previousChoice"]=true;
+            const auto name=selectedAuthName.isEmpty()?defaultAuthLabel(selectedAuthType):selectedAuthName;
+            ui->authTypeComboBox->insertItem(selected,tr("%1 (previous choice)").arg(name),selectedAuthType);
+            ui->authTypeComboBox->setItemData(selected,currentMethod,Qt::UserRole+1);
+        } else if (selected<0 && methods.size()==1) selected=0;
+        ui->authTypeComboBox->addItem(tr("Load from server…"));
+        ui->authTypeComboBox->setCurrentIndex(selected);
+        blocker.unblock();
+        emit ui->authTypeComboBox->currentIndexChanged(selected);
+        queryStatusText=nullptr;
+        queryStatus->hide();
+        showQueryResults=methods.size()>1 || keptPreviousChoice;
+        showQueriedMethods();
+    });
+    connect(authQuery,&AuthMethodsQuery::failed,this,[this](ConnectionError error) {
+        if (closed) return;
+        switch (error) {
+        case ConnectionError::PERMISSION_DENIED: queryStatusText=QT_TR_NOOP("Network permission was denied. Check interface access or authorization.");break;
+        case ConnectionError::TLS_TRUST: queryStatusText=QT_TR_NOOP("The server certificate is not trusted or does not match. Check the address, system time and campus CA.");break;
+        case ConnectionError::TLS_PROTOCOL: queryStatusText=QT_TR_NOOP("TLS negotiation failed. Check the server port and TLS compatibility.");break;
+        case ConnectionError::NETWORK_FAILED: queryStatusText=QT_TR_NOOP("Connection failed. Check DNS, connectivity and the server address.");break;
+        case ConnectionError::TIMED_OUT: queryStatusText=QT_TR_NOOP("The query timed out. Check your network and retry.");break;
+        case ConnectionError::AUTHENTICATION_CHANGED: queryStatusText=QT_TR_NOOP("Sign-in options changed. Reload from the server.");break;
+        default: queryStatusText=QT_TR_NOOP("Could not query sign-in methods. Check the server and connection, then retry.");break;
+        }
+        queryStatus->setText(tr(queryStatusText));queryStatus->setVisible(!querying);
+    });
+    credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
+    ui->credentialsForm->addRow(credentialStatus);
+    rememberAuthentication=new AlignedCheckBox(ui->credentialsGroup);
+    rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
+    ui->credentialsForm->addRow(rememberAuthentication);
+    clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");clearCredentialButton->setAutoDefault(false);
+    ui->credentialsForm->addRow(clearCredentialButton);
+    connect(clearCredentialButton,&QPushButton::clicked,this,&SettingWindow::clearCredentials);
+    connect(this,&QDialog::finished,this,[this]{closed=true;++loadGeneration;});
+    loadSettings(settings);
+    connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
+        cancelQuery();
+        clearDraftCredentials();
+        selectedAuthId.clear(); selectedAuthSubType.clear(); selectedAuthDomain.clear();
+        selectedAuthType.clear();selectedAuthName.clear();
+        resetAuthChoices();
+        updateAuthFields();
+    });
+    connect(ui->usernameLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
+    connect(ui->countryCodeLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
+    connect(ui->phoneNumberLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
+    connect(ui->authTypeComboBox,&QComboBox::currentIndexChanged,this,[this](int index) {
+        if (index>=0 && index==ui->authTypeComboBox->count()-1) {
+            {
+                const QSignalBlocker blocker(ui->authTypeComboBox);
+                ui->authTypeComboBox->setCurrentIndex(selectedAuthIndex);
+            }
+            ui->authTypeComboBox->hidePopup();
+            queryMethods();
+            return;
+        }
+        const auto type=ui->authTypeComboBox->itemData(index).toString();
+        const auto method=ui->authTypeComboBox->itemData(index,Qt::UserRole+1).toJsonObject();
+        const auto id=method["auth_id"].toString(),subtype=method["sub_type"].toString(),domain=method["domain"].toString();
+        if (type!=selectedAuthType || id!=selectedAuthId || subtype!=selectedAuthSubType || domain!=selectedAuthDomain) clearDraftCredentials();
+        selectedAuthId=id;selectedAuthSubType=subtype;selectedAuthDomain=domain;
+        selectedAuthType=type;selectedAuthName=method["name"].toString();selectedAuthIndex=index;
+        updateAuthFields();
+    });
+    PresentationHelpers::setButtonIcon(ui->cancelAuthQueryButton,":/resource/stop.svg");
+    connect(ui->cancelAuthQueryButton,&QPushButton::clicked,this,&SettingWindow::cancelQuery);
+    connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
+    PresentationHelpers::setButtonIcon(ui->importPushButton,":/resource/import.svg");
+    PresentationHelpers::setButtonIcon(ui->exportPushButton,":/resource/export.svg");
+    PresentationHelpers::setButtonIcon(ui->resetDefaultPushButton,":/resource/undo.svg");
+    connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
+        if (!PresentationHelpers::actionPrompt(this,tr("Reset draft"),
+            tr("Reset this draft to its defaults? Changes take effect after saving."))) return;
+        QTemporaryDir folder;
+        if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
+        QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
+        DefaultSettings::reset(draft);
+        if (serverEditor->isBuiltIn()) DefaultSettings::applyBuiltInConnection(draft);
+        loadSettings(draft);
+    });
+    connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
+        const auto path=QFileDialog::getOpenFileName(this,tr("Import connection settings"),{},tr("INI files (*.ini)"));
+        if (path.isEmpty()) return;
+        QTemporaryDir folder;
+        QSettings source(path,QSettings::IniFormat);
+        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,tr("Import failed"),tr("Could not read these connection settings.")); return; }
+        QSettings draft(folder.filePath("import.ini"),QSettings::IniFormat);
+        if (!SettingsMigrator::publicDraft(source,draft)) {
+            QMessageBox::warning(this,tr("Import failed"),tr("Could not import these connection settings. Your draft was preserved.")); return;
+        }
+        loadSettings(draft);
+    });
+    connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
+        const auto path=QFileDialog::getSaveFileName(this,tr("Export connection settings"),{},tr("INI files (*.ini)"));
+        if (path.isEmpty()) return;
+        settings.sync();
+        if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
+            QMessageBox::warning(this,tr("Export failed"),tr("Could not export the connection settings. Choose a different file."));
+    });
+    if (this->publishDraft) ui->exportPushButton->setEnabled(false);
+    else readCredentials();
+    resize(600,680);
+}
+SettingWindow::~SettingWindow() { delete ui; }
 
-    this->settings = inputSettings;
-    this->profileId = profileId;
+void SettingWindow::showEvent(QShowEvent *event)
+{
+    if (!opened && !event->spontaneous()) {
+        opened=true;
+        // Establish the viewport and its focus before the native window can paint.
+        ui->dialogLayout->activate();
+        ui->loginTabLayout->activate();
+        ui->loginTab->setFocus(Qt::OtherFocusReason);
+        ui->loginTab->verticalScrollBar()->setValue(0);
+    }
+    QDialog::showEvent(event);
+}
 
-    setWindowModality(Qt::WindowModal);
-    setAttribute(Qt::WA_DeleteOnClose);
+void SettingWindow::changeEvent(QEvent *event) {
+    QDialog::changeEvent(event);
+    if(event->type()==QEvent::LanguageChange) retranslate();
+}
+void SettingWindow::retranslate() {
+    QSignalBlocker authBlocker(ui->authTypeComboBox);
+    ui->retranslateUi(this);
+    const auto forms=ui->loginTabContents->findChildren<QFormLayout *>();
+    QList<QWidget *> labels;int labelWidth=0;
+    for (auto *form:forms) {
+        for (int row=0;row<form->rowCount();++row) {
+            auto *item=form->itemAt(row,QFormLayout::LabelRole);
+            if (auto *label=item ? item->widget() : nullptr) {
+                label->setMinimumWidth(0);
+                label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
+                labels.append(label);labelWidth=qMax(labelWidth,label->sizeHint().width());
+            }
+        }
+    }
+    for (auto *label:labels) label->setMinimumWidth(labelWidth);
+    PresentationHelpers::passwordVisibilityAction(ui->passwordLineEdit);
+    PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
+    ui->authTypeComboBox->setPlaceholderText(tr("Choose a sign-in method"));
+    const int findMethodsIndex=ui->authTypeComboBox->count()-1;
+    for (int index=0;index<findMethodsIndex;++index) {
+        const auto method=ui->authTypeComboBox->itemData(index,Qt::UserRole+1).toJsonObject();
+        auto name=method["name"].toString();
+        if (name.isEmpty()) name=defaultAuthLabel(ui->authTypeComboBox->itemData(index).toString());
+        ui->authTypeComboBox->setItemText(index,method["previousChoice"].toBool()?tr("%1 (previous choice)").arg(name):name);
+    }
+    ui->authTypeComboBox->setItemText(findMethodsIndex,tr("Load from server…"));
+    if (queryStatusText) queryStatus->setText(tr(queryStatusText));
+    rememberAuthentication->setText(tr("Remember authentication"));
+    auto rememberHelp=tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data.");
+#ifdef Q_OS_MACOS
+    rememberHelp+=QStringLiteral("\n\n")+tr("If macOS cannot read the saved sign-in from Keychain, JustConnect will ask you to sign in to campus again.");
+#endif
+    rememberAuthentication->setToolTip(rememberHelp);
+    ui->passwordLineEdit->setPlaceholderText(tr("Leave blank to keep saved"));
+    ui->totpSecretLineEdit->setPlaceholderText(tr("Leave blank to keep saved"));
+    clearCredentialButton->setText(tr("Clear saved credentials…"));
+    credentialStatus->setText(credentialStatusText ? tr(credentialStatusText) : PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
+    updateBusy();
+}
 
-    loadSettings();
+void SettingWindow::loadSettings(const QSettings &source) {
+    cancelQuery();
+    const QSignalBlocker methodBlocker(ui->authTypeComboBox);
+    ++loadGeneration;loading=false;savePending=false;updateBusy();
+    draftValues=DefaultSettings::publicValues(source);
+    draftValues.remove("Common/ConfigVersion"); // Schema revisions belong to SettingsMigrator.
+    serverEditor->load(source);
+    ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
+    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,DefaultSettings::RememberAuthenticationByDefault).toBool());
+    clearDraftCredentials();
+    const bool needsSignInMethod = source.value("Common/NeedsConfiguration").toBool()
+        || serverEditor->serverAddress().isEmpty();
+    const auto method = needsSignInMethod ? QString() : source.value("JustConnect/AuthType", "psw").toString();
+    selectedAuthId = method.isEmpty() ? QString() : source.value("JustConnect/AuthID").toString();
+    selectedAuthSubType = method.isEmpty() ? QString() : source.value("JustConnect/AuthSubType").toString();
+    selectedAuthDomain = method.isEmpty() ? QString() : source.value("JustConnect/LoginDomain").toString();
+    selectedAuthName = method.isEmpty() ? QString() : source.value(DefaultSettings::SignInMethodName).toString();
+    if (selectedAuthName.isEmpty() && DefaultSettings::matchesBuiltInServer(serverEditor->serverAddress())) {
+        const auto &preset=DefaultSettings::builtInConnection();
+        if (serverEditor->serverPort()==preset.value("JustConnect/ServerPort").toInt()
+            && method==preset.value("JustConnect/AuthType").toString()
+            && selectedAuthDomain==preset.value("JustConnect/LoginDomain").toString())
+            selectedAuthName=preset.value(DefaultSettings::SignInMethodName).toString();
+    }
+    resetAuthChoices(selectedAuthName.isEmpty()?QString():method);
+    int index=ui->authTypeComboBox->findData(method);
+    if (index<0 && !method.isEmpty()) {
+        index=ui->authTypeComboBox->count()-1;
+        ui->authTypeComboBox->insertItem(index,defaultAuthLabel(method),method);
+    }
+    if (!selectedAuthName.isEmpty()) ui->authTypeComboBox->setItemText(index,selectedAuthName);
+    if (!selectedAuthName.isEmpty() || !selectedAuthId.isEmpty() || !selectedAuthSubType.isEmpty() || !selectedAuthDomain.isEmpty())
+        ui->authTypeComboBox->setItemData(index,QJsonObject{{"name",selectedAuthName},{"auth_id",selectedAuthId},
+            {"sub_type",selectedAuthSubType},{"domain",selectedAuthDomain}},Qt::UserRole+1);
+    ui->authTypeComboBox->setCurrentIndex(index);
+    selectedAuthIndex=index;
+    ui->countryCodeLineEdit->setText(source.value("JustConnect/PhoneCountryCode","86").toString());
+    ui->phoneNumberLineEdit->setText(source.value("JustConnect/PhoneNumber").toString());
+    ui->connectAfterStartCheckBox->setChecked(source.value("Common/ConnectAfterStart").toBool());
+    ui->checkUpdateAfterStartCheckBox->setChecked(source.value("Common/CheckUpdateAfterStart").toBool());
+    ui->autoReconnectCheckBox->setChecked(source.value("Common/AutoReconnect").toBool());
+    selectedAuthType=method;updateAuthFields();retranslate();
 
-    connect(ui->openLogDirectoryPushButton, &QPushButton::clicked, this, [this]()
-    {
-        if (!QDesktopServices::openUrl(
-                QUrl::fromLocalFile(ApplicationPaths::logDirectory())
-            ))
-        {
-            QMessageBox::warning(this, "日志目录", "无法打开日志目录。");
+}
+
+QVariantMap SettingWindow::publicChanges() const {
+    auto changes=draftValues;
+    const auto server=serverEditor->settingsValues();
+    for (auto it=server.cbegin();it!=server.cend();++it) changes.insert(it.key(),it.value());
+    changes.insert("Credential/Username",ui->usernameLineEdit->text().trimmed());
+    changes.insert(DefaultSettings::RememberAuthentication,rememberAuthentication->isChecked());
+    changes.insert("JustConnect/AuthType",ui->authTypeComboBox->currentData().toString());changes.insert("JustConnect/AuthID",selectedAuthId);
+    changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",selectedAuthDomain);
+    changes.insert(DefaultSettings::SignInMethodName,selectedAuthName);
+    changes.insert("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",ui->phoneNumberLineEdit->text().trimmed());
+    changes.insert("Common/ConnectAfterStart",ui->connectAfterStartCheckBox->isChecked());changes.insert("Common/CheckUpdateAfterStart",ui->checkUpdateAfterStartCheckBox->isChecked());
+    changes.insert("Common/AutoReconnect",ui->autoReconnectCheckBox->isChecked());
+    return changes;
+}
+
+ConnectionOptions SettingWindow::currentOptions() const {
+    auto connectionOptions=SavedConnectionService::load(publicChanges());
+    connectionOptions.credentials.password=ui->passwordLineEdit->text();
+    connectionOptions.credentials.totpSecret=ui->totpSecretLineEdit->text().trimmed();
+    return connectionOptions;
+}
+
+void SettingWindow::clearDraftCredentials() {
+    loadedCredentials={};
+    ui->passwordLineEdit->setText({});ui->totpSecretLineEdit->setText({});
+    credentialStatusText=nullptr;credentialStatus->clear();credentialStatus->hide();
+}
+void SettingWindow::resetAuthChoices(const QString &namedType) {
+    const QSignalBlocker blocker(ui->authTypeComboBox);
+    ui->authTypeComboBox->clear();
+    if (namedType.isEmpty()) {
+        for (const auto &choice : DefaultAuthChoices)
+            ui->authTypeComboBox->addItem(tr(choice.label), QString::fromLatin1(choice.type));
+    } else {
+        ui->authTypeComboBox->addItem(selectedAuthName,namedType);
+    }
+    ui->authTypeComboBox->addItem(tr("Load from server…"));
+    ui->authTypeComboBox->setCurrentIndex(-1);
+    selectedAuthIndex=-1;
+}
+void SettingWindow::updateAuthFields() {
+    const bool sms=ui->authTypeComboBox->currentData()=="smsCheckCode";
+    const bool password=ui->authTypeComboBox->currentData()=="psw";
+    ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
+    ui->credentialsForm->setRowVisible(ui->passwordLineEdit,password);
+    ui->credentialsForm->setRowVisible(ui->totpSecretRow,password);
+    clearCredentialButton->setVisible(password && !publishDraft);
+    credentialStatus->setVisible(credentialStatusText || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
+    ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);
+    ui->authForm->setRowVisible(ui->phoneNumberLineEdit,sms);
+}
+void SettingWindow::setConnectAfterSave(bool connect) {
+    connectAfterSave=connect;updateBusy();
+}
+void SettingWindow::setProfileEditable(bool editable) {
+    if (profileEditable == editable) return;
+    profileEditable = editable;
+    if (editable) updateBusy();
+    else cancelQuery();
+}
+void SettingWindow::updateBusy() {
+    const bool canEdit=profileEditable && !saving && !savePending;
+    ui->loginTabContents->setEnabled(canEdit);
+    ui->profileGroup->setEnabled(canEdit);
+    profileHint->setVisible(!profileEditable);
+    profileHint->setText(tr("Disconnect to edit this connection."));
+    saveButton->setVisible(profileEditable);
+    saveButton->setEnabled(canEdit && !querying);
+    saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
+    dismissButton->setText(profileEditable ? tr("Cancel") : tr("Close"));
+    dismissButton->setEnabled(!publishDraft || !saving);
+    serverEditor->setEnabled(canEdit && !querying);
+    ui->authTypeComboBox->setEnabled(canEdit && !querying);
+    clearCredentialButton->setEnabled(canEdit && !loading);
+}
+void SettingWindow::cancelQuery() {
+    ++queryGeneration;
+    showQueryResults=false;
+    queryStatusText=nullptr;
+    queryStatus->hide();
+    controllerSelection->cancel();
+    ui->cancelAuthQueryButton->setEnabled(false);
+    authQuery->stop();
+    if (!authQuery->isActive()) finishQueryPresentation(false);
+    else updateBusy();
+}
+void SettingWindow::queryMethods() {
+    if (!profileEditable || isSaving() || querying) return;
+    if (serverEditor->serverAddress().isEmpty()) {
+        queryStatusText=QT_TR_NOOP("Enter the server address first.");
+        queryStatus->setText(tr(queryStatusText));
+        queryStatus->show();
+        return;
+    }
+    if (ui->authTypeComboBox->hasFocus()) ui->loginTab->setFocus(Qt::OtherFocusReason);
+    querying=true;updateBusy();const auto generation=++queryGeneration;
+    queryStatusText=nullptr;
+    queryStatus->hide();
+    queryProgressShown.start();
+    ui->cancelAuthQueryButton->setEnabled(true);
+    ui->authMethodRow->setCurrentWidget(ui->authQueryPage);
+    controllerSelection->choose([this,generation,connectionOptions=currentOptions()](std::optional<QString> address) mutable {
+        if (closed || generation!=queryGeneration) return;
+        if (address) connectionOptions.behavior.controllerAddress=*address;
+        if (!address || !authQuery->start(connectionOptions)) {
+            queryStatusText=QT_TR_NOOP("Query cancelled. Try again when ready.");
+            queryStatus->setText(tr(queryStatusText));
+            finishQueryPresentation();
         }
     });
+}
+void SettingWindow::finishQueryPresentation(bool letProgressSettle) {
+    ui->cancelAuthQueryButton->setEnabled(false);
+    if (letProgressSettle && queryProgressShown.isValid() && queryProgressShown.elapsed()<QueryProgressMinimumMs) {
+        const int remaining=QueryProgressMinimumMs-queryProgressShown.elapsed();
+        const auto generation=queryGeneration;
+        QTimer::singleShot(qMax(0,remaining),this,[this,generation] {
+            if (!closed && querying && generation==queryGeneration) finishQueryPresentation(false);
+        });
+        return;
+    }
+    querying=false;
+    queryProgressShown.invalidate();
+    ui->authMethodRow->setCurrentWidget(ui->authMethodPage);
+    updateBusy();
+    queryStatus->setVisible(queryStatusText);
+    showQueriedMethods();
+}
+void SettingWindow::showQueriedMethods() {
+    if (querying || !showQueryResults) return;
+    showQueryResults=false;
+    if (isActiveWindow() && ui->authTypeComboBox->isEnabled()) ui->authTypeComboBox->showPopup();
+}
+void SettingWindow::done(int result) {
+    if (publishDraft && saving) return;
+    cancelQuery();
+    if (authQuery->isActive()) {
+        setAttribute(Qt::WA_DeleteOnClose,false);
+        connect(authQuery,&AuthMethodsQuery::settled,this,&QObject::deleteLater,Qt::SingleShotConnection);
+    }
+    QDialog::done(result);
+}
+void SettingWindow::readCredentials() {
+    loading=true;updateBusy();const auto generation=++loadGeneration;
+    const auto source=credentialSource;
+    credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
+        if (closed || generation!=loadGeneration) return;
+        loading=false;
+        const bool requestedSave=savePending;
+        savePending=false;
+        updateBusy();
+        if (!CredentialAccess::matches(source,settings)) {
+            credentialStatusText=QT_TR_NOOP("The saved profile changed. Reopen the editor.");
+            credentialStatus->setText(tr(credentialStatusText));updateAuthFields();
+        } else {
+            credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
+            credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
+            if (loaded.result.succeeded() && currentOptions().authenticationIdentity()==source.connectionOptions.authenticationIdentity()) {
+                const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
+                const bool totpUntouched=ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret;
+                loadedCredentials=loaded.credentials;
+                if (passwordUntouched) ui->passwordLineEdit->setText(loaded.credentials.password);
+                if (totpUntouched) ui->totpSecretLineEdit->setText(loaded.credentials.totpSecret);
+            }
+        }
+        if (requestedSave) saveSettings();
+    });
+}
+void SettingWindow::clearCredentials() {
+    if (closed || !profileEditable || loading || saving) return;
+    if (!CredentialAccess::matches(credentialSource,settings)) {
+        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before clearing credentials."));return;
+    }
+    auto account=credentialSource.connectionOptions.credentials.username;
+    if (account.isEmpty()) account=credentialSource.connectionOptions.endpoint.phone;
+    if (account.isEmpty()) account=tr("the current connection");
+    if (!PresentationHelpers::actionPrompt(this,tr("Clear saved credentials"),
+        tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))) return;
+    const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
+    credentials->clear(source).then(this,[this](const CredentialResult &result) {
+        if (closed) return;
+        saving=false;updateBusy();
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not clear credentials"),PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (ui->passwordLineEdit->text()==loadedCredentials.password) ui->passwordLineEdit->setText({});
+        if (ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret) ui->totpSecretLineEdit->setText({});
+        loadedCredentials={};
+        credentialStatusText=QT_TR_NOOP("Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.");
+        credentialStatus->setText(tr(credentialStatusText));
+        updateAuthFields();
+        credentialSource=CredentialAccess::source(settings,credentialSource.legacyCachePath);
+    });
+}
+void SettingWindow::saveSettings() {
+    if (closed || !profileEditable || saving || querying || savePending) return;
+    if (loading) {
+        // Merge the saved secrets before applying edits to either credential field.
+        savePending=true;
+        updateBusy();
+        return;
+    }
+    if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
+        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before applying changes."));return;
+    }
+    auto connectionOptions=currentOptions();
+    if (connectionOptions.authenticationIdentity()==credentialSource.connectionOptions.authenticationIdentity()) {
+        if (connectionOptions.credentials.password.isEmpty()) connectionOptions.credentials.password=loadedCredentials.password;
+        if (connectionOptions.credentials.totpSecret.isEmpty()) connectionOptions.credentials.totpSecret=loadedCredentials.totpSecret;
+    }
+    if (connectionOptions.endpoint.authType.isEmpty()) {
+        QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
+    }
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
+    if (validation!=ConnectionError::NONE) {
+        const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
+        QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
+            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
+    }
+    const auto changes=publicChanges();
+    const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
+        || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
+    if (publishDraft) {
+        saveDraft(changes,connectionOptions,edited);
+        return;
+    }
+    saving=true;updateBusy();const auto source=credentialSource;
+    credentials->save(source,connectionOptions,edited,changes).then(this,[this,source,connectionOptions](const CredentialResult &result) {
+        if (closed) return;
+        saving=false;updateBusy();
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save connection"),PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (settings.fileName()!=source.path || settings.value(ConnectionCredentialVault::ScopeSetting)!=source.scope) return;
+        credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
+        accept();if(connectAfterSave)emit connectRequested();
+    });
+}
 
-    connect(ui->portForwardingPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                extraSettingWindow = new ExtraSettingWindow(this);
-                extraSettingWindow->setup(tcpPortForwarding, udpPortForwarding, customDNS, customProxyDomain, extraArguments);
-
-                connect(extraSettingWindow, &ExtraSettingWindow::applied, this,
-				[&](const QString& tcpForwarding, const QString& udpForwarding, const QString& customDNS_, const QString& customProxyDomain_, const QString& extraArg)
-                    {
-                        tcpPortForwarding = tcpForwarding;
-                        udpPortForwarding = udpForwarding;
-						customDNS = customDNS_;
-						customProxyDomain = customProxyDomain_;
-						extraArguments = extraArg;
-                    });
-
-                extraSettingWindow->show();
-            });
-
-    connect(ui->buttonBox->button(QDialogButtonBox::Ok), &QPushButton::clicked, [&]() {
-        if (shouldCheckCredential() && !PresentationHelpers::confirmCredentials(
-                ui->usernameLineEdit->text(),
-                ui->passwordLineEdit->text()
-            ))
-            return;
-        if (isAuthSettingChanged())
-            ApplicationPaths::clearClientData(this->profileId);
-        applySettings();
+void SettingWindow::saveDraft(const QVariantMap &changes,const ConnectionOptions &options,bool edited)
+{
+    const auto failure=[this] {
+        QMessageBox::warning(this,tr("Could not save connection"),
+            tr("Could not create the connection. Check file permissions and try again."));
+    };
+    if (!SavedConnectionService::writePublic(settings,changes)) {failure();return;}
+    credentialSource=CredentialAccess::source(settings,{});
+    if (credentialSource.scope.isEmpty()) {failure();return;}
+    const auto publish=[this] {
+        if (!publishDraft()) return false;
+        saving=false;
         accept();
-    });
-
-    connect(ui->buttonBox->button(QDialogButtonBox::Apply), &QPushButton::clicked, [&]() {
-        if (shouldCheckCredential() && !PresentationHelpers::confirmCredentials(
-                ui->usernameLineEdit->text(),
-                ui->passwordLineEdit->text()
-            ))
-            return;
-        if (isAuthSettingChanged())
-            ApplicationPaths::clearClientData(this->profileId);
-        applySettings();
-        loadSettings();
-    });
-
-    connect(ui->resetDefaultPushButton, &QPushButton::clicked,
-        [&]()
-        {
-            int status = QMessageBox::warning(this, "警告", "将会重置所有设置，是否继续？", QMessageBox::Ok, QMessageBox::Cancel);
-            if (status == QMessageBox::Ok)
-            {
-                settings->clear();
-				DefaultSettings::reset(*settings);
-				settings->sync();
-                loadSettings();
-            }
-        });
-
-    connect(ui->importPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                QString filename = QFileDialog::getOpenFileName(this, "选择配置文件",
-                    QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                    "Config Ini(*.ini);;All Files(*.*)");
-                if (filename.isEmpty()) {
-                    QMessageBox::critical(this, "错误", "未选择配置文件，不会带来任何更改。");
-                    return;
-                }
-                QSettings newSettings(filename, QSettings::IniFormat);
-                for (const auto& key : newSettings.allKeys()) {
-                    settings->setValue(key, newSettings.value(key));
-                }
-                settings->sync();
-                loadSettings();
-            });
-
-    connect(ui->exportPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                QString filename = QFileDialog::getSaveFileName(this, "选择保存位置",
-                    QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                    "Config Ini(*.ini);;All Files(*.*)");
-                if (filename.isEmpty())
-                {
-                    QMessageBox::critical(this, "错误", "未选择配置文件保存位置。");
-                    return;
-                }
-                settings->sync();
-                if (QFile::exists(filename))
-                    QFile::remove(filename);
-                QFile::copy(settings->fileName(), filename);
-            });
-
-    connect(ui->passwordVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->passwordLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->totpSecretVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->totpSecretLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->certPasswordVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->certPasswordLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->certFileBrowseButton, &QPushButton::clicked,
-        [&]()
-        {
-            QString filename = QFileDialog::getOpenFileName(this, "选择证书文件",
-                QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                "P12 Certificate(*.p12 *.pfx);;All Files(*.*)");
-            if (!filename.isEmpty())
-            {
-                ui->certFileLineEdit->setText(filename);
-            }
-        });
-
-    connect(ui->authSelectPushButton, &QPushButton::clicked, this, [&]() {
-        authInfoWindow = new AuthInfoWindow(this);
-        connect(authInfoWindow, &AuthInfoWindow::finishAuthInfo, this,
-                [&](const QString &authType, const QString &loginDomain, const QString &loginUrl) {
-                    if (authType == "auth/cas")
-                    {
-                        ui->casRadioButton->setChecked(true);
-                        ui->loginUrlLineEdit->setText(loginUrl);
-                    }
-                    else if (authType == "auth/httpsOauth2")
-                    {
-                        ui->oauth2RadioButton->setChecked(true);
-                        ui->loginUrlLineEdit->setText(loginUrl);
-                    }
-                    else if (authType == "auth/smsCheckCode")
-                    {
-                        ui->smsCheckCodeRadioButton->setChecked(true);
-                    }
-                    else
-                    {
-                        ui->pswRadioButton->setChecked(true);
-                    }
-                    ui->loginDomainLineEdit->setText(loginDomain);
-        });
-        authInfoWindow->fetchAuthInfo(ui->serverAddressLineEdit->text(), ui->serverPortSpinBox->value());
-        authInfoWindow->show();
-    });
-}
-
-SettingWindow::~SettingWindow()
-{
-    delete ui;
-}
-
-bool SettingWindow::shouldCheckCredential()
-{
-    if (ui->atrustRadioButton->isChecked())
-        return ui->pswRadioButton->isChecked();
-    else
-        return !ui->certFileLineEdit->text().isEmpty();
-}
-
-void SettingWindow::loadSettings()
-{
-    ui->configVersionLabel->setText(
-        "当前配置文件版本：" + QString::number(settings->value("Common/ConfigVersion").toInt()) +
-        "\n程序配置文件版本：" +
-        QString::number(ApplicationConstants::ConfigVersion)
-    );
-    ui->usernameLineEdit->setText(settings->value("Credential/Username").toString());
-    ui->passwordLineEdit->setText(
-        QByteArray::fromBase64(settings->value("Credential/Password").toString().toUtf8())
-    );
-    ui->totpSecretLineEdit->setText(settings->value("Credential/TOTPSecret").toString());
-    ui->certFileLineEdit->setText(settings->value("Credential/CertFile").toString());
-    ui->certPasswordLineEdit->setText(
-        QByteArray::fromBase64(settings->value("Credential/CertPassword").toString().toUtf8())
-    );
-    ui->credentialsAsArgumentsCheckBox->setChecked(
-        settings->value("ZJUConnect/CredentialsAsArguments", false).toBool()
-    );
-
-    ProfileManager profileManager;
-    ui->autoStartCheckBox->setChecked(profileManager.autoStartEnabled());
-    ui->silentStartCheckBox->setChecked(profileManager.silentStartEnabled());
-    ui->connectAfterStartCheckBox->setChecked(settings->value("Common/ConnectAfterStart").toBool());
-    ui->checkUpdateAfterStartCheckBox->setChecked(settings->value("Common/CheckUpdateAfterStart").toBool());
-    ui->autoSetProxyCheckBox->setChecked(settings->value("Common/AutoSetProxy").toBool());
-    ui->reconnectTimeSpinBox->setValue(settings->value("Common/ReconnectTime").toInt());
-    ui->autoReconnectCheckBox->setChecked(settings->value("Common/AutoReconnect").toBool());
-	ui->systemProxyBypassLineEdit->setText(settings->value("Common/SystemProxyBypass").toString());
-    ui->suppressProxyOverrideWarningCheckBox->setChecked(settings->value("Common/SuppressProxyOverrideWarning", false).toBool());
-
-
-    ui->serverAddressLineEdit->setText(settings->value("ZJUConnect/ServerAddress").toString());
-    ui->serverPortSpinBox->setValue(settings->value("ZJUConnect/ServerPort").toInt());
-    ui->dnsLineEdit->setText(settings->value("ZJUConnect/DNS").toString());
-    ui->dnsAutoCheckBox->setChecked(settings->value("ZJUConnect/DNSAuto").toBool());
-    ui->secondaryDnsLineEdit->setText(settings->value("ZJUConnect/SecondaryDNS").toString());
-    ui->localDnsServerLineEdit->setText(
-        settings->value("ZJUConnect/LocalDNSServer", "").toString()
-    );
-    ui->dnsServerBindLineEdit->setText(
-        settings->value("ZJUConnect/DNSServerBind", "").toString()
-    );
-    ui->dnsTTLSpinBox->setValue(settings->value("ZJUConnect/DNSTTL").toInt());
-    ui->socks5PortSpinBox->setValue(settings->value("ZJUConnect/SOCKS5Port").toInt());
-    ui->httpPortSpinBox->setValue(settings->value("ZJUConnect/HTTPPort").toInt());
-    ui->shadowsocksUrlLineEdit->setText(settings->value("ZJUConnect/ShadowsocksURL").toString());
-    ui->dialDirectProxyLineEdit->setText(settings->value("ZJUConnect/DialDirectProxy").toString());
-    ui->updateBestNodesIntervalSpinBox->setValue(
-        settings->value("ZJUConnect/UpdateBestNodesInterval", 300).toInt());
-
-    if (settings->value("ZJUConnect/Protocol").toString() == "atrust")
-        ui->atrustRadioButton->setChecked(true);
-    else
-        ui->easyconnectRadioButton->setChecked(true);
-    ui->loginDomainLineEdit->setText(settings->value("ZJUConnect/LoginDomain").toString());
-    auto authType = settings->value("ZJUConnect/AuthType").toString();
-    if (authType == "smsCheckCode")
-        ui->smsCheckCodeRadioButton->setChecked(true);
-    else if (authType == "cas")
-        ui->casRadioButton->setChecked(true);
-    else if (authType == "httpsOauth2")
-        ui->oauth2RadioButton->setChecked(true);
-    else
-        ui->pswRadioButton->setChecked(true);
-    ui->loginUrlLineEdit->setText(settings->value("ZJUConnect/LoginURL").toString());
-    ui->countryCodeLineEdit->setText(settings->value("ZJUConnect/PhoneCountryCode").toString());
-    ui->phoneNumberLineEdit->setText(settings->value("ZJUConnect/PhoneNumber").toString());
-
-    ui->multiLineCheckBox->setChecked(settings->value("ZJUConnect/MultiLine").toBool());
-    ui->keepAliveCheckBox->setChecked(settings->value("ZJUConnect/KeepAlive").toBool());
-    ui->keepAliveUrlLineEdit->setText(settings->value("ZJUConnect/KeepAliveURL", "").toString());
-    ui->bindInterfaceLineEdit->setText(settings->value("ZJUConnect/BindInterface", "").toString());
-    ui->outsideAccessCheckBox->setChecked(settings->value("ZJUConnect/OutsideAccess").toBool());
-
-    ui->skipDomainResourceCheckBox->setChecked(settings->value("ZJUConnect/SkipDomainResource").toBool());
-    ui->disableServerConfigCheckBox->setChecked(settings->value("ZJUConnect/DisableServerConfig").toBool());
-    ui->proxyAllCheckBox->setChecked(settings->value("ZJUConnect/ProxyAll").toBool());
-    
-    ui->zjuDefaultCheckBox->setChecked(settings->value("ZJUConnect/ZJUDefault").toBool());
-    ui->disableDNSCheckBox->setChecked(settings->value("ZJUConnect/DisableZJUDNS").toBool());
-    ui->detailedDebugCheckBox->setChecked(settings->value("ZJUConnect/Debug").toBool());
-    ui->debugPcapCheckBox->setChecked(
-        settings->value("ZJUConnect/DebugPCAP", false).toBool()
-    );
-    ui->debugTlsLogCheckBox->setChecked(
-        settings->value("ZJUConnect/DebugTLSLog", false).toBool()
-    );
-
-    ui->tunCheckBox->setChecked(settings->value("ZJUConnect/TUNMode").toBool());
-    ui->routeCheckBox->setChecked(settings->value("ZJUConnect/AddRoute").toBool());
-    ui->dnsHijackCheckBox->setChecked(settings->value("ZJUConnect/DNSHijack").toBool());
-    ui->fakeIPCheckBox->setChecked(settings->value("ZJUConnect/FakeIP").toBool());
-    ui->tcpTunnelModeCheckBox->setChecked(settings->value("ZJUConnect/TCPTunnelMode").toBool());
-    ui->autoDetectInterfaceCheckBox->setChecked(settings->value("ZJUConnect/AutoDetectInterface", false).toBool());
-
-    tcpPortForwarding = settings->value("ZJUConnect/TCPPortForwarding").toString();
-    udpPortForwarding = settings->value("ZJUConnect/UDPPortForwarding").toString();
-	customDNS = settings->value("ZJUConnect/CustomDNS").toString();
-	customProxyDomain = settings->value("ZJUConnect/CustomProxyDomain").toString();
-    extraArguments = settings->value("ZJUConnect/ExtraArguments").toString();
-
-    ui->routeCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-    ui->dnsHijackCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-    ui->fakeIPCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-
-	ui->dnsLineEdit->setDisabled(ui->dnsAutoCheckBox->isChecked());
-}
-
-void SettingWindow::applySettings()
-{
-    ProfileManager profileManager;
-    bool oldAutoStart = profileManager.autoStartEnabled();
-    bool newAutoStart = ui->autoStartCheckBox->isChecked();
-    if (oldAutoStart != newAutoStart)
-        AutoStart::setEnabled(ui->autoStartCheckBox->isChecked());
-    profileManager.setAutoStartEnabled(newAutoStart);
-    profileManager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
-
-    settings->setValue("Credential/Username", ui->usernameLineEdit->text());
-    settings->setValue("Credential/Password", QString(ui->passwordLineEdit->text().toUtf8().toBase64()));
-    settings->setValue("Credential/TOTPSecret", ui->totpSecretLineEdit->text());
-    settings->setValue("Credential/CertFile", ui->certFileLineEdit->text());
-    settings->setValue("Credential/CertPassword", QString(ui->certPasswordLineEdit->text().toUtf8().toBase64()));
-    settings->setValue(
-        "ZJUConnect/CredentialsAsArguments",
-        ui->credentialsAsArgumentsCheckBox->isChecked()
-    );
-
-    settings->setValue("Common/ConnectAfterStart", ui->connectAfterStartCheckBox->isChecked());
-    settings->setValue("Common/CheckUpdateAfterStart", ui->checkUpdateAfterStartCheckBox->isChecked());
-    settings->setValue("Common/AutoSetProxy", ui->autoSetProxyCheckBox->isChecked());
-    settings->setValue("Common/ReconnectTime", ui->reconnectTimeSpinBox->value());
-    settings->setValue("Common/AutoReconnect", ui->autoReconnectCheckBox->isChecked());
-    settings->setValue("Common/SystemProxyBypass", ui->systemProxyBypassLineEdit->text());
-    settings->setValue("Common/SuppressProxyOverrideWarning", ui->suppressProxyOverrideWarningCheckBox->isChecked());
-
-
-    settings->setValue("ZJUConnect/ServerAddress", ui->serverAddressLineEdit->text());
-    settings->setValue("ZJUConnect/ServerPort", ui->serverPortSpinBox->value());
-    settings->setValue("ZJUConnect/DNS", ui->dnsLineEdit->text());
-    settings->setValue("ZJUConnect/DNSAuto", ui->dnsAutoCheckBox->isChecked());
-    settings->setValue("ZJUConnect/SecondaryDNS", ui->secondaryDnsLineEdit->text());
-    settings->setValue(
-        "ZJUConnect/LocalDNSServer",
-        ui->localDnsServerLineEdit->text().trimmed()
-    );
-    settings->setValue(
-        "ZJUConnect/DNSServerBind",
-        ui->dnsServerBindLineEdit->text().trimmed()
-    );
-    settings->setValue("ZJUConnect/DNSTTL", ui->dnsTTLSpinBox->value());
-    settings->setValue("ZJUConnect/SOCKS5Port", ui->socks5PortSpinBox->value());
-    settings->setValue("ZJUConnect/HTTPPort", ui->httpPortSpinBox->value());
-    settings->setValue("ZJUConnect/ShadowsocksURL", ui->shadowsocksUrlLineEdit->text());
-    settings->setValue("ZJUConnect/DialDirectProxy", ui->dialDirectProxyLineEdit->text());
-    settings->setValue("ZJUConnect/UpdateBestNodesInterval", ui->updateBestNodesIntervalSpinBox->value());
-
-    settings->setValue("ZJUConnect/Protocol", ui->atrustRadioButton->isChecked() ? "atrust" : "easyconnect");
-    settings->setValue(
-        "ZJUConnect/EasyConnectAuthType",
-        ui->certFileLineEdit->text().isEmpty() ? "password" : "certificate"
-    );
-    settings->setValue("ZJUConnect/LoginDomain", ui->loginDomainLineEdit->text());
-    QString authType;
-    if (ui->smsCheckCodeRadioButton->isChecked())
-        authType = "smsCheckCode";
-    else if (ui->casRadioButton->isChecked())
-        authType = "cas";
-    else if (ui->oauth2RadioButton->isChecked())
-        authType = "httpsOauth2";
-    else
-        authType = "psw";
-    settings->setValue("ZJUConnect/AuthType", authType);
-    settings->setValue("ZJUConnect/LoginURL", ui->loginUrlLineEdit->text());
-    settings->setValue("ZJUConnect/PhoneCountryCode", ui->countryCodeLineEdit->text());
-    settings->setValue("ZJUConnect/PhoneNumber", ui->phoneNumberLineEdit->text());
-
-    settings->setValue("ZJUConnect/MultiLine", ui->multiLineCheckBox->isChecked());
-    settings->setValue("ZJUConnect/KeepAlive", ui->keepAliveCheckBox->isChecked());
-    settings->setValue("ZJUConnect/KeepAliveURL", ui->keepAliveUrlLineEdit->text().trimmed());
-    settings->setValue("ZJUConnect/BindInterface", ui->bindInterfaceLineEdit->text().trimmed());
-    settings->setValue("ZJUConnect/OutsideAccess", ui->outsideAccessCheckBox->isChecked());
-
-    settings->setValue("ZJUConnect/SkipDomainResource", ui->skipDomainResourceCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DisableServerConfig", ui->disableServerConfigCheckBox->isChecked());
-    settings->setValue("ZJUConnect/ProxyAll", ui->proxyAllCheckBox->isChecked());
-
-    settings->setValue("ZJUConnect/DisableZJUDNS", ui->disableDNSCheckBox->isChecked());
-    settings->setValue("ZJUConnect/ZJUDefault", ui->zjuDefaultCheckBox->isChecked());
-    settings->setValue("ZJUConnect/Debug", ui->detailedDebugCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DebugPCAP", ui->debugPcapCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DebugTLSLog", ui->debugTlsLogCheckBox->isChecked());
-
-    settings->setValue("ZJUConnect/TUNMode", ui->tunCheckBox->isChecked());
-    settings->setValue("ZJUConnect/AddRoute", ui->routeCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DNSHijack", ui->dnsHijackCheckBox->isChecked());
-    settings->setValue("ZJUConnect/FakeIP", ui->fakeIPCheckBox->isChecked());
-    settings->setValue("ZJUConnect/TCPTunnelMode", ui->tcpTunnelModeCheckBox->isChecked());
-    settings->setValue("ZJUConnect/AutoDetectInterface", ui->autoDetectInterfaceCheckBox->isChecked());
-
-
-    settings->setValue("ZJUConnect/TCPPortForwarding", tcpPortForwarding);
-    settings->setValue("ZJUConnect/UDPPortForwarding", udpPortForwarding);
-    settings->setValue("ZJUConnect/CustomDNS", customDNS);
-    settings->setValue("ZJUConnect/CustomProxyDomain", customProxyDomain);
-    settings->setValue("ZJUConnect/ExtraArguments", extraArguments);
-
-    settings->setValue(
-        "Common/ConfigVersion",
-        ApplicationConstants::ConfigVersion
-    );
-
-    settings->sync();
-}
-
-bool SettingWindow::isAuthSettingChanged()
-{
-    if (ui->atrustRadioButton->isChecked() == false &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
-        return false;
-    if (ui->atrustRadioButton->isChecked() == true &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
+        if (connectAfterSave) emit connectRequested();
         return true;
-    QString currentAuthType;
-    if (ui->casRadioButton->isChecked())
-        currentAuthType = "cas";
-    else if (ui->oauth2RadioButton->isChecked())
-        currentAuthType = "httpsOauth2";
-    else if (ui->smsCheckCodeRadioButton->isChecked())
-        currentAuthType = "smsCheckCode";
-    else
-        currentAuthType = "psw";
+    };
+    if (!edited) {
+        if (!publish()) failure();
+        return;
+    }
 
-    return currentAuthType != settings->value("ZJUConnect/AuthType").toString() ||
-           ui->loginDomainLineEdit->text() != settings->value("ZJUConnect/LoginDomain").toString() ||
-           ((currentAuthType == "cas" || currentAuthType == "httpsOauth2") &&
-            ui->loginUrlLineEdit->text() != settings->value("ZJUConnect/LoginURL").toString()) ||
-           ui->serverAddressLineEdit->text() != settings->value("ZJUConnect/ServerAddress").toString() ||
-           ui->serverPortSpinBox->value() != settings->value("ZJUConnect/ServerPort").toInt();
+    // The staged public identity lets a failed publication remove only this draft's credentials.
+    saving=true;updateBusy();
+    const auto source=credentialSource;
+    credentials->save(source,options,true,{}).then(this,[this,source,failure,publish](const CredentialResult &result) {
+        if (result.succeeded() && publish()) return;
+        credentials->clear(source).then(this,[this,result,failure](const CredentialResult &cleanup) {
+            saving=false;updateBusy();
+            if (!cleanup.succeeded() || !result.succeeded())
+                QMessageBox::warning(this,tr("Could not save connection"),
+                    PresentationHelpers::credentialOperationMessage(cleanup.succeeded()?result.status:cleanup.status));
+            else failure();
+        });
+    });
 }

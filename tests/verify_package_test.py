@@ -1,0 +1,423 @@
+import copy
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import plistlib
+import sys
+from types import SimpleNamespace
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('verify_package', ROOT / 'scripts/verify-package.py')
+package = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(package)
+
+
+class VerifyPackageTest(unittest.TestCase):
+    def test_windows_package_requires_app_local_crt_even_on_a_development_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            system = root / 'Windows' / 'System32'
+            system.mkdir(parents=True)
+            (system / 'MSVCP140.dll').touch()
+            host = root / 'JustConnect.exe'
+            host.write_bytes(b'\0' * 60 + b'\x40\0\0\0' + b'PE\0\0\x64\xaa' + b'\0' * 90)
+            with patch.dict(os.environ, SystemRoot=str(system.parent)), \
+                    patch.object(package, 'run', return_value='  Name: MSVCP140.dll'), \
+                    patch.object(package.sys, 'getwindowsversion', return_value=SimpleNamespace(major=10, minor=0), create=True):
+                with self.assertRaisesRegex(RuntimeError, 'Missing app-local Visual C\\+\\+ runtime'):
+                    package.windows_audit([host], root, 'arm64')
+                (root / 'MSVCP140.dll').touch()
+                audited = package.windows_audit([host], root, 'arm64')
+                self.assertEqual(audited['files'][0]['dependencies']['MSVCP140.dll'], 'MSVCP140.dll')
+
+    def test_windows_package_accepts_unsigned_and_rejects_invalid_signatures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host = root / 'JustConnect.exe'
+            runtime = root / 'justconnect_core.dll'
+            reader = root / 'JustConnectDnsReader.exe'
+            archive = root / 'package.zip'
+            for path in (host, runtime, reader, archive):
+                path.touch()
+            (root / 'source-revision.txt').write_text('revision')
+            (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1')
+            notices = root / 'licenses'
+            notices.mkdir()
+            for name in ('LICENSE', 'LICENSE.ping', 'LICENSE.lucide', 'ThirdPartyNotices.txt', 'LICENSE.WebView2'):
+                (notices / name).touch()
+            output = root / 'report.json'
+            def self_test(*args, **kwargs):
+                return SimpleNamespace(returncode=0 if runtime.exists() else 1,
+                                       stdout=json.dumps({'runtime': runtime.name}).encode())
+            with patch.object(package, 'clean_environment', return_value={}), \
+                    patch.object(package.subprocess, 'run', side_effect=self_test), \
+                    patch.object(package, 'validate_report'), \
+                    patch.object(package, 'check_proxy_recovery', return_value={}), \
+                    patch.object(package, 'check_windows_dns_reader', return_value={}), \
+                    patch.object(package, 'check_signin_browser', return_value={}), \
+                    patch.object(package, 'windows_audit', return_value={}), \
+                    patch.object(package.platform, 'machine', return_value='AMD64'), \
+                    patch.object(package.sys, 'platform', 'win32'):
+                for status in ('NotSigned', 'Valid', 'HashMismatch', 'NotTrusted'):
+                    with self.subTest(status=status), \
+                            patch.object(package, 'check_windows_network_helper', return_value={'identity_ready': True}), \
+                            patch.object(package, 'windows_signature', return_value=status):
+                        if status in ('NotSigned', 'Valid'):
+                            package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
+                            self.assertEqual(json.loads(output.read_text())['signatures'][host.name], status)
+                            output.unlink()
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, 'Invalid Authenticode signature'):
+                                package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
+                            self.assertFalse(output.exists())
+
+                plugin = root / 'generic' / 'qtuiotouchplugin.dll'
+                plugin.parent.mkdir()
+                plugin.touch()
+                with self.assertRaisesRegex(RuntimeError, 'Unused TUIO plugin'):
+                    package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
+
+    def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
+        layout = package.WINDOWS_HELPER
+        facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
+                 'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True,
+                 'driver_sha256': hashlib.sha256(b'driver').hexdigest(),
+                 'license_sha256': hashlib.sha256(b'license').hexdigest()}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            helper = root / layout['executable']
+            helper.touch()
+            (root / layout['driver_library']).write_bytes(b'driver')
+            (root / layout['driver_license']).write_bytes(b'license')
+            def signature(path):
+                return 'NotSigned' if path == helper else 'Valid'
+            with patch.object(package, 'windows_signature', side_effect=signature), \
+                    patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: KERNEL32.dll']):
+                self.assertTrue(package.check_windows_network_helper(root, {}, facts['revision'])['identity_ready'])
+            for key, value in [('revision', 'old'), ('protocol', True), ('source_state', 'dirty'),
+                               ('identity_ready', False), ('identity_ready', 1)]:
+                with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
+                        self.assertRaisesRegex(RuntimeError, 'provenance or payload'):
+                    package.check_windows_network_helper(root, {}, facts['revision'])
+            with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                    patch.object(package, 'windows_signature', return_value='HashMismatch'), \
+                    self.assertRaisesRegex(RuntimeError, 'helper signature is invalid'):
+                package.check_windows_network_helper(root, {}, facts['revision'])
+            with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                    patch.object(package, 'windows_signature', return_value='NotSigned'), \
+                    self.assertRaisesRegex(RuntimeError, 'native driver signature is invalid'):
+                package.check_windows_network_helper(root, {}, facts['revision'])
+            with patch.object(package, 'windows_signature', side_effect=signature):
+                for dependency in ('Qt6Core.dll', 'justconnect_core.dll'):
+                    with patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: ' + dependency]), \
+                            self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
+                        package.check_windows_network_helper(root, {}, facts['revision'])
+                (root / layout['driver_license']).write_bytes(b'changed')
+                with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                        self.assertRaisesRegex(RuntimeError, 'payload hash mismatch'):
+                    package.check_windows_network_helper(root, {}, facts['revision'])
+
+    def test_installed_proxy_recovery_worker_is_required_and_runs_with_a_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            facts = {'worker': 'system-proxy-recovery', 'protocol': package.PROXY_RECOVERY_PROTOCOL, 'qt': '6.12.0'}
+            for platform_name in ('win32', 'darwin'):
+                with self.subTest(platform=platform_name), patch.object(package.sys, 'platform', platform_name):
+                    worker = root / ('JustConnectProxyRecovery.exe' if platform_name == 'win32' else 'JustConnectProxyRecovery')
+                    with self.assertRaisesRegex(RuntimeError, 'Missing packaged system proxy recovery worker'):
+                        package.check_proxy_recovery(root, {})
+                    worker.touch()
+                    with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
+                        self.assertEqual(package.check_proxy_recovery(root, {}), facts)
+                        run.assert_called_once_with(worker, '--version', env={}, timeout=5)
+                    for invalid in ([], {}, dict(facts, protocol=True), dict(facts, protocol=1), dict(facts, qt=6)):
+                        with patch.object(package, 'run', return_value=json.dumps(invalid)), self.assertRaisesRegex(RuntimeError, 'runtime check'):
+                            package.check_proxy_recovery(root, {})
+                    with patch.object(package, 'run', side_effect=TimeoutError('worker startup budget')), self.assertRaises(TimeoutError):
+                        package.check_proxy_recovery(root, {})
+                    worker.unlink()
+
+    def test_installed_dns_reader_is_required_bounded_and_complete(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with self.assertRaisesRegex(RuntimeError, 'Missing packaged native DNS reader'):
+                package.check_windows_dns_reader(root, {})
+            reader = root / 'JustConnectDnsReader.exe'
+            reader.touch()
+            facts = {'interfaces': [], 'clients': [], 'global': {}, 'nrpt': [], 'doh_supported': False, 'doh': [],
+                     'nrpt_sources': [], 'configured_encryption': [], 'adapters': [], 'native_global': {'Status': 0, 'Value': {'Flags': '0', 'SettingFlags': '0'}}}
+            with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
+                self.assertEqual(package.check_windows_dns_reader(root, {}), {'interfaces': 0, 'effective_nrpt': 0, 'native_adapters': 0})
+                run.assert_called_once_with(reader, env={}, timeout=10)
+            for invalid in ({'interfaces': [], 'nrpt': []}, dict(facts, doh_supported='false'),
+                            dict(facts, nrpt_sources=None), dict(facts, configured_encryption=None),
+                            dict(facts, native_global={'Status': 0, 'Value': None}),
+                            dict(facts, native_global={'Status': True, 'Value': None})):
+                with patch.object(package, 'run', return_value=json.dumps(invalid)), \
+                        self.assertRaisesRegex(RuntimeError, 'complete native facts'):
+                    package.check_windows_dns_reader(root, {})
+            with patch.object(package, 'run', side_effect=TimeoutError('native read budget')), \
+                    self.assertRaises(TimeoutError):
+                package.check_windows_dns_reader(root, {})
+
+    def test_rejects_obsolete_runtime_anywhere_in_package(self):
+        with tempfile.TemporaryDirectory() as folder:
+            # Exercise canonical paths even when the host's temporary directory is not a symlink.
+            (Path(folder) / 'prefix').mkdir()
+            root = Path(folder) / 'prefix' / '..' / 'package'
+            root.mkdir()
+            archive = Path(folder) / "package.zip"
+            archive.write_bytes(b"archive fixture")
+            host = root / 'JustConnect'
+            host.touch()
+            worker = root / 'JustConnectProxyRecovery'
+            worker.touch()
+            (root / 'source-revision.txt').write_bytes(b'revision\r\n')
+            (root / 'core-toolchain.txt').write_bytes(b'CGO_ENABLED=1\r\n')
+            notices = root / 'licenses'
+            notices.mkdir()
+            for name in ('LICENSE', 'LICENSE.ping', 'LICENSE.lucide', 'ThirdPartyNotices.txt', 'LICENSE.WebView2'):
+                (notices / name).touch()
+            nested = root / 'nested'
+            nested.mkdir()
+            output = Path(folder) / "report.json"
+            def run(args, **kwargs):
+                payload = ({'worker': 'system-proxy-recovery', 'protocol': package.PROXY_RECOVERY_PROTOCOL, 'qt': '6.12.0'}
+                           if Path(args[0]).resolve() == worker.resolve() else {'runtime': 'static'})
+                return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
+            with patch.object(package.subprocess, 'run', side_effect=run), \
+                    patch.object(package, 'validate_report'), \
+                    patch.object(package, 'check_signin_browser', return_value='WKWebView'), \
+                    patch.object(package, 'macos_audit', return_value={}), \
+                    patch.object(package.platform, 'machine', return_value='x86_64'), \
+                    patch.object(package.sys, 'platform', 'darwin'):
+                package.verify(root, host, 'revision', 'preview', output, archive)
+                report = json.loads(output.read_text())
+                self.assertEqual(report['size_bytes']['archive'], archive.stat().st_size)
+                self.assertEqual(report['archive_sha256'], hashlib.sha256(b'archive fixture').hexdigest())
+                self.assertEqual(report['size_bytes']['installed'], len(b'revision\r\nCGO_ENABLED=1\r\n'))
+                self.assertGreater(report['offline_self_test_wall_ms'], 0)
+                for name in ('LICENSE.lucide', 'ThirdPartyNotices.txt'):
+                    with self.subTest(missing_notice=name):
+                        (notices / name).unlink()
+                        with self.assertRaisesRegex(RuntimeError, f'Missing license/source notice: {name}'):
+                            package.verify(root, host, 'revision', 'preview', output, archive)
+                        (notices / name).touch()
+                archive.rename(archive.with_suffix('.hidden'))
+                with self.assertRaises(FileNotFoundError):
+                    package.verify(root, host, 'revision', 'preview', output, archive)
+                archive.with_suffix('.hidden').rename(archive)
+                output.unlink()
+                for name in ('zju-connect', 'zju-connect.exe', 'ZJU-Connect.EXE', 'core-provenance', 'Wintun.dll'):
+                    with self.subTest(name=name):
+                        obsolete = nested / name
+                        if name == 'core-provenance':
+                            obsolete.mkdir()
+                        else:
+                            obsolete.touch()
+                        with self.assertRaisesRegex(RuntimeError, 'Obsolete runtime in package'):
+                            package.verify(root, host, 'revision', 'preview', output, archive)
+                        self.assertFalse(output.exists())
+                        if obsolete.is_dir():
+                            obsolete.rmdir()
+                        else:
+                            obsolete.unlink()
+
+    def test_native_browser_probe_uses_installed_qt_and_cleans_up_on_failure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            probe = root / 'source-probe.exe'
+            probe.write_bytes(b'probe fixture')
+            def run(args, **kwargs):
+                self.assertEqual(Path(args[0]).parent, root)
+                self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
+                self.assertNotEqual(Path(kwargs['cwd']), root)
+                self.assertEqual(kwargs['env']['QT_QPA_PLATFORM'], 'windows')
+                self.assertEqual(Path(kwargs['env']['QT_QPA_PLATFORM_PLUGIN_PATH']), root / 'platforms')
+                self.assertNotIn('QT_PLUGIN_PATH', kwargs['env'])
+                return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+            with patch.object(package.sys, 'platform', 'win32'):
+                with patch.object(package.subprocess, 'run', side_effect=run):
+                    self.assertEqual(package.check_signin_browser(root, probe, probe, {}), 'WebView2')
+                with patch.object(package.subprocess, 'run', side_effect=RuntimeError('probe failed')):
+                    with self.assertRaisesRegex(RuntimeError, 'probe failed'):
+                        package.check_signin_browser(root, probe, probe, {})
+            self.assertEqual(list(root.glob('*.exe')), [probe])
+
+    def test_macos_browser_probe_does_not_write_the_mounted_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'JustConnect.app'
+            executable = root / 'Contents/MacOS/JustConnect'
+            probe = Path(folder) / 'native-probe'
+            probe.write_bytes(b'probe fixture')
+            def run(*args, **kwargs):
+                self.assertFalse(Path(args[0]).is_relative_to(root))
+                self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
+                env = kwargs['env']
+                self.assertEqual(env['QT_QPA_PLATFORM'], 'cocoa')
+                self.assertNotIn('DYLD_FRAMEWORK_PATH', env)
+                self.assertNotIn('QT_QPA_PLATFORM_PLUGIN_PATH', env)
+                return ''
+            with patch.object(package.sys, 'platform', 'darwin'), patch.object(package, 'run', side_effect=run):
+                self.assertEqual(package.check_signin_browser(root, executable, probe, {}), 'WKWebView')
+            self.assertFalse(root.exists())
+
+    def test_failed_native_command_preserves_utf8_diagnostics(self):
+        with self.assertRaisesRegex(RuntimeError, '签名失败'):
+            package.run(sys.executable, '-c',
+                        "import sys; sys.stderr.buffer.write('签名失败'.encode('utf-8')); sys.exit(7)")
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows Authenticode integration')
+    def test_native_signature_host_inspects_unsigned_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'unsigned.ps1'
+            path.write_text('# unsigned signature fixture\n')
+            self.assertEqual(package.windows_signature(path), 'NotSigned')
+
+    def test_rejects_wrong_source_abi_platform_and_test_driver(self):
+        contract = json.loads((ROOT / 'corelib/abi/contract.json').read_text())
+        go = next(x.split()[1] for x in (ROOT / 'corelib/go.mod').read_text().splitlines() if x.startswith('go '))
+        report = {'ok': True, 'application_version': 'preview', 'core': {
+            'test_driver': False, 'abi_version': contract['abi_version'],
+            'capabilities': {'embedded_vpn': True}, 'build': {
+                'revision': 'a' * 40, 'source_state': 'clean', 'upstream_commit': contract['upstream_commit'],
+                'go_version': 'go' + go + '-X:cgocheck2', 'os': 'darwin', 'arch': 'arm64'}}}
+        package.validate_report(report, 'a' * 40, 'preview', 'darwin', 'arm64')
+        for path, value in [('ok', False), ('application_version', 'old'), ('core.test_driver', True),
+                            ('core.abi_version', 999), ('core.capabilities.embedded_vpn', False),
+                            ('core.build.source_state', 'dirty'), ('core.build.revision', 'b' * 40),
+                            ('core.build.os', 'windows'), ('core.build.arch', 'amd64'),
+                            ('core.build.go_version', 'go0'), ('core.build.upstream_commit', 'bad')]:
+            with self.subTest(path=path):
+                changed = copy.deepcopy(report)
+                target = changed
+                keys = path.split('.')
+                for key in keys[:-1]:
+                    target = target[key]
+                target[keys[-1]] = value
+                with self.assertRaises(RuntimeError):
+                    package.validate_report(changed, 'a' * 40, 'preview', 'darwin', 'arm64')
+
+    def test_sdk_environment_cannot_supply_runtime_dependencies(self):
+        with patch.dict(os.environ, {'QT_PLUGIN_PATH': '/sdk', 'QML2_IMPORT_PATH': '/sdk',
+                                     'LD_LIBRARY_PATH': '/sdk', 'DYLD_FRAMEWORK_PATH': '/sdk',
+                                     'PATH': '/sdk', 'TOKEN': 'keep'}):
+            env = package.clean_environment()
+        self.assertEqual(env['TOKEN'], 'keep')
+        for name in ('QT_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'LD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH'):
+            self.assertNotIn(name, env)
+        self.assertNotIn('/sdk', env['PATH'])
+
+
+    def test_macos_binary_cannot_require_newer_system_than_bundle_declares(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'Contents').mkdir()
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4',
+                'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.0.0'}))
+            def run(*args, **kwargs):
+                return {'lipo': 'arm64', 'otool': ('cmd LC_BUILD_VERSION\n minos 26.0\n'
+                                                  if args[1] == '-l' else 'app:\n')}[args[0]]
+            with patch.object(package, 'run', side_effect=run), \
+                    patch.object(package, 'macos_signature', return_value='flags=0x12000'):
+                with self.assertRaisesRegex(RuntimeError, 'Invalid macOS floor'):
+                    package.macos_audit([root / 'Contents/MacOS/app'], root, 'arm64', {})
+
+    def test_macos_rejects_embedded_sdk_search_path(self):
+        def run(*args, **kwargs):
+            return 'arm64' if args[0] == 'lipo' else 'cmd LC_RPATH\n path /opt/Qt/lib (offset 12)\n'
+        with tempfile.TemporaryDirectory() as folder, patch.object(package, 'run', side_effect=run):
+            root = Path(folder)
+            with self.assertRaisesRegex(RuntimeError, 'Non-relocatable Mach-O search path'):
+                package.macos_audit([root / 'Contents/MacOS/app'], root, 'arm64', {})
+
+    def test_macos_package_requires_static_dependencies_and_hardened_signature(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            helper = root / 'Contents/MacOS/helper'
+            dependency = root / 'Contents/Frameworks/libQt.dylib'
+            helper.parent.mkdir(parents=True)
+            dependency.parent.mkdir(parents=True)
+            dependency.touch()
+            icon = root / 'Contents/Resources/JustConnect.icns'
+            icon.parent.mkdir()
+            plist = root / 'Contents/Info.plist'
+            info = {'LSMinimumSystemVersion': '14.4', 'CFBundleIdentifier': 'app.fixture',
+                    'CFBundleIconFile': icon.name, 'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.0.0'}
+            plist.write_bytes(plistlib.dumps(info))
+            dependency_name = '@executable_path/../Frameworks/libQt.dylib'
+            def run(*args, **kwargs):
+                if args[0] == 'lipo':
+                    return 'arm64'
+                if args[0] == 'otool':
+                    return ('cmd LC_BUILD_VERSION\n minos 14.4.0\n' if args[1] == '-l'
+                            else f'helper:\n {dependency_name} (compatibility version 1.0)\n')
+                return ''
+            with patch.object(package, 'run', side_effect=run), \
+                    patch.object(package, 'check_macos_network_helper', return_value={}), \
+                    patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
+                    patch.object(package, 'macos_signature', return_value='flags=0x10000\nIdentifier=app.fixture') as signature:
+                with self.assertRaisesRegex(RuntimeError, 'non-system dynamic library'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                dependency_name = '/usr/lib/libSystem.B.dylib'
+                with self.assertRaisesRegex(RuntimeError, 'lacks hardened runtime or library validation'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                signature.return_value = 'flags=0x12000\nIdentifier=app.fixture'
+                with self.assertRaisesRegex(RuntimeError, 'Packaged macOS app icon is missing'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                icon.write_bytes((ROOT / 'resource' / icon.name).read_bytes())
+                audit = package.macos_audit([helper], root, 'arm64', {})
+                for key in ('CFBundleVersion', 'CFBundleShortVersionString'):
+                    plist.write_bytes(plistlib.dumps(dict(info, **{key: ''})))
+                    with self.assertRaisesRegex(RuntimeError, f'Invalid macOS bundle version: {key}'):
+                        package.macos_audit([helper], root, 'arm64', {})
+                plist.write_bytes(plistlib.dumps(info))
+                signature.return_value = 'flags=0x12000\nIdentifier=foreign.fixture'
+                with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
+                    package.macos_audit([helper], root, 'arm64', {})
+            self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))
+
+    def test_macos_network_helper_rejects_privilege_provenance_and_dependency_drift(self):
+        layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
+        app_id = plistlib.loads((ROOT / 'resource/Info.plist').read_bytes())['CFBundleIdentifier']
+        identifier = app_id + layout['service_suffix']
+        launch = {'Label': identifier, 'BundleProgram': 'Contents/MacOS/' + layout['executable'],
+                  'MachServices': {identifier: True}, 'UserName': 'root', 'RunAtLoad': True, 'ThrottleInterval': 2,
+                  'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}
+        facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
+                 'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True}
+        with tempfile.TemporaryDirectory() as folder, patch.object(package, 'macos_signature', return_value='Identifier=' + identifier):
+            root = Path(folder)
+            for name in ('Resources', 'Library/LaunchDaemons', 'MacOS'):
+                (root / 'Contents' / name).mkdir(parents=True)
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': app_id}))
+            (root / 'Contents/Resources/source-revision.txt').write_text(facts['revision'])
+            manifest = root / 'Contents/Library/LaunchDaemons' / (identifier + '.plist')
+            manifest.write_bytes(plistlib.dumps(launch))
+            with patch.object(package, 'run', side_effect=[json.dumps(facts), 'QtCore']):
+                self.assertEqual(package.check_macos_network_helper(root, {}), facts)
+            for key, value in [('protocol', 999), ('protocol', True), ('storage_version', 999), ('revision', 'old'),
+                               ('source_state', 'dirty'), ('identity_ready', False)]:
+                with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
+                        self.assertRaisesRegex(RuntimeError, 'provenance or signing'):
+                    package.check_macos_network_helper(root, {})
+            for dependency in ('QtNetwork', 'QtWidgets', 'QtWebEngine', 'justconnect_core'):
+                with patch.object(package, 'run', side_effect=[json.dumps(facts), dependency]), \
+                        self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
+                    package.check_macos_network_helper(root, {})
+            with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                    patch.object(package, 'macos_signature', return_value='Identifier=' + layout['executable']), \
+                    self.assertRaisesRegex(RuntimeError, 'lost its signing identifier'):
+                package.check_macos_network_helper(root, {})
+            manifest.write_bytes(plistlib.dumps(dict(launch, Program='/bin/sh')))
+            with self.assertRaisesRegex(RuntimeError, 'fixed privilege contract'):
+                package.check_macos_network_helper(root, {})
+
+
+if __name__ == '__main__':
+    unittest.main()

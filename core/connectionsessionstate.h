@@ -20,7 +20,7 @@ struct ReconnectPolicy
     int delayMs = 1000;
 };
 
-enum class ProcessFinishAction
+enum class SessionFinishAction
 {
     Complete,
     Reconnect,
@@ -30,25 +30,32 @@ class ConnectionSessionState
 {
 public:
     ConnectionState state() const;
-    ZJU_ERROR error() const;
+    ConnectionError error() const;
     bool isActive() const;
     bool wantsConnection() const;
+    void cancelReconnect() { desiredConnected = false; }
     int reconnectDelayMs() const;
+    int reconnectAttempt() const { return retryCount; }
+    static constexpr int MaxReconnectAttempts = 5;
+    static constexpr int MaxReconnectDelayMs = 30000;
+    void connectionStable();
+    void authenticationRequested() { interactiveAuthentication = true; }
 
     bool requestStart(const ReconnectPolicy &policy);
     void connectionEstablished();
-    void recordError(ZJU_ERROR error);
+    void recordError(ConnectionError error);
     bool requestStop();
-    ProcessFinishAction processFinished();
+    bool interruptForReconnect();
+    SessionFinishAction engineFinished();
     void beginReconnect();
 
 private:
-    static bool isReconnectable(ZJU_ERROR error);
-
     ConnectionState currentState = ConnectionState::Disconnected;
-    ZJU_ERROR currentError = ZJU_ERROR::NONE;
+    ConnectionError currentError = ConnectionError::NONE;
     ReconnectPolicy reconnectPolicy;
     bool desiredConnected = false;
+    bool interactiveAuthentication = false;
+    int retryCount = 0;
 };
 
 #endif // CONNECTIONSESSIONSTATE_H

@@ -2,19 +2,22 @@
 #define SETTINGSMIGRATOR_H
 
 class QSettings;
+class QString;
 
 enum class SettingsMigrationAction
 {
     None,
     MigrateAutoStart,
-    RecommendReset
+    Failed
 };
 
 class SettingsMigrator
 {
 public:
-    static SettingsMigrationAction prepare(QSettings &settings);
-    static void finish(QSettings &settings, bool resetToDefaults);
+    static bool readableFile(const QString &path);
+    static SettingsMigrationAction prepare(QSettings &settings, bool seedBuiltInConnection = false);
+    static bool finish(QSettings &settings);
+    static bool publicDraft(const QSettings &source,QSettings &draft);
 };
 
 #endif // SETTINGSMIGRATOR_H

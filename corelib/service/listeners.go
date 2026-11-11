@@ -1,0 +1,288 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"slices"
+	"sync"
+	"sync/atomic"
+
+	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
+)
+
+type ListenerAddresses struct {
+	SOCKS string `json:"socks,omitempty"`
+	HTTP  string `json:"http,omitempty"`
+}
+
+// Listeners owns listeners, accepted and outgoing sockets, and proxy workers.
+type Listeners struct {
+	ctx         context.Context
+	cancel      context.CancelFunc
+	dialer      *dial.Dialer
+	resolver    *resolve.Resolver
+	mu          sync.Mutex
+	closed      atomic.Bool
+	connections map[io.Closer]struct{}
+	listeners   []net.Listener
+	addresses   ListenerAddresses
+	http        *http.Server
+	proxy       *httpProxy
+	tun         *tunIngress
+	originalDNS map[string]string
+	dnsReady    chan struct{}
+	dnsWorkers  chan struct{}
+	workers     sync.WaitGroup
+	errors      chan error
+	failOnce    sync.Once
+	closeOnce   sync.Once
+}
+
+func (p *Listeners) Addresses() ListenerAddresses {
+	if p.closed.Load() {
+		return ListenerAddresses{}
+	}
+	return p.addresses
+}
+
+func (p *Listeners) CampusDNSRecords() map[string][]string {
+	if p.resolver != nil {
+		return p.resolver.CampusDNSRecords()
+	}
+	return nil
+}
+
+func (p *Listeners) OriginalDNSRecords() map[string][]string {
+	if p.closed.Load() {
+		return nil
+	}
+	// Read reservations before committed bindings to cover the acknowledgement handoff.
+	var pending map[string][]string
+	p.mu.Lock()
+	ingress := p.tun
+	p.mu.Unlock()
+	if ingress != nil {
+		ingress.mu.Lock()
+		for publication := range ingress.publishingDNS {
+			if publication.originalName != "" {
+				if pending == nil {
+					pending = make(map[string][]string)
+				}
+				pending[publication.originalName] = append(pending[publication.originalName], publication.address.String())
+			}
+		}
+		ingress.mu.Unlock()
+	}
+	var result map[string][]string
+	if p.resolver != nil {
+		result = p.resolver.OriginalDNSRecords()
+	}
+	if result == nil {
+		result = make(map[string][]string)
+	}
+	for name, addresses := range pending {
+		merged := append(result[name], addresses...)
+		slices.Sort(merged)
+		result[name] = slices.Compact(merged)
+	}
+	return result
+}
+
+type ownedConn struct {
+	net.Conn
+	owner *Listeners
+	once  sync.Once
+	err   error
+}
+
+func (c *ownedConn) Close() error {
+	c.once.Do(func() {
+		c.err = c.Conn.Close()
+		// Shutdown owns the detached registry; normal closes deregister themselves.
+		if !c.owner.closed.Load() {
+			c.owner.mu.Lock()
+			delete(c.owner.connections, c)
+			c.owner.mu.Unlock()
+		}
+	})
+	return c.err
+}
+
+func (c *ownedConn) CloseWrite() error {
+	if conn, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return conn.CloseWrite()
+	}
+	return nil
+}
+func (c *ownedConn) CloseRead() error {
+	if conn, ok := c.Conn.(interface{ CloseRead() error }); ok {
+		return conn.CloseRead()
+	}
+	return nil
+}
+
+func joinedContext(ctx, parent context.Context) (context.Context, context.CancelFunc) {
+	child, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(parent, cancel)
+	if parent.Err() != nil {
+		cancel()
+	}
+	return child, func() { stop(); cancel() }
+}
+
+func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	p := &Listeners{ctx: ctx, cancel: cancel, dialer: dialer, resolver: resolver, connections: make(map[io.Closer]struct{}), errors: make(chan error, 1)}
+	success := false
+	defer func() {
+		if !success {
+			p.Close()
+		}
+	}()
+	var socksListener, httpListener net.Listener
+	for _, entry := range []struct {
+		address string
+		target  *net.Listener
+		bound   *string
+	}{{socksAddr, &socksListener, &p.addresses.SOCKS}, {httpAddr, &httpListener, &p.addresses.HTTP}} {
+		if entry.address == "" {
+			continue
+		}
+		host, _, err := net.SplitHostPort(entry.address)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || !ip.IsLoopback() {
+			return nil, errors.New("proxy listener must use a loopback IP address")
+		}
+		listener, err := net.Listen("tcp", entry.address)
+		if err != nil {
+			return nil, err
+		}
+		*entry.target = listener
+		*entry.bound = listener.Addr().String()
+		p.listeners = append(p.listeners, listener)
+	}
+	if socksListener != nil {
+		server := p.socksServer()
+		p.start(func() {
+			for {
+				conn, err := socksListener.Accept()
+				if err != nil {
+					if p.ctx.Err() == nil {
+						p.fail(err)
+					}
+					return
+				}
+				owned, err := p.own(conn)
+				if err != nil {
+					continue
+				}
+				p.start(func() { defer owned.Close(); _ = server.ServeConn(owned) })
+			}
+		})
+	}
+	if httpListener != nil {
+		p.proxy = newHTTPProxy(p.dial)
+		p.proxy.failure = p.fail
+		p.http = newHTTPServer(httpAddr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !p.begin() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			defer p.workers.Done()
+			defer p.recoverWorker()
+			p.proxy.ServeHTTP(w, r)
+		}))
+		p.http.BaseContext = func(net.Listener) context.Context { return p.ctx }
+		p.start(func() {
+			if err := p.http.Serve(httpListener); err != nil && p.ctx.Err() == nil {
+				p.fail(err)
+			}
+		})
+	}
+	if resolver != nil && resolver.OriginalDNS != nil {
+		if err := p.prepareOriginalDNS(resolver.OriginalDNS, true); err != nil {
+			return nil, err
+		}
+	}
+	success = true
+	return p, nil
+}
+
+func (p *Listeners) begin() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed.Load() {
+		return false
+	}
+	p.workers.Add(1)
+	return true
+}
+func (p *Listeners) recoverWorker() {
+	if recover() != nil {
+		p.fail(errors.New("proxy worker panicked"))
+	}
+}
+
+func (p *Listeners) start(work func()) {
+	if p.begin() {
+		go func() { defer p.workers.Done(); defer p.recoverWorker(); work() }()
+	}
+}
+func (p *Listeners) fail(err error)       { p.failOnce.Do(func() { p.errors <- err; p.cancel() }) }
+func (p *Listeners) Errors() <-chan error { return p.errors }
+func (p *Listeners) own(conn net.Conn) (net.Conn, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed.Load() {
+		_ = conn.Close()
+		return nil, net.ErrClosed
+	}
+	owned := &ownedConn{Conn: conn, owner: p}
+	p.connections[owned] = struct{}{}
+	return owned, nil
+}
+func (p *Listeners) dial(ctx context.Context, network, address string) (net.Conn, error) {
+	ctx, cancel := joinedContext(ctx, p.ctx)
+	defer cancel()
+	conn, err := p.dialer.Dial(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return p.own(conn)
+}
+func (p *Listeners) Close() {
+	p.closeOnce.Do(func() {
+		p.mu.Lock()
+		p.closed.Store(true)
+		connections := p.connections
+		p.connections = nil
+		p.mu.Unlock()
+		p.cancel()
+		for _, listener := range p.listeners {
+			_ = listener.Close()
+		}
+		if p.http != nil {
+			_ = p.http.Close()
+		}
+		if p.proxy != nil {
+			p.proxy.close()
+		}
+		if p.tun != nil {
+			p.tun.stopPackets()
+		}
+		for conn := range connections {
+			_ = conn.Close()
+		}
+		if p.tun != nil {
+			p.tun.close()
+		}
+		p.workers.Wait()
+	})
+}

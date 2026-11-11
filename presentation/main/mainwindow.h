@@ -6,9 +6,10 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QPointer>
+#include <QTimer>
 
 #include "application/connectionsession.h"
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/systemproxysession.h"
 #include "presentation/dialogs/settingwindow/settingwindow.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
@@ -19,9 +20,11 @@ namespace Ui
     class MainWindow;
 }
 
+class QActionGroup;
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
+class NetworkPolicyWindow;
 class UpdateChecker;
 
 class MainWindow : public QMainWindow
@@ -32,7 +35,8 @@ public:
     explicit MainWindow(
         ApplicationLogger *logger,
         ApplicationLogFile *logFile,
-        QWidget *parent = nullptr
+        QWidget *parent = nullptr,
+        MainWindowCoordinator::NetworkFactory networkFactory = nullptr
     );
 
     ~MainWindow() override;
@@ -40,24 +44,38 @@ public:
 public slots:
 
     void cleanUpWhenQuit();
+    void gracefullyQuit();
+    void endSystemSession();
+
+signals:
+    void shutdownSettled(bool success);
 
 protected:
+#ifdef Q_OS_MACOS
+    void showEvent(QShowEvent *event) override;
+#endif
     void closeEvent(QCloseEvent *e) override;
-
+    bool eventFilter(QObject *watched, QEvent *event) override;
     void changeEvent(QEvent *event) override;
 
+
 private:
+    bool exitReady=false;
+    bool viewsInitialized=false;
     void upgradeSettings();
+    void showApplicationPreferences();
+    void showConnectionSettings();
 
+    void flushLog();
     void clearLog();
+    void resetConnectionLog();
 
-    void resetZjuConnectUi();
-
-    void applyColorScheme(Qt::ColorScheme scheme);
+    void resetConnectionUi();
 
     void updateConnectionState(ConnectionState state);
 
-    void updateProfileSummary();
+    QString connectionName() const;
+    void updateConnectionSummary();
 
     void showNotification(
         const QString &title,
@@ -66,55 +84,51 @@ private:
     );
 
     void updateVersionInfo();
+    void updateDiagnostics();
 
     void setupTrayIcon();
 
-    void setupProfileMenu();
+    void setupConnectionMenu();
 
-    void refreshProfileMenu();
+    void refreshConnectionMenu();
 
-    bool switchProfile(const QString &profileId);
+    bool switchConnection(const QString &connectionId);
 
-    void createProfile();
+    void createConnection();
 
-    void openConfigurationGuide();
+    void renameCurrentConnection();
 
-    void promptConfigurationGuide(
-        const QString &windowTitle,
-        const QString &text
-    );
+    void deleteCurrentConnection();
 
-    void promptFirstLaunchGuide();
-
-    void renameCurrentProfile();
-
-    void deleteCurrentProfile();
-
-    void gracefullyQuit();
-
+    QTimer logFlushTimer;
+    QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
-    QMenu *trayMenu;
-    QMenu *trayProfileMenu;
+    QMenu *trayConnectionMenu;
     QAction *trayConnectAction;
     QAction *trayShowAction;
     QAction *trayCloseAction;
-    QAction *newProfileAction;
-    QAction *renameProfileAction;
-    QAction *deleteProfileAction;
+    QAction *connectionActionsSeparator;
+    QActionGroup *switchGroup;
+    QActionGroup *traySwitchGroup;
+    QAction *addConnectionAction;
+    QAction *renameConnectionAction;
+    QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;
     SystemProxySession *systemProxySession = nullptr;
     AuthDialogCoordinator *authenticationDialogs = nullptr;
-    ConnectionUiController *connectionUiController;
+    ConnectionUiController *connectionUiController=nullptr;
     MainWindowCoordinator *coordinator;
     ApplicationLogger *applicationLogger;
     ApplicationLogFile *applicationLogFile;
     UpdateChecker *updateChecker;
     QSettings *settings;
-    ProfileService *profileService;
-    QString currentProfileId;
+    SavedConnectionService *savedConnections;
+    QString currentConnectionId;
 
     QPointer<SettingWindow> settingWindow;
+    QPointer<QDialog> preferencesWindow;
+    QPointer<NetworkPolicyWindow> networkPolicyWindow;
 
 };
 

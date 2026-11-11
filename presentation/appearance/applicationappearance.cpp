@@ -1,0 +1,121 @@
+#include "applicationappearance.h"
+#include <QAction>
+#include <QApplication>
+#include <QEvent>
+#include <QFile>
+#include <QPalette>
+#include <QRegularExpression>
+#include <QStyleHints>
+#include <QScreen>
+#include <QAbstractItemView>
+#include <QStyle>
+#include <QWidget>
+#include <QAbstractSpinBox>
+#include <QLineEdit>
+#include <QMenu>
+#include <QStyleOptionFrame>
+#include <QPushButton>
+#include <QToolButton>
+#include <QComboBox>
+#include <QStyledItemDelegate>
+#include <algorithm>
+
+namespace {
+void styleTextMenu(QMenu *menu)
+{
+    const auto actions = menu->actions();
+    // Qt's line editor names the menu; its shared text control names only the actions.
+    if (menu->objectName() != "qt_edit_menu"
+        && std::none_of(actions.cbegin(), actions.cend(), [](const QAction *action) {
+            return action->objectName() == "edit-copy" || action->objectName() == "link-copy";
+        })) return;
+    menu->setObjectName("textContextMenu");
+    // QMenu reserves a column even for icons hidden with setIconVisibleInMenu(false).
+    for (auto *action : actions) action->setIcon({});
+}
+
+class WindowAppearance final : public QObject {
+public:
+    using QObject::QObject;
+    bool eventFilter(QObject *object,QEvent *event) override {
+        if (event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
+        auto *window=qobject_cast<QWidget *>(object);
+        if(event->type()==QEvent::Polish) {
+            if (auto *menu = qobject_cast<QMenu *>(window)) styleTextMenu(menu);
+            // Use the same inset item rendering instead of platform-specific combo menu delegates.
+            if(auto *combo=qobject_cast<QComboBox *>(window)) {
+                if(!qobject_cast<QStyledItemDelegate *>(combo->itemDelegate()))
+                    combo->setItemDelegate(new QStyledItemDelegate(combo));
+            }
+            auto *push=qobject_cast<QPushButton *>(window);
+            auto *tool=qobject_cast<QToolButton *>(window);
+            if(((push && push->isFlat()) || (tool && tool->autoRaise()))
+                && (window->focusPolicy() & Qt::ClickFocus)) window->setFocusPolicy(Qt::TabFocus);
+        }
+        if (event->type() == QEvent::Show && window && window->windowType() == Qt::Popup) {
+            auto *combo = qobject_cast<QComboBox *>(window->parentWidget());
+            if (combo && combo->view()->window() == window) {
+                constexpr int gap = 4;
+                const QRect field(combo->mapToGlobal(QPoint()), combo->size());
+                const QRect available = combo->screen()->availableGeometry();
+                const int below = field.bottom() + 1 + gap;
+                const int above = field.top() - gap - window->height();
+                const int left = qBound(available.left(), field.left(),
+                    qMax(available.left(), available.right() - window->width() + 1));
+                if (below + window->height() <= available.bottom() + 1)
+                    window->move(left, below);
+                else if (above >= available.top())
+                    window->move(left, above);
+            }
+        }
+        if (auto *spin=qobject_cast<QAbstractSpinBox *>(window)) {
+            QStyleOptionFrame option;option.initFrom(spin);
+            auto *field=spin->findChild<QLineEdit *>();
+            QStyleOptionFrame editor;editor.initFrom(field);
+            const auto content=field->style()->subElementRect(QStyle::SE_LineEditContents,&editor,field);
+            // Qt places the embedded editor at x=0 when spin buttons are styled; restore the shared content inset.
+            field->setTextMargins(spin->style()->subElementRect(QStyle::SE_LineEditContents,&option,spin).left()
+                -field->geometry().left()-content.left(),0,0,0);
+        }
+        return false;
+    }
+};
+}
+
+void ApplicationAppearance::install() {
+    if (qApp->property("appearanceInstalled").toBool()) return;
+    qApp->setProperty("appearanceInstalled",true);
+    qApp->styleHints()->setColorScheme(Qt::ColorScheme::Light);
+    qApp->styleHints()->setTabFocusBehavior(Qt::TabFocusAllControls);
+    auto palette=qApp->palette();
+    palette.setColor(QPalette::Window,QColor("#fafbfc"));
+    palette.setColor(QPalette::WindowText,QColor("#182132"));
+    palette.setColor(QPalette::Base,Qt::white);
+    palette.setColor(QPalette::AlternateBase,QColor("#f6f7fb"));
+    palette.setColor(QPalette::Text,QColor("#182132"));
+    palette.setColor(QPalette::Button,QColor("#ffffff"));
+    palette.setColor(QPalette::ButtonText,QColor("#182132"));
+    palette.setColor(QPalette::Highlight,QColor("#dce0e6"));
+    palette.setColor(QPalette::HighlightedText,QColor("#182132"));
+    qApp->setPalette(palette);
+    QFile sheet(":/resource/appearance.qss");
+    if (sheet.open(QIODevice::ReadOnly)) {
+        auto style = QString::fromUtf8(sheet.readAll());
+#ifdef Q_OS_MACOS
+        static const QRegularExpression pointSize(QStringLiteral(R"(font-size:\s*(\d+(?:\.\d+)?)pt)"));
+        QString larger;
+        qsizetype next = 0;
+        auto sizes = pointSize.globalMatch(style);
+        while (sizes.hasNext()) {
+            const auto size = sizes.next();
+            larger += QStringView(style).mid(next, size.capturedStart(1) - next);
+            larger += QString::number(size.captured(1).toDouble() + 2.0);
+            next = size.capturedEnd(1);
+        }
+        larger += QStringView(style).mid(next);
+        style.swap(larger);
+#endif
+        qApp->setStyleSheet(style);
+    }
+    qApp->installEventFilter(new WindowAppearance(qApp));
+}

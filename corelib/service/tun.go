@@ -1,0 +1,374 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"net/netip"
+	"slices"
+	"sync"
+	"time"
+
+	deviceaddr "github.com/wtalioy/JustConnect/corelib/internal/tundevice/address"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
+	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"gvisor.dev/gvisor/pkg/waiter"
+)
+
+const (
+	tunNIC = 1
+	// Bound pending handshakes, active relays and queued response packets.
+	maxTUNFlows = 256
+)
+
+type tunFlow struct {
+	protocol tcpip.TransportProtocolNumber
+	id       stack.TransportEndpointID
+}
+
+type dnsPublication struct {
+	address      netip.Addr
+	originalName string
+}
+
+type tunIngress struct {
+	owner            *Listeners
+	device           io.ReadWriteCloser
+	stack            *stack.Stack
+	link             *channel.Endpoint
+	mu               sync.Mutex
+	closed           bool
+	flows            map[tunFlow]struct{}
+	publishingDNS    map[dnsPublication]int
+	workers          sync.WaitGroup
+	pumps            sync.WaitGroup
+	local, peer      netip.Addr
+	publishDNSRoutes func(context.Context, []netip.Addr, bool) error
+}
+
+// Hold routes for draining flows and pending DNS publication without extending authorization.
+func (p *Listeners) ActiveTUNAddresses() []string {
+	p.mu.Lock()
+	ingress := p.tun
+	p.mu.Unlock()
+	if ingress == nil || p.closed.Load() {
+		return nil
+	}
+	ingress.mu.Lock()
+	addresses := make(map[[4]byte]struct{})
+	for flow := range ingress.flows {
+		address, ok := netip.AddrFromSlice(flow.id.LocalAddress.AsSlice())
+		if ok && address.Is4() && address != ingress.local && address != ingress.peer {
+			addresses[address.As4()] = struct{}{}
+		}
+	}
+	for publication := range ingress.publishingDNS {
+		if publication.originalName == "" && publication.address.Is4() {
+			addresses[publication.address.As4()] = struct{}{}
+		}
+	}
+	ingress.mu.Unlock()
+	result := make([]string, 0, len(addresses))
+	for address := range addresses {
+		result = append(result, netip.AddrFrom4(address).String())
+	}
+	slices.Sort(result)
+	return result
+}
+
+// AttachTUN takes ownership on success. Each read/write is one raw IPv4 packet;
+// Close must interrupt device I/O. Address, routes and DNS belong to the helper.
+// The publication callback receives true to exclude original DNS addresses from capture.
+func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRoutes func(context.Context, []netip.Addr, bool) error) error {
+	if device == nil || mtu < header.IPv4MinimumProcessableDatagramSize || mtu > maxUDPPacket {
+		return errors.New("invalid IPv4 TUN device or MTU")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed.Load() || p.ctx.Err() != nil {
+		return net.ErrClosed
+	}
+	if p.tun != nil || p.dialer == nil {
+		return errors.New("TUN requires a dialer and a single device owner")
+	}
+	i := &tunIngress{owner: p, device: device, publishDNSRoutes: publishDNSRoutes, flows: make(map[tunFlow]struct{})}
+	if addressed, ok := device.(interface {
+		TUNAddresses() (netip.Addr, netip.Addr)
+	}); ok {
+		i.local, i.peer = addressed.TUNAddresses()
+		if !deviceaddr.ValidIPv4Pair(i.local, i.peer) {
+			return errors.New("invalid IPv4 TUN source and peer")
+		}
+	}
+	i.stack = stack.New(stack.Options{
+		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
+		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
+	})
+	i.link = channel.New(maxTUNFlows, mtu, "")
+	if err := i.stack.CreateNIC(tunNIC, i.link); err != nil {
+		i.link.Close()
+		i.stack.Close()
+		i.stack.Wait()
+		return errors.New(err.String())
+	}
+	// Captured destinations are remote campus addresses, never local NIC addresses.
+	_ = i.stack.SetPromiscuousMode(tunNIC, true)
+	_ = i.stack.SetSpoofing(tunNIC, true)
+	i.stack.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: tunNIC})
+	forwarder := tcp.NewForwarder(i.stack, 0, maxTUNFlows, i.forwardTCP)
+	i.stack.SetTransportProtocolHandler(tcp.ProtocolNumber, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
+		key := tunFlow{tcp.ProtocolNumber, id}
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		if i.closed || i.owner.closed.Load() || len(i.flows) >= maxTUNFlows {
+			return true
+		}
+		if _, exists := i.flows[key]; exists {
+			return true
+		}
+		i.flows[key] = struct{}{}
+		i.workers.Add(1)
+		if !forwarder.HandlePacket(id, packet) {
+			delete(i.flows, key)
+			i.workers.Done()
+			return false
+		}
+		return true
+	})
+	i.stack.SetTransportProtocolHandler(udp.ProtocolNumber, i.forwardUDP)
+	p.tun = i
+	i.pumps.Add(2)
+	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.readPackets(mtu) }()
+	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.writePackets(mtu) }()
+	if p.dnsReady != nil {
+		close(p.dnsReady)
+	}
+	return nil
+}
+
+func (i *tunIngress) release(key tunFlow) {
+	// A closing owner clears the whole registry after joining all flow workers.
+	if !i.owner.closed.Load() {
+		i.mu.Lock()
+		delete(i.flows, key)
+		i.mu.Unlock()
+	}
+	i.workers.Done()
+}
+
+func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Conn, error) {
+	ctx := i.owner.ctx
+	address, _ := netip.AddrFromSlice(id.LocalAddress.AsSlice())
+	if i.peer.IsValid() && address == i.peer {
+		origin := i.owner.dialer.OriginalAuthentication
+		remote, _ := netip.AddrFromSlice(id.RemoteAddress.AsSlice())
+		if remote != i.local || !origin.Address.IsValid() || origin.Name == "" || i.owner.resolver == nil {
+			return nil, errors.New("the owned TUN peer has no campus destination")
+		}
+		resources := i.owner.resolver.CampusResourcesExcludingName(ctx, origin.Address, origin.Name)
+		if len(resources) == 0 {
+			return nil, errors.New("the owned TUN peer has no live campus binding")
+		}
+		ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
+		address = origin.Address
+	}
+	conn, err := i.owner.dialer.DialCaptured(ctx, protocol, netip.AddrPortFrom(address, id.LocalPort))
+	if err != nil {
+		return nil, err
+	}
+	return i.owner.own(conn)
+}
+
+func (i *tunIngress) forwardTCP(request *tcp.ForwarderRequest) {
+	defer i.release(tunFlow{tcp.ProtocolNumber, request.ID()})
+	defer i.owner.recoverWorker()
+	completed := false
+	defer func() {
+		if !completed {
+			request.Complete(true)
+		}
+	}()
+	if i.owner.ctx.Err() != nil {
+		return
+	}
+	dns := i.dnsFlow(request.ID())
+	var target net.Conn
+	if !dns {
+		var err error
+		target, err = i.dial("tcp", request.ID())
+		if err != nil {
+			return
+		}
+		defer target.Close()
+	}
+	var queue waiter.Queue
+	endpoint, tcpErr := request.CreateEndpoint(&queue)
+	if tcpErr != nil {
+		return
+	}
+	request.Complete(false)
+	completed = true
+	guest, err := i.owner.own(gonet.NewTCPConn(&queue, endpoint))
+	if err != nil {
+		return
+	}
+	defer guest.Close()
+	if dns {
+		i.serveDNS("tcp", guest)
+		return
+	}
+	relayStream(guest, guest, target, i.owner.fail)
+}
+
+func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
+	key := tunFlow{udp.ProtocolNumber, id}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.closed || i.owner.closed.Load() || len(i.flows) >= maxTUNFlows {
+		return true
+	}
+	if _, exists := i.flows[key]; exists {
+		return true
+	}
+	var queue waiter.Queue
+	// Synchronous endpoint creation consumes the borrowed first packet.
+	endpoint, err := udp.NewForwarderRequest(i.stack, id, packet).CreateEndpoint(&queue)
+	if err != nil {
+		return false
+	}
+	guest, ownErr := i.owner.own(gonet.NewUDPConn(&queue, endpoint))
+	if ownErr != nil {
+		return true
+	}
+	i.flows[key] = struct{}{}
+	i.workers.Add(1)
+	go func() {
+		defer i.release(key)
+		defer i.owner.recoverWorker()
+		defer guest.Close()
+		if i.owner.ctx.Err() != nil {
+			return
+		}
+		if i.dnsFlow(id) {
+			i.serveDNS("udp", guest)
+			return
+		}
+		target, err := i.dial("udp", id)
+		if err != nil {
+			return
+		}
+		defer target.Close()
+		relayDatagrams(i.owner.ctx, guest, target, udpIdleTimeout, i.owner.fail)
+	}()
+	return true
+}
+
+// The owner interrupts I/O on close; cancellation also prevents starting unused relay work.
+
+func (i *tunIngress) readPackets(mtu uint32) {
+	buf := make([]byte, mtu+1)
+	for {
+		n, err := i.device.Read(buf)
+		if err != nil {
+			i.deviceFailure("read", err)
+			return
+		}
+		if n < header.IPv4MinimumSize || n > int(mtu) || header.IPVersion(buf[:n]) != 4 {
+			continue
+		}
+		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(buf[:n])})
+		i.link.InjectInbound(ipv4.ProtocolNumber, packet)
+		packet.DecRef()
+	}
+}
+
+func (i *tunIngress) writePackets(mtu uint32) {
+	scratch := make([]byte, mtu)
+	for {
+		packet := i.link.ReadContext(i.owner.ctx)
+		if packet == nil {
+			return
+		}
+		err := writeTUNPacket(i.device, packet, scratch)
+		packet.DecRef()
+		if err != nil {
+			i.deviceFailure("write", err)
+			return
+		}
+	}
+}
+
+func writeTUNPacket(device io.Writer, packet *stack.PacketBuffer, scratch []byte) error {
+	views, offset := packet.AsViewList()
+	view := views.Front()
+	for view != nil && offset >= view.Size() {
+		offset -= view.Size()
+		view = view.Next()
+	}
+	var data []byte
+	if view != nil {
+		// The synchronous Write borrows a contiguous packet while its reference is live.
+		data = view.AsSlice()[offset:]
+		if view.Next() != nil {
+			data = append(slices.Grow(scratch[:0], packet.Size()), data...)
+			for view = view.Next(); view != nil; view = view.Next() {
+				data = append(data, view.AsSlice()...)
+			}
+		}
+	}
+	n, err := device.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+func (i *tunIngress) deviceFailure(operation string, err error) {
+	if i.owner.ctx.Err() == nil {
+		i.owner.fail(&net.OpError{Op: operation, Net: "tun", Err: err})
+	}
+}
+
+func (i *tunIngress) stopPackets() {
+	i.mu.Lock()
+	i.closed = true
+	i.mu.Unlock()
+	_ = i.device.Close()
+	i.link.Close()
+	i.pumps.Wait()
+	_ = i.stack.RemoveNIC(tunNIC)
+	// Retire TCP processors before waking all relays; UDP endpoints still drain through their owner.
+	i.stack.TransportProtocolInstance(tcp.ProtocolNumber).Close()
+}
+
+func (i *tunIngress) close() {
+	done := make(chan struct{})
+	go func() { i.workers.Wait(); close(done) }()
+	// A forwarder may register its handshake after shutdown started.
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		for _, endpoint := range i.stack.RegisteredEndpoints() {
+			endpoint.Abort()
+		}
+		select {
+		case <-done:
+			i.mu.Lock()
+			i.flows = nil
+			i.mu.Unlock()
+			i.stack.Close()
+			i.stack.Wait()
+			return
+		case <-ticker.C:
+		}
+	}
+}

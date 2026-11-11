@@ -16,24 +16,24 @@ public:
     explicit SystemProxySession(std::unique_ptr<SystemProxyBackend> backend, QObject *parent = nullptr);
     ~SystemProxySession() override;
 
-    bool checkConflict(const SystemProxyConfig &config);
-    bool enable(const SystemProxyConfig &config);
+    bool inspect();
+    bool handoff(const SystemProxyConfig &config);
     bool disable();
     bool isEnabled() const;
     bool isBusy() const;
-    void clearBeforeShutdown();
+    bool needsCleanup() const;
 
 signals:
     void enabledChanged(bool enabled);
     void busyChanged(bool busy);
-    void conflictCheckFinished(bool conflict);
-    void operationFinished(bool enabled);
+    void inspectionFinished(const SystemProxyCheck &check);
+    void operationFinished(bool enabled, const PlatformOperationResult &result);
 
 private:
     enum class Operation
     {
         None,
-        CheckConflict,
+        Inspect,
         Enable,
         Disable
     };
@@ -41,8 +41,8 @@ private:
     struct OperationResult
     {
         Operation operation;
-        bool conflict = false;
-        bool succeeded = true;
+        SystemProxyCheck check;
+        PlatformOperationResult result;
     };
 
     bool startOperation(Operation operation, const SystemProxyConfig &config = {});
@@ -52,6 +52,9 @@ private:
     QFutureWatcher<OperationResult> operationWatcher;
     Operation currentOperation = Operation::None;
     bool enabled = false;
+    bool uncertain = false;
+    bool restoreRequested = false;
+    void updateState(Operation operation, const PlatformOperationResult &result);
 };
 
 #endif // SYSTEMPROXYSESSION_H

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>SsoLoginWebView</class>
  <widget class="QDialog" name="SsoLoginWebView">
@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>960</width>
+    <width>880</width>
     <height>640</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>SSO 登录</string>
+   <string>Server sign-in</string>
   </property>
   <layout class="QVBoxLayout" name="_2">
    <item>
@@ -32,47 +32,115 @@
       <item>
        <widget class="QToolButton" name="backButton">
         <property name="toolTip">
-         <string>后退</string>
+         <string>Back</string>
         </property>
         <property name="text">
-         <string>⬅️</string>
+         <string />
+        </property>
+        <property name="accessibleName">
+         <string>Back</string>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QToolButton" name="forwardButton">
         <property name="toolTip">
-         <string>前进</string>
+         <string>Forward</string>
         </property>
         <property name="text">
-         <string>➡️</string>
+         <string />
+        </property>
+        <property name="accessibleName">
+         <string>Forward</string>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QToolButton" name="reloadButton">
         <property name="toolTip">
-         <string>重新载入</string>
+         <string>Reload</string>
         </property>
         <property name="text">
-         <string>🔄</string>
+         <string />
+        </property>
+        <property name="accessibleName">
+         <string>Reload</string>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QLineEdit" name="addressLineEdit"/>
+       <widget class="QLineEdit" name="addressLineEdit">
+        <property name="accessibleName">
+         <string>Page address</string>
+        </property>
+       </widget>
       </item>
+      <property name="spacing">
+       <number>8</number>
+      </property>
      </layout>
     </widget>
    </item>
    <item>
-    <widget class="QWebEngineView" name="webEngineView">
+    <widget class="QLabel" name="tlsWarningLabel">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <property name="text">
+      <string>Gateway certificate verification is off. Your login information may be exposed.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="warning" stdset="0">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="navigationWarningLabel">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="warning" stdset="0">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="browserHost">
      <property name="sizePolicy">
-      <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
        <horstretch>0</horstretch>
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
+     <layout class="QVBoxLayout" name="browserLayout">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+     </layout>
     </widget>
    </item>
    <item>
@@ -81,20 +149,28 @@
       <enum>Qt::Orientation::Horizontal</enum>
      </property>
      <property name="standardButtons">
-      <set>QDialogButtonBox::StandardButton::Close</set>
+      <set>QDialogButtonBox::StandardButton::Cancel</set>
      </property>
     </widget>
    </item>
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <property name="leftMargin">
+    <number>16</number>
+   </property>
+   <property name="rightMargin">
+    <number>16</number>
+   </property>
+   <property name="topMargin">
+    <number>16</number>
+   </property>
+   <property name="bottomMargin">
+    <number>16</number>
+   </property>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>QWebEngineView</class>
-   <extends>QWidget</extends>
-   <header location="global">QtWebEngineWidgets/QWebEngineView</header>
-  </customwidget>
- </customwidgets>
- <resources/>
+ <resources />
  <connections>
   <connection>
    <sender>dialogButtonBox</sender>

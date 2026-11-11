@@ -1,62 +1,61 @@
-# JustConnect
+<p align="center">
+  <img src="resource/app-icon.svg" width="72" height="72" alt="">
+</p>
 
-基于 [EZ4Connect](https://github.com/chenx-dust/EZ4Connect) 继续开发，由 [wtalioy](https://github.com/wtalioy) 维护。
+<h1 align="center">JustConnect</h1>
 
-![Tests](https://github.com/wtalioy/JustConnect/actions/workflows/ci.yml/badge.svg?branch=develop)
-![Packages](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml/badge.svg?branch=main)
-![Release](https://img.shields.io/github/v/release/wtalioy/JustConnect)
-![Downloads](https://img.shields.io/github/downloads/wtalioy/JustConnect/total)
-![License](https://img.shields.io/github/license/wtalioy/JustConnect)
+<p align="center"><strong>Connect to campus. Keep your network.</strong></p>
 
-支持 aTrust 的 ZJU-Connect 图形客户端。
+<p align="center">
+  An open-source aTrust client for Windows and macOS.
+</p>
 
-问题反馈请提交到本仓库的 [Issues](https://github.com/wtalioy/JustConnect/issues)。校园网透明访问、三平台 Clash 自动共存仍在开发计划中，当前版本尚不具备这些完整能力，见 [计划](plan.md)。
+<p align="center">
+  <a href="https://github.com/wtalioy/JustConnect/releases">Download</a>
+  · <a href="#get-started">Get started</a>
+</p>
 
-<div align="center">
-<img src="docs/main.png" width="600px">
-</div>
+## Features
 
-## 使用方式
+### Keep the rest of your network running intact.
 
-开发构建可在 [Actions](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml) 的 Artifacts 下载；正式版本发布后，可在 [Releases](https://github.com/wtalioy/JustConnect/releases) 页面下载：
+- **Browse as usual.** Campus traffic goes through your school’s gateway. Other traffic keeps using your existing network setup.
+- **Clash coexistence.** Leave Clash running when you connect. Flip the system proxy or TUN switch freely as you prefer. Quit and reopen it whenever you like. Your campus connection stays up.
+- **Stay direct on Tailscale.** Avoid forcing an existing direct tailscale connection through a relay.
 
-- **Windows 用户**：下载 `JustConnect-vX.X.X-windows-ARCH.zip` ，解压至同一目录下，双击运行 `JustConnect.exe` ；
-  - 如果遇到缺少 DLL 等问题，请先下载安装 Microsoft Visual C++ 可再发行程序包版本（[x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) | [arm64](https://aka.ms/vs/17/release/vc_redist.arm64.exe)），再运行程序；
-- **macOS 用户**：下载 `JustConnect-vX.X.X-macos-ARCH.dmg` ，将 JustConnect 移动到应用程序目录中；
-  - macOS 包仅在维护者配置 Apple 凭据后执行开发者签名及公证；未配置时提供临时签名的测试包，不能视为已公证版本；
-- **Linux 用户**：下载 `JustConnect-vX.X.X-linux-ARCH.AppImage` ，赋予执行权限，运行即可；
-  - AppImage x64 仅支持系统 `glibc >= 2.31` 的发行版，Ubuntu 22.04 及以上版本可以正常运行（受限于 GitHub Actions Runner）；
-  - AppImage arm64 仅支持系统 `glibc >= 2.38` 的发行版，Ubuntu 24.04 及以上版本可以正常运行（受限于 Qt 官方：[参考](https://doc.qt.io/qt-6/supported-platforms.html)）；
-  - 如果遇到因依赖问题无法运行的情况，请自行编译运行。
+### Sign in once. Reconnect in a click.
 
-1. 跟随配置向导进行服务器与账户设置，或在“设置”中手动配置；
+Always remember your saved sign-in between launches. As long as it’s still valid, just click Connect.
 
-2. 在主界面中点击“连接服务器”。如果只需进行校园网页浏览，则选择“设置系统代理”后即可使用。
+### Lightweight. Ready to go.
 
-如果需要配合 Clash / Mihomo 进行高级的分流操作，可以参见： [高级使用方式](docs/ADVANCED_USAGE.md)
+14–22 MiB for JustConnect vs. 201–224 MiB for official aTrust client. Get onto your campus network with about a tenth of the download.
 
-## 路线图
+## Screenshots
 
-功能建议和问题请在本仓库的 Issues 中提出。
+<p align="center">
+  <img src=".github/screenshots/overview.svg" width="764" alt="JustConnect on macOS with the main window at the upper left and Fudan connection settings at the lower right">
+</p>
 
-- [X] 支持 macOS 系统
-- [X] 支持 Linux 系统
-- [X] 支持手动设置 Proxy Bypass
-- [ ] 使用密钥链存储密码等信息
+## Get started
 
-## 开发
+### Install
 
-项目的分层、依赖方向和新增代码归属规则见
-[架构说明](docs/ARCHITECTURE.md)。
+| Platform | How to install |
+| --- | --- |
+| **Windows** · x64 or ARM64 | Run the installer, or extract the portable ZIP and open `JustConnect.exe`. |
+| **macOS** · 14.4 or later, Apple silicon or Intel | Open the DMG and drag JustConnect into Applications. |
 
-本地构建、Actions 触发方式、发布及可选签名凭据见 [构建与发布](docs/DEVELOPMENT.md)。
+Windows installers are unsigned, so Windows may show a warning.
 
-## 许可证
+macOS builds are not notarized. If macOS blocks JustConnect on first launch because it can’t verify the developer or check the app for malware, confirm that you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases). Then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-本项目遵循 [GNU General Public License Version 3](LICENSE) 开源。
+### Connect
 
-## 致谢
+Choose the built-in Fudan University profile, or add one for your own aTrust gateway. Click **Connect** and follow the sign-in and network permission prompts.
 
-- [chenx-dust/EZ4Connect](https://github.com/chenx-dust/EZ4Connect)
-- [Mythologyli/ZJU-Connect-for-Windows](https://github.com/Mythologyli/ZJU-Connect-for-Windows)
-- [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)
+## License and credits
+
+JustConnect’s own code is licensed under the [GNU General Public License v3.0](LICENSE).
+
+See [Third-Party Notices](ThirdPartyNotices.txt) for upstream credits and license terms.

@@ -1,0 +1,445 @@
+package atrust
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
+	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
+)
+
+type L3Tunnel struct {
+	client *Client
+
+	ip net.IP
+
+	resourceIndex *ipresource.Index
+
+	conns             map[string]*l3TunnelConn
+	connsMu           sync.Mutex
+	connecting        map[string]*l3TunnelConnectCall
+	recovery          map[string]*l3TunnelRecovery
+	conntrackMgrs     map[string]*conntrackMgr
+	connect           func(context.Context, string, *conntrackMgr) (*l3TunnelConn, error)
+	reconnectInterval time.Duration
+
+	vipMu sync.Mutex
+
+	dataChan      chan []byte
+	closeCh       chan struct{}
+	closeOnce     sync.Once
+	workers       sync.WaitGroup
+	closed        bool
+	connectCtx    context.Context
+	cancelConnect context.CancelFunc
+}
+
+type l3TunnelConnectCall struct {
+	done chan struct{}
+	conn *l3TunnelConn
+	err  error
+}
+
+type l3TunnelRecovery struct {
+	attempts int
+	readyAt  time.Time
+}
+
+const (
+	defaultReconnectInterval = 5 * time.Second
+)
+
+func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
+	t := &L3Tunnel{
+		client:            aTrustClient,
+		conns:             make(map[string]*l3TunnelConn),
+		connecting:        make(map[string]*l3TunnelConnectCall),
+		conntrackMgrs:     make(map[string]*conntrackMgr),
+		reconnectInterval: defaultReconnectInterval,
+		dataChan:          make(chan []byte, 4096),
+		closeCh:           make(chan struct{}),
+	}
+	t.connect = func(ctx context.Context, addr string, conntrackMgr *conntrackMgr) (*l3TunnelConn, error) {
+		info := clientInfo{
+			sidProvider:  aTrustClient.sessionSID,
+			language:     aTrustClient.language,
+			onError:      aTrustClient.fail,
+			deviceID:     aTrustClient.DeviceID,
+			connectionID: aTrustClient.ConnectionID,
+			username:     aTrustClient.Username,
+		}
+		dialTLS := func(ctx context.Context, network, address string) (*tls.Conn, error) {
+			return client.DialTLSContext(ctx, aTrustClient.underlayDialer.DialContext, network, address, tunnelTLSConfig(aTrustClient.nodeTLSPolicy))
+		}
+		return newL3TunnelConn(ctx, dialTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
+	}
+
+	ipResources, err := aTrustClient.IPResources()
+	if ipResources == nil {
+		ipResources = []client.IPResource{}
+	}
+	t.resourceIndex = ipresource.New(ipResources)
+
+	ip, err := aTrustClient.IP()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client IP: %w", err)
+	}
+	t.ip = ip
+
+	return t, nil
+}
+
+func (t *L3Tunnel) updateVIP(ips []net.IP) {
+	var ipv4 net.IP
+	for _, ip := range ips {
+		if ip := ip.To4(); ip != nil {
+			ipv4 = append(net.IP(nil), ip...)
+			break
+		}
+	}
+
+	t.vipMu.Lock()
+	changed := ipv4 != nil && !t.ip.Equal(ipv4)
+	t.vipMu.Unlock()
+	if changed && t.client != nil {
+		if err := t.client.applyIPUpdate(ipv4); err != nil {
+			t.client.fail(err)
+			return
+		}
+		t.vipMu.Lock()
+		t.ip = append(net.IP(nil), ipv4...)
+		t.vipMu.Unlock()
+		t.client.setIP(ipv4)
+		if t.client.underlayDialer != nil {
+			t.client.underlayDialer.ExcludeIP(ipv4)
+		}
+
+	}
+}
+
+func (t *L3Tunnel) Close() {
+	t.closeOnce.Do(func() {
+		if t.closeCh != nil {
+			close(t.closeCh)
+		}
+		t.connsMu.Lock()
+		t.closed = true
+		if t.cancelConnect != nil {
+			t.cancelConnect()
+		}
+		conns := make([]*l3TunnelConn, 0, len(t.conns))
+		for _, conn := range t.conns {
+			conns = append(conns, conn)
+		}
+		conntrackMgrs := make([]*conntrackMgr, 0, len(t.conntrackMgrs))
+		for _, conntrackMgr := range t.conntrackMgrs {
+			conntrackMgrs = append(conntrackMgrs, conntrackMgr)
+		}
+		t.conns = make(map[string]*l3TunnelConn)
+		t.conntrackMgrs = make(map[string]*conntrackMgr)
+		t.connsMu.Unlock()
+
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+		t.workers.Wait()
+		for _, conn := range conns {
+			conn.Wait()
+		}
+		for _, conntrackMgr := range conntrackMgrs {
+			conntrackMgr.close()
+		}
+	})
+}
+
+func (t *L3Tunnel) getConn(nodeGroupID string) (*l3TunnelConn, error) {
+	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, net.ErrClosed
+	}
+	if conn := t.conns[nodeGroupID]; conn != nil {
+		t.connsMu.Unlock()
+		return conn, nil
+	}
+	if call := t.connecting[nodeGroupID]; call != nil {
+		t.connsMu.Unlock()
+		return t.waitConnectCall(call)
+	}
+	call := &l3TunnelConnectCall{done: make(chan struct{})}
+	if t.connecting == nil {
+		t.connecting = make(map[string]*l3TunnelConnectCall)
+	}
+	t.connecting[nodeGroupID] = call
+	t.workers.Add(1)
+	t.connsMu.Unlock()
+	go t.runConnect(nodeGroupID, call, true)
+	return t.waitConnectCall(call)
+}
+
+func (t *L3Tunnel) waitConnectCall(call *l3TunnelConnectCall) (*l3TunnelConn, error) {
+	select {
+	case <-call.done:
+		return call.conn, call.err
+	case <-t.closeCh:
+		return nil, net.ErrClosed
+	}
+}
+
+func (t *L3Tunnel) connectConn(nodeGroupID string) (*l3TunnelConn, error) {
+	t.client.BestNodesRWMutex.RLock()
+	addr := t.client.BestNodes[nodeGroupID]
+	if addr == "" {
+		addr = t.client.BestNodes[t.client.MajorNodeGroup]
+	}
+	t.client.BestNodesRWMutex.RUnlock()
+	if addr == "" {
+		return nil, fmt.Errorf("no available node for group %s", nodeGroupID)
+	}
+
+	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, net.ErrClosed
+	}
+	if t.connectCtx == nil {
+		t.connectCtx, t.cancelConnect = context.WithCancel(t.client.lifecycleCtx)
+	}
+	parent := t.connectCtx
+	t.connsMu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	conntrackMgr, err := t.getConntrackMgr(nodeGroupID)
+	if err != nil {
+		return nil, err
+	}
+	return t.connect(ctx, addr, conntrackMgr)
+}
+
+func (t *L3Tunnel) getConntrackMgr(nodeGroupID string) (*conntrackMgr, error) {
+	t.connsMu.Lock()
+	defer t.connsMu.Unlock()
+	select {
+	case <-t.closeCh:
+		return nil, net.ErrClosed
+	default:
+	}
+	if t.conntrackMgrs == nil {
+		t.conntrackMgrs = make(map[string]*conntrackMgr)
+	}
+	if manager := t.conntrackMgrs[nodeGroupID]; manager != nil {
+		return manager, nil
+	}
+	manager := newConntrackMgr()
+	t.conntrackMgrs[nodeGroupID] = manager
+	return manager, nil
+}
+
+func (t *L3Tunnel) evictConn(nodeGroupID string, conn *l3TunnelConn) {
+	t.connsMu.Lock()
+	removed := false
+	if existing := t.conns[nodeGroupID]; existing == conn {
+		delete(t.conns, nodeGroupID)
+		removed = true
+	}
+	t.connsMu.Unlock()
+	if removed {
+		_ = conn.Close()
+	}
+}
+
+func (t *L3Tunnel) evictStaleConns(bestNodes map[string]string, majorNodeGroup string) {
+	t.connsMu.Lock()
+	stale := make([]*l3TunnelConn, 0)
+	for group, conn := range t.conns {
+		addr := bestNodes[group]
+		if addr == "" {
+			addr = bestNodes[majorNodeGroup]
+		}
+		if addr != "" && conn.addr != addr {
+			delete(t.conns, group)
+			stale = append(stale, conn)
+		}
+	}
+	t.connsMu.Unlock()
+
+	for _, conn := range stale {
+
+		_ = conn.Close()
+	}
+}
+
+func (t *L3Tunnel) forwardFromConn(nodeGroupID string, conn *l3TunnelConn) {
+	for {
+		pkt, err := conn.ReadPacket()
+		if err != nil {
+			t.evictConn(nodeGroupID, conn)
+			t.startReconnect(nodeGroupID)
+			return
+		}
+		select {
+		case t.dataChan <- pkt:
+		case <-t.closeCh:
+			return
+		case <-conn.closeCh:
+			return
+		}
+	}
+}
+
+func (t *L3Tunnel) startReconnect(nodeGroupID string) {
+	if t.client == nil || t.connect == nil || t.client.lifecycleCtx.Err() != nil {
+		return
+	}
+	select {
+	case <-t.closeCh:
+		return
+	default:
+	}
+	t.connsMu.Lock()
+	if t.closed || t.conns[nodeGroupID] != nil || t.connecting[nodeGroupID] != nil {
+		t.connsMu.Unlock()
+		return
+	}
+	if t.connecting == nil {
+		t.connecting = make(map[string]*l3TunnelConnectCall)
+	}
+	call := &l3TunnelConnectCall{done: make(chan struct{})}
+	t.connecting[nodeGroupID] = call
+	t.workers.Add(1)
+	t.connsMu.Unlock()
+	go t.runConnect(nodeGroupID, call, false)
+}
+
+func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCall, immediate bool) {
+	t.connsMu.Lock()
+	if t.recovery == nil {
+		t.recovery = make(map[string]*l3TunnelRecovery)
+	}
+	budget := t.recovery[nodeGroupID]
+	if budget == nil {
+		budget = &l3TunnelRecovery{}
+		t.recovery[nodeGroupID] = budget
+	}
+	// One connecting call owns this group's budget until finishConnect releases it.
+	if !budget.readyAt.IsZero() && time.Since(budget.readyAt) >= time.Minute {
+		budget.attempts = 0
+	}
+	t.connsMu.Unlock()
+	if budget.attempts == 5 {
+		t.client.fail(net.ErrClosed)
+		t.finishConnect(nodeGroupID, call, nil, net.ErrClosed)
+		return
+	}
+	interval := t.reconnectInterval
+	if interval <= 0 {
+		interval = defaultReconnectInterval
+	}
+	interval = min(interval, 30*time.Second)
+	for attempt := budget.attempts; attempt < 5; attempt++ {
+		if !immediate || attempt > 0 {
+			timer := time.NewTimer(min(30*time.Second, interval*time.Duration(1<<attempt)))
+			select {
+			case <-timer.C:
+			case <-t.client.lifecycleCtx.Done():
+				timer.Stop()
+				t.finishConnect(nodeGroupID, call, nil, context.Canceled)
+				return
+			case <-t.closeCh:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				t.finishConnect(nodeGroupID, call, nil, net.ErrClosed)
+				return
+			}
+		}
+		budget.attempts = attempt + 1
+		t.client.report("tunnel", "running")
+		conn, err := t.connectConn(nodeGroupID)
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			t.client.fail(err)
+			t.finishConnect(nodeGroupID, call, nil, err)
+			return
+		}
+		if err == nil {
+			budget.readyAt = time.Now()
+			t.client.report("tunnel", "succeeded")
+			t.finishConnect(nodeGroupID, call, conn, nil)
+			return
+		}
+
+		if t.client.lifecycleCtx.Err() != nil {
+			t.finishConnect(nodeGroupID, call, nil, context.Canceled)
+			return
+		}
+		t.client.report("tunnel", "failed")
+		if attempt == 4 || !client.RetryableTransportError(err) {
+			t.client.fail(err)
+			t.finishConnect(nodeGroupID, call, nil, err)
+			return
+		}
+	}
+}
+
+func (t *L3Tunnel) finishConnect(nodeGroupID string, call *l3TunnelConnectCall, conn *l3TunnelConn, err error) {
+	t.connsMu.Lock()
+	if t.connecting[nodeGroupID] != call {
+		t.connsMu.Unlock()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		return
+	}
+	delete(t.connecting, nodeGroupID)
+	if err == nil {
+		select {
+		case <-t.closeCh:
+			err = net.ErrClosed
+		default:
+			t.conns[nodeGroupID] = conn
+		}
+	}
+	if err == nil {
+		t.workers.Add(1)
+	}
+	call.conn = conn
+	call.err = err
+	close(call.done)
+	t.connsMu.Unlock()
+	if err != nil && conn != nil {
+		_ = conn.Close()
+	} else if err == nil {
+		go func() {
+			defer t.workers.Done()
+			defer conn.Wait()
+			defer func() {
+				if recover() != nil {
+					t.client.fail(errors.New("L3 forwarding panicked"))
+					_ = conn.Close()
+				}
+			}()
+			t.forwardFromConn(nodeGroupID, conn)
+		}()
+	}
+}
+
+func (t *L3Tunnel) runConnect(group string, call *l3TunnelConnectCall, immediate bool) {
+	defer t.workers.Done()
+	defer func() {
+		if recover() != nil {
+			err := errors.New("L3 connection worker panicked")
+			t.client.fail(err)
+			t.finishConnect(group, call, nil, err)
+		}
+	}()
+	t.connectWithRetry(group, call, immediate)
+}

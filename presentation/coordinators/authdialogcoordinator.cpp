@@ -1,38 +1,35 @@
 #include "authdialogcoordinator.h"
+#include "presentation/widgets/localizeddialog.h"
+#include "presentation/presentationhelpers.h"
 
-#include <QCheckBox>
-#include <QDebug>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QSettings>
-#include <QUrlQuery>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.h"
 #include "presentation/dialogs/loginwindow/loginwindow.h"
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
-#include "presentation/dialogs/sudowindow/sudowindow.h"
+#include "application/coreengine.h"
+#include <QSignalBlocker>
+
+namespace {
+void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);layout->parentWidget()->setMinimumWidth(320);}
+}
 
 AuthDialogCoordinator::AuthDialogCoordinator(
     QWidget *parentWidget,
-    QSettings *settings,
     QObject *parent
 )
     : QObject(parent),
-      parentWidget(parentWidget),
-      settings(settings)
+      parentWidget(parentWidget)
 {
-}
-
-void AuthDialogCoordinator::setSettings(QSettings *newSettings)
-{
-    settings = newSettings;
 }
 
 void AuthDialogCoordinator::requestLogin(
@@ -42,17 +39,22 @@ void AuthDialogCoordinator::requestLogin(
 {
     if (loginWindow != nullptr)
     {
-        loginWindow->raise();
-        loginWindow->activateWindow();
+        PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(loginWindow);
         return;
     }
 
     loginWindow = new LoginWindow(parentWidget);
-    loginWindow->setAttribute(Qt::WA_DeleteOnClose);
     loginWindow->setDetail(username, password);
-    connect(loginWindow, &LoginWindow::login, this,
-            &AuthDialogCoordinator::loginSubmitted);
-    loginWindow->show();
+    const QPointer<LoginWindow> dialog=loginWindow;
+    connect(dialog,&LoginWindow::login,this,[this,dialog](const QString &username,const QString &password,bool save) {
+        if (dialog && loginWindow==dialog) emit loginSubmitted(username,password,save);
+    });
+    connect(dialog,&QDialog::finished,this,[this,dialog](int result) {
+        if (loginWindow!=dialog) return;
+        loginWindow=nullptr;
+        if (result==QDialog::Rejected) emit credentialInputCancelled();
+    });
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(loginWindow);
 }
 
 void AuthDialogCoordinator::requestPhoneNumber(
@@ -62,35 +64,38 @@ void AuthDialogCoordinator::requestPhoneNumber(
 {
     if (phoneNumberDialog != nullptr)
     {
-        phoneNumberDialog->raise();
-        phoneNumberDialog->activateWindow();
+        PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(phoneNumberDialog);
         return;
     }
 
-    auto *dialog = new QDialog(parentWidget);
+    auto *dialog = new LocalizedDialog<QDialog>(parentWidget);
     phoneNumberDialog = dialog;
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowModality(Qt::WindowModal);
-    dialog->setWindowTitle("短信验证");
 
     auto *layout = new QVBoxLayout(dialog);
-    layout->addWidget(new QLabel("请输入接收验证码的手机号码：", dialog));
+    spaceForm(layout);
+    auto *phoneLabel=new QLabel(dialog);phoneLabel->setWordWrap(true);layout->addWidget(phoneLabel);
 
     auto *phoneLayout = new QHBoxLayout;
     phoneLayout->addWidget(new QLabel("+", dialog));
     auto *countryCodeEdit = new QLineEdit(countryCode, dialog);
     countryCodeEdit->setObjectName("countryCodeLineEdit");
-    countryCodeEdit->setMaximumWidth(60);
-    countryCodeEdit->setPlaceholderText("国家码");
+    countryCodeEdit->setMaximumWidth(88);
     phoneLayout->addWidget(countryCodeEdit);
     phoneLayout->addWidget(new QLabel("-", dialog));
     auto *phoneNumberEdit = new QLineEdit(phoneNumber, dialog);
     phoneNumberEdit->setObjectName("phoneNumberLineEdit");
-    phoneNumberEdit->setPlaceholderText("手机号码");
     phoneLayout->addWidget(phoneNumberEdit);
     layout->addLayout(phoneLayout);
 
-    auto *saveCheckBox = new QCheckBox("记住手机号码（可在设置中删除）", dialog);
+    auto *saveCheckBox = new AlignedCheckBox(dialog);
+    phoneLabel->setBuddy(phoneNumberEdit);
+    dialog->setTranslation([dialog,phoneLabel,countryCodeEdit,phoneNumberEdit,saveCheckBox] {
+        dialog->setWindowTitle(tr("SMS verification"));phoneLabel->setText(tr("Phone number"));
+        countryCodeEdit->setPlaceholderText(tr("Country"));phoneNumberEdit->setPlaceholderText(tr("Phone number"));
+        saveCheckBox->setText(tr("Remember phone number"));
+    });
     layout->addWidget(saveCheckBox);
 
     auto *buttonBox = new QDialogButtonBox(
@@ -100,17 +105,18 @@ void AuthDialogCoordinator::requestPhoneNumber(
     connect(
         buttonBox,
         &QDialogButtonBox::accepted,
-        dialog,
+        this,
         [this, dialog, countryCodeEdit, phoneNumberEdit, saveCheckBox]()
         {
+            if (phoneNumberDialog!=dialog) return;
             const QString submittedCountryCode = countryCodeEdit->text().trimmed();
             const QString submittedPhoneNumber = phoneNumberEdit->text().trimmed();
             if (submittedCountryCode.isEmpty() || submittedPhoneNumber.isEmpty())
             {
                 QMessageBox::warning(
                     dialog,
-                    "警告",
-                    "国家码或手机号码不能为空。"
+                    tr("Warning"),
+                    tr("Country code and phone number are required.")
                 );
                 return;
             }
@@ -123,6 +129,11 @@ void AuthDialogCoordinator::requestPhoneNumber(
             dialog->accept();
         }
     );
+    connect(dialog,&QDialog::finished,this,[this,dialog](int result) {
+        if (phoneNumberDialog!=dialog) return;
+        phoneNumberDialog=nullptr;
+        if (result==QDialog::Rejected) emit credentialInputCancelled();
+    });
     connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     layout->addWidget(buttonBox);
 
@@ -134,223 +145,107 @@ void AuthDialogCoordinator::requestPhoneNumber(
     {
         countryCodeEdit->setFocus();
     }
-    dialog->show();
+    dialog->resize(400,dialog->sizeHint().height());
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
 }
 
-void AuthDialogCoordinator::requestSudoPassword()
+void AuthDialogCoordinator::closeCredentialPrompts()
 {
-    if (sudoWindow != nullptr)
-    {
-        sudoWindow->raise();
-        sudoWindow->activateWindow();
-        return;
-    }
-
-    sudoWindow = new SudoWindow(parentWidget);
-    sudoWindow->setAttribute(Qt::WA_DeleteOnClose);
-    connect(sudoWindow, &SudoWindow::sudo, this,
-            &AuthDialogCoordinator::sudoPasswordSubmitted);
-    connect(sudoWindow, &QDialog::rejected, this,
-            [this]()
-            {
-                emit sudoPasswordSubmitted({}, false);
-            });
-    sudoWindow->show();
+    const auto login=loginWindow;loginWindow=nullptr;
+    const auto phone=phoneNumberDialog;phoneNumberDialog=nullptr;
+    if (login) {const QSignalBlocker blocker(login);login->close();}
+    if (phone) {const QSignalBlocker blocker(phone);phone->close();}
 }
 
-void AuthDialogCoordinator::requestGraphCaptcha(const QString &graphFile)
+void AuthDialogCoordinator::closeAuthentication()
 {
-    qInfo().noquote() << "需要图形验证码";
-    const bool textInputMode = settings == nullptr
-        || settings->value("ZJUConnect/Protocol", "easyconnect").toString() == "easyconnect";
-    if (graphCaptchaWindow != nullptr)
-    {
-        graphCaptchaWindow->setGraph(graphFile, textInputMode);
-        graphCaptchaWindow->raise();
-        graphCaptchaWindow->activateWindow();
-        return;
-    }
-
-    graphCaptchaWindow = new GraphCaptchaWindow(parentWidget);
-    graphCaptchaWindow->setAttribute(Qt::WA_DeleteOnClose);
-    graphCaptchaWindow->setGraph(graphFile, textInputMode);
-    connect(graphCaptchaWindow, &GraphCaptchaWindow::finishCaptcha, this,
-            [this](const QByteArray &captcha)
-            {
-                qInfo().noquote() << "图形验证码已提交";
-                emit interactiveInputSubmitted(captcha + "\n");
-            });
-    connect(graphCaptchaWindow, &GraphCaptchaWindow::cancelled, this,
-            [this]()
-            {
-                qInfo().noquote() << "图形验证码输入已取消";
-                emit interactiveInputCancelled();
-            });
-    graphCaptchaWindow->show();
+    if (!challengeDialog) return;
+    const QSignalBlocker blocker(challengeDialog);
+    challengeDialog->close();
+    challengeDialog = nullptr;
 }
 
-void AuthDialogCoordinator::requestSmsCode(bool showSkipSecondaryAuthOption)
+void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls)
 {
-    qInfo().noquote() << "需要短信验证码";
-
-    QDialog dialog(parentWidget);
-    dialog.setWindowTitle("短信验证码");
-
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->addWidget(new QLabel("请输入短信验证码：", &dialog));
-
-    auto *codeEdit = new QLineEdit(&dialog);
-    layout->addWidget(codeEdit);
-
-    auto *skipCheckBox = new QCheckBox("跳过以后的短信验证", &dialog);
-    skipCheckBox->setVisible(showSkipSecondaryAuthOption);
-    layout->addWidget(skipCheckBox);
-
-    auto *buttonBox = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-        &dialog
-    );
-    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttonBox);
-
-    const bool accepted = dialog.exec() == QDialog::Accepted;
-    if (!accepted)
-    {
-        qInfo().noquote() << "短信验证码输入已取消";
-        emit interactiveInputCancelled();
+    closeAuthentication();
+    const auto challenge = request["challenge"].toObject();
+    const auto kind = challenge["kind"].toString();
+    const auto submit = [this, request](const QJsonObject &fields) {
+        emit responseSubmitted(CoreEngine::responseFor(request, fields));
+    };
+    QDialog *dialog = nullptr;
+    SsoLoginWebView *signIn = nullptr;
+    if (kind == "click_captcha" || kind == "text_captcha") {
+        auto *captcha = new GraphCaptchaWindow(parentWidget);
+        captcha->setGraph(QByteArray::fromBase64(challenge["image"].toString().toUtf8()), kind == "text_captcha");
+        connect(captcha, &GraphCaptchaWindow::finishCaptcha, this, [submit](QJsonObject fields) {
+            fields["action"] = "submit";
+            submit(fields);
+        });
+        dialog = captcha;
+    } else if (kind == "cas" || kind == "oauth2") {
+        auto callback=callbackServer;
+        callback.setPath(kind=="cas" ? "/passport/v1/auth/cas" : "/passport/v1/auth/httpsOauth2");
+        callback.setQuery(QString());callback.setFragment(QString());
+        signIn = new SsoLoginWebView(parentWidget,callback,tls);
+        connect(signIn, &SsoLoginWebView::loginCompleted, this, [submit](const QString &url) {
+            if (!url.isEmpty()) submit({{"action", "submit"}, {"callback_url", url}});
+        });
+        dialog = signIn;
+    } else if (kind == "trusted_device") {
+        auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
+        auto *layout = new QVBoxLayout(dialog);
+        spaceForm(layout);
+        auto *label = new QLabel(dialog);
+        input->setTranslation([input,label] {input->setWindowTitle(tr("Trust this device?"));label->setText(tr("The server wants to remember this device as trusted. Allow it?"));});
+        label->setWordWrap(true);
+        layout->addWidget(label);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+        buttons->button(QDialogButtonBox::Ok)->setAutoDefault(false);
+        buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
+        input->resize(400,input->sizeHint().height());
+    } else if (kind == "sms" || kind == "totp" || kind == "radius") {
+        auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
+        auto *layout = new QVBoxLayout(dialog);
+        spaceForm(layout);
+        auto *prompt=new QLabel(dialog);layout->addWidget(prompt);
+        auto *code = new QLineEdit(dialog);
+        code->setObjectName("authCodeEdit");
+        layout->addWidget(code);
+        auto *skip = new AlignedCheckBox(dialog);
+        prompt->setBuddy(code);
+        input->setTranslation([input,prompt,skip,kind] {
+            input->setWindowTitle(kind=="sms"?tr("SMS code"):kind=="totp"?tr("Authenticator code"):tr("RADIUS passcode"));
+            prompt->setText(tr("Verification code"));skip->setText(tr("Skip future verification"));
+        });
+        skip->setObjectName("skipSecondaryAuthCheckBox");
+        skip->setVisible(challenge["can_skip_secondary_auth"].toBool());
+        layout->addWidget(skip);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, dialog, [dialog, code, skip, challenge] {
+            if (code->text().trimmed().isEmpty()
+                && !(challenge["can_skip_secondary_auth"].toBool() && skip->isChecked())) return;
+            dialog->accept();
+        });
+        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        connect(dialog, &QDialog::accepted, this, [submit, code, skip, challenge] {
+            submit({{"action", "submit"}, {"code", code->text()},
+                {"skip_secondary_auth", challenge["can_skip_secondary_auth"].toBool() && skip->isChecked()}});
+        });
+        input->resize(400,input->sizeHint().height());
+    } else {
+        submit({{"action", "cancel"}});
         return;
     }
-
-    QByteArray input;
-    input = codeEdit->text().toLocal8Bit();
-    if (showSkipSecondaryAuthOption && skipCheckBox->isChecked())
-    {
-        input.prepend('$');
-    }
-
-    qInfo().noquote() << "短信验证码已提交";
-    emit interactiveInputSubmitted(input + "\n");
-}
-
-void AuthDialogCoordinator::requestRadiusCode(bool showSkipSecondaryAuthOption)
-{
-    qInfo().noquote() << "需要 RADIUS 动态口令（短信验证码）";
-
-    QDialog dialog(parentWidget);
-    dialog.setWindowTitle("RADIUS 动态口令");
-
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->addWidget(new QLabel("请输入收到的短信验证码（RADIUS token）：", &dialog));
-
-    auto *codeEdit = new QLineEdit(&dialog);
-    layout->addWidget(codeEdit);
-
-    auto *skipCheckBox = new QCheckBox("跳过以后的二次认证", &dialog);
-    skipCheckBox->setVisible(showSkipSecondaryAuthOption);
-    layout->addWidget(skipCheckBox);
-
-    auto *buttonBox = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-        &dialog
-    );
-    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttonBox);
-
-    const bool accepted = dialog.exec() == QDialog::Accepted;
-    if (!accepted)
-    {
-        qInfo().noquote() << "RADIUS 动态口令输入已取消";
-        emit interactiveInputCancelled();
-        return;
-    }
-
-    QByteArray input;
-    input = codeEdit->text().toLocal8Bit();
-    if (showSkipSecondaryAuthOption && skipCheckBox->isChecked())
-    {
-        input.prepend('$');
-    }
-
-    qInfo().noquote() << "RADIUS 动态口令已提交";
-    emit interactiveInputSubmitted(input + "\n");
-}
-
-void AuthDialogCoordinator::requestTotpCode()
-{
-    qInfo().noquote() << "需要 TOTP 验证码";
-    bool accepted = false;
-    const QString totp = QInputDialog::getText(
-        parentWidget,
-        "TOTP 验证码",
-        "请输入 TOTP 验证码：",
-        QLineEdit::Normal,
-        "",
-        &accepted
-    );
-    if (!accepted)
-    {
-        qInfo().noquote() << "TOTP 验证码输入已取消";
-        emit interactiveInputCancelled();
-        return;
-    }
-
-    qInfo().noquote() << "TOTP 验证码已提交";
-    emit interactiveInputSubmitted(totp.toLocal8Bit() + "\n");
-}
-
-void AuthDialogCoordinator::requestSsoLogin()
-{
-    if (settings == nullptr)
-    {
-        return;
-    }
-    if (ssoLoginWebView != nullptr)
-    {
-        ssoLoginWebView->raise();
-        ssoLoginWebView->activateWindow();
-        return;
-    }
-
-    const QString serverHost =
-        settings->value("ZJUConnect/ServerAddress", "trust.hitsz.edu.cn").toString();
-    const int serverPort = settings->value("ZJUConnect/ServerPort", 443).toInt();
-    QUrl serverUrl;
-    serverUrl.setScheme("https");
-    serverUrl.setHost(serverHost);
-    if (serverPort != 443)
-    {
-        serverUrl.setPort(serverPort);
-    }
-
-    QString ssoUrl = settings->value("ZJUConnect/LoginURL").toString();
-    if (ssoUrl.isEmpty())
-    {
-        QUrl defaultSsoUrl = serverUrl;
-        defaultSsoUrl.setPath("/passport/v1/public/casLogin");
-        QUrlQuery query;
-        query.addQueryItem(
-            "sfDomain",
-            settings->value("ZJUConnect/LoginDomain").toString()
-        );
-        defaultSsoUrl.setQuery(query);
-        ssoUrl = defaultSsoUrl.toString();
-    }
-    if (ssoUrl.startsWith('/'))
-    {
-        ssoUrl = serverUrl.resolved(QUrl(ssoUrl)).toString();
-    }
-
-    qInfo().noquote() << QStringLiteral("单点登录：") + ssoUrl;
-    ssoLoginWebView = new SsoLoginWebView(parentWidget);
-    ssoLoginWebView->setAttribute(Qt::WA_DeleteOnClose);
-    ssoLoginWebView->setCallbackServerUrl(serverUrl);
-    ssoLoginWebView->setInitialUrl(QUrl::fromUserInput(ssoUrl));
-    connect(ssoLoginWebView, &SsoLoginWebView::loginCompleted, this,
-            [this](const QString &url)
-            {
-                emit interactiveInputSubmitted(url.toLocal8Bit() + "\n");
-            });
-    ssoLoginWebView->show();
+    challengeDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    connect(dialog, &QDialog::rejected, this, [submit] { submit({{"action", "cancel"}}); });
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
+    if (signIn) signIn->setInitialUrl(QUrl(challenge["login_url"].toString()));
 }

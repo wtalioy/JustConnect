@@ -1,0 +1,222 @@
+package atrust
+
+import (
+	"encoding/json"
+	"net"
+	"testing"
+
+	"github.com/wtalioy/JustConnect/corelib/client"
+)
+
+func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
+	var policy ClientResource
+	appInfo := struct{ Apps []resourceApp }{}
+	for _, rule := range []struct{ id, group, port string }{
+		{id: "https-app", group: "https-group", port: "443"},
+		{id: "http-app", group: "http-group", port: "80"},
+	} {
+		var app resourceApp
+		app.ID, app.NodeGroupID, app.AccessModel = rule.id, rule.group, "L3VPN"
+		app.AddressList = append(app.AddressList, resourceAddress{Protocol: "tcp", Port: rule.port, Host: "www.cnki.net"})
+		appInfo.Apps = append(appInfo.Apps, app)
+	}
+	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, appInfo)
+	resource, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	c := &Client{}
+	if err := c.parseResource(resource); err != nil {
+		t.Fatalf("parseResource() error = %v", err)
+	}
+
+	rules := c.domainResources["www.cnki.net"]
+	if len(rules) != 2 {
+		t.Fatalf("domain rules = %#v, want 2 rules", rules)
+	}
+	if got, ok := client.MatchDomainResource(rules, "tcp", 443); !ok || got.AppID != "https-app" || got.NodeGroupID != "https-group" {
+		t.Fatalf("443 rule = (%#v, %v), want https app metadata", got, ok)
+	}
+	if got, ok := client.MatchDomainResource(rules, "tcp", 80); !ok || got.AppID != "http-app" || got.NodeGroupID != "http-group" {
+		t.Fatalf("80 rule = (%#v, %v), want http app metadata", got, ok)
+	}
+}
+
+func TestParseResourceAddrPretendDefaultsTrueAndOnlyAcceptsBool(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		field string
+		want  bool
+	}{
+		{name: "absent", want: true},
+		{name: "null is ignored", field: `,"addrPretend":null`, want: true},
+		{name: "explicit true", field: `,"addrPretend":true`, want: true},
+		{name: "explicit false", field: `,"addrPretend":false`, want: false},
+		{name: "zero number is ignored", field: `,"addrPretend":0`, want: true},
+		{name: "nonzero number is ignored", field: `,"addrPretend":1`, want: true},
+		{name: "string is ignored", field: `,"addrPretend":"false"`, want: true},
+		{name: "object is ignored", field: `,"addrPretend":{}`, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"app","AccessModel":"L3VPN"` + test.field + `,"AddressList":[{"Protocol":"tcp","Port":"80","Host":"example.com"}]}]}]}}}}`)
+			c := &Client{}
+			if err := c.parseResource(policy); err != nil {
+				t.Fatalf("parseResource() error = %v", err)
+			}
+			resource, ok := client.MatchDomainResource(c.domainResources["example.com"], "tcp", 80)
+			if !ok || resource.AddrPretend != test.want {
+				t.Fatalf("AddrPretend = (%t, %t), want %t", resource.AddrPretend, ok, test.want)
+			}
+		})
+	}
+}
+
+func TestParseResourceDoesNotOverrideTCPTunnelZeroRTT(t *testing.T) {
+	c := &Client{tcpTunnelZeroRTT: true}
+	policy := []byte(`{"data":{"sdpPolicy":{"data":{"clientOption":{"tun0rtt":{"enable":false}}}}}}`)
+	if err := c.parseResource(policy); err != nil {
+		t.Fatalf("parseResource() error = %v", err)
+	}
+	if !c.tcpTunnelZeroRTT {
+		t.Fatal("SDP tunnel pool policy overrode the manifest zero-RTT capability")
+	}
+}
+
+func TestParseResourcePreservesTCPPrefL3ForDomainAndResolvedIP(t *testing.T) {
+	var policy ClientResource
+	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+		Apps: []resourceApp{{
+			ID: "l3-app", NodeGroupID: "l3-group", AccessModel: "L3VPN", EnableTCPPrefL3: true,
+			AddressList: []resourceAddress{{Protocol: "tcp", Port: "443", Host: "internal.example", IP: []string{"10.0.0.42"}}},
+		}},
+	})
+	resource, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	c := &Client{}
+	if err := c.parseResource(resource); err != nil {
+		t.Fatalf("parseResource() error = %v", err)
+	}
+	domainResource, ok := client.MatchDomainResource(c.domainResources["internal.example"], "tcp", 443)
+	if !ok || !domainResource.EnableTCPPrefL3 {
+		t.Fatalf("domain resource = (%#v, %t), want TCP-prefers-L3", domainResource, ok)
+	}
+	ipResource, ok := c.resourceIndex.Match(net.ParseIP("10.0.0.42"), "tcp", 443)
+	if !ok || !ipResource.EnableTCPPrefL3 || ipResource.AppID != "l3-app" {
+		t.Fatalf("resolved IP resource = (%#v, %t), want l3-app TCP-prefers-L3", ipResource, ok)
+	}
+}
+
+func TestParseResourceIgnoresUnsupportedAccessModel(t *testing.T) {
+	var policy ClientResource
+	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+		Apps: []resourceApp{{
+			ID: "web-app", AccessModel: "WEB", AddressList: []resourceAddress{{Protocol: "tcp", Port: "443", Host: "10.0.0.42"}},
+		}},
+	})
+	resource, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	c := &Client{}
+	if err := c.parseResource(resource); err != nil {
+		t.Fatalf("parseResource() error = %v", err)
+	}
+	if _, ok := c.resourceIndex.Match(net.ParseIP("10.0.0.42"), "tcp", 443); ok {
+		t.Fatal("unsupported access model unexpectedly became an L3VPN resource")
+	}
+}
+
+func TestResourcePortRangesUseTheSameValidDestinationsAsCapture(t *testing.T) {
+	for _, test := range []struct {
+		port        string
+		first, last int
+	}{
+		{"0-65535", 1, 65535}, {"0-443", 1, 443}, {"65535-65536", 65535, 65535},
+		{"443", 443, 443}, {"0", 0, 0}, {"65536-70000", 0, 0}, {"443-80", 0, 0},
+	} {
+		t.Run(test.port, func(t *testing.T) {
+			policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"app","AccessModel":"L3VPN","AddressList":[{"Protocol":"all","Port":"` + test.port + `","Host":"192.0.2.10"},{"Protocol":"tcp","Port":"` + test.port + `","Host":"campus.test","IP":["192.0.2.11"]}]}]}]}}}}`)
+			c := &Client{}
+			if err := c.parseResource(policy); err != nil {
+				t.Fatal(err)
+			}
+			if test.first == 0 {
+				if len(c.ipResources) != 0 || len(c.domainResources) != 0 || len(c.dnsResource) != 0 {
+					t.Fatal("unusable port range published a capture resource")
+				}
+				return
+			}
+			if len(c.ipResources) != 2 || len(c.domainResources["campus.test"]) != 1 || len(c.dnsResource["campus.test"]) != 1 {
+				t.Fatal("valid destinations were lost from IP/domain/static DNS resources")
+			}
+			for _, resource := range c.ipResources {
+				if resource.PortMin != test.first || resource.PortMax != test.last || resource.AppID != "app" {
+					t.Fatal("server range disagrees with the capture contract", resource.PortMin, resource.PortMax)
+				}
+			}
+			for _, port := range []int{1, 80, 443, 65535} {
+				_, allowed := client.MatchDomainResource(c.domainResources["campus.test"], "tcp", port)
+				if allowed != (test.first <= port && port <= test.last) {
+					t.Fatal("normalization changed a valid destination permission", port)
+				}
+			}
+		})
+	}
+}
+
+func TestParseResourcePreservesHostShapes(t *testing.T) {
+	for _, test := range []struct {
+		host, first, last, domain string
+	}{
+		{host: "192.0.2.10", first: "192.0.2.10", last: "192.0.2.10"},
+		{host: "192.0.2.10/24", first: "192.0.2.0", last: "192.0.2.255"},
+		{host: "192.0.2.10-192.0.2.20", first: "192.0.2.10", last: "192.0.2.20"},
+		{host: "2001:db8::1"}, {host: "2001:db8::/64"}, {host: "2001:db8::1-2001:db8::2"},
+		{host: "campus-name.test", domain: "campus-name.test"},
+		{host: "*.campus.test", domain: ".campus.test"},
+		{host: "api.*.campus.test"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			var policy ClientResource
+			policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+				Apps: []resourceApp{{ID: "app", NodeGroupID: "group", AccessModel: "L3VPN", EnableTCPPrefL3: true,
+					AddressList: []resourceAddress{{Protocol: "udp", Port: "80-443", Host: test.host, IP: []string{"192.0.2.42", "2001:db8::42", "invalid"}}}}},
+			})
+			data, err := json.Marshal(policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := &Client{}
+			if err := c.parseResource(data); err != nil {
+				t.Fatal(err)
+			}
+			if test.domain != "" {
+				if len(c.domainResources) != 1 || len(c.domainResources[test.domain]) != 1 || len(c.dnsResource[test.host]) != 1 {
+					t.Fatal("domain or static IPv4 rule lost", c.domainResources, c.dnsResource)
+				}
+				resource := c.domainResources[test.domain][0]
+				if resource.AppID != "app" || resource.NodeGroupID != "group" || !resource.EnableTCPPrefL3 || !resource.AddrPretend || resource.Protocol != "udp" || resource.PortMin != 80 || resource.PortMax != 443 {
+					t.Fatal("domain permission metadata lost", resource)
+				}
+				test.first, test.last = "192.0.2.42", "192.0.2.42"
+			} else if len(c.domainResources) != 0 || len(c.dnsResource) != 0 {
+				t.Fatal("non-domain host gained DNS permissions", c.domainResources, c.dnsResource)
+			}
+			if test.first == "" {
+				if len(c.ipResources) != 0 {
+					t.Fatal("unsupported host gained IPv4 capture", c.ipResources)
+				}
+				return
+			}
+			if len(c.ipResources) != 1 {
+				t.Fatal("wrong IP resource count", c.ipResources)
+			}
+			resource := c.ipResources[0]
+			if !resource.IPMin.Equal(net.ParseIP(test.first)) || !resource.IPMax.Equal(net.ParseIP(test.last)) || resource.AppID != "app" || resource.NodeGroupID != "group" || !resource.EnableTCPPrefL3 || resource.Protocol != "udp" || resource.PortMin != 80 || resource.PortMax != 443 {
+				t.Fatal("host range or permission metadata changed", resource)
+			}
+		})
+	}
+}

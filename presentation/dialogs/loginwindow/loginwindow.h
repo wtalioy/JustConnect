@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QDialog>
-#include "ui_loginwindow.h"
+namespace Ui { class LoginWindow; }
 
 class LoginWindow : public QDialog
 {
@@ -18,6 +18,9 @@ public:
 
 signals:
 	void login(const QString& username, const QString& password, bool saveDetail);
+
+protected:
+    void changeEvent(QEvent *event) override;
 
 private:
 	Ui::LoginWindow *ui;

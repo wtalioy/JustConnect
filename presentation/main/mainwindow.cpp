@@ -1,111 +1,179 @@
 #include <QMessageBox>
 #include <QSysInfo>
-#include <QNetworkInterface>
-#include <QClipboard>
 #include <QDesktopServices>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
-#include <QFontDatabase>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QActionGroup>
-#include <QInputDialog>
-#include <QMargins>
+#include <QDialog>
+#include <QLineEdit>
 #include <QStyle>
-#include <QStyleHints>
 #include <QTimer>
+#include <QPushButton>
+#include <QLabel>
+#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QHash>
+#include <QTabBar>
+#include <QFontDatabase>
+#include <QDialogButtonBox>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QTemporaryDir>
+#include <QVBoxLayout>
+#include "presentation/widgets/applicationpreferenceswidget.h"
+#include "presentation/widgets/localizeddialog.h"
+#include <QtAlgorithms>
+#include <algorithm>
+#include <memory>
+#include <optional>
+#include "infrastructure/settings/savedconnectionstore.h"
 
 #include "mainwindow.h"
+#include "presentation/appearance/applicationappearance.h"
+#include "presentation/dialogs/networkpolicywindow.h"
 
 #include "application/applicationlogger.h"
+#include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
+#include "application/defaultsettings.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
-#include "infrastructure/coreprocess/devicetrust.h"
 #include "infrastructure/logging/applicationlogfile.h"
-#include "infrastructure/storage/applicationpaths.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
-#include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
+#include "presentation/i18n/applicationlanguage.h"
 #include "presentation/presentationhelpers.h"
+#include "presentation/coordinators/connectiondiagnostics.h"
 #include "ui_mainwindow.h"
 
-namespace
+namespace {
+QString defaultConnectionLabel(const QSettings &settings)
 {
-bool appendStyleSheet(const QString &path, QString &styleSheet)
-{
-    QFile styleFile(path);
-    if (!styleFile.open(QIODevice::ReadOnly | QIODevice::Text))
-    {
-        qWarning().noquote() << "无法加载样式资源：" << path;
-        return false;
-    }
+    const auto server = settings.value("JustConnect/ServerAddress").toString().trimmed();
+    if (server.isEmpty()) return MainWindow::tr("Unnamed connection");
+    return DefaultSettings::matchesBuiltInServer(server) ? MainWindow::tr("Fudan") : server;
+}
 
-    styleSheet.append(QString::fromUtf8(styleFile.readAll()));
-    styleSheet.append('\n');
-    return true;
+std::optional<QString> requestConnectionName(QWidget *parent,const QString &title,const QString &action,const QString &initial={})
+{
+    QDialog dialog(parent);
+    dialog.setObjectName("connectionNameDialog");
+    dialog.setWindowTitle(title);
+    dialog.setMinimumWidth(320);
+    auto *layout=new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20,20,20,20);
+    layout->setSpacing(8);
+    auto *label=new QLabel(MainWindow::tr("Connection name"),&dialog);
+    label->setObjectName("connectionNameLabel");
+    auto *name=new QLineEdit(initial,&dialog);
+    name->setObjectName("connectionNameEdit");
+    label->setBuddy(name);
+    auto *hint=new QLabel(MainWindow::tr("Use letters, numbers, underscores or hyphens."),&dialog);
+    hint->setObjectName("connectionNameHint");
+    hint->setProperty("secondary",true);
+    hint->setWordWrap(true);
+    name->setAccessibleDescription(hint->text());
+    layout->addWidget(label);
+    layout->addWidget(name);
+    layout->addWidget(hint);
+    auto *cancel=new QPushButton(MainWindow::tr("Cancel"),&dialog);
+    cancel->setObjectName("connectionNameCancel");
+    auto *primary=new QPushButton(action,&dialog);
+    primary->setObjectName("connectionNamePrimary");
+    primary->setDefault(true);
+    auto *buttons=new QHBoxLayout;
+    buttons->setSpacing(12);
+    buttons->addStretch();
+    buttons->addWidget(cancel);
+    buttons->addWidget(primary);
+    layout->addLayout(buttons);
+    QObject::connect(cancel,&QPushButton::clicked,&dialog,&QDialog::reject);
+    QObject::connect(primary,&QPushButton::clicked,&dialog,&QDialog::accept);
+    name->setFocus(Qt::OtherFocusReason);
+    name->selectAll();
+    if (dialog.exec()!=QDialog::Accepted) return std::nullopt;
+    return name->text();
 }
 }
 
 MainWindow::MainWindow(
     ApplicationLogger *logger,
     ApplicationLogFile *logFile,
-    QWidget *parent
+    QWidget *parent,
+    MainWindowCoordinator::NetworkFactory networkFactory
 ) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
     applicationLogger(logger),
     applicationLogFile(logFile)
 {
+    ApplicationAppearance::install();
+    ApplicationLanguage::instance();
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
-    coordinator = new MainWindowCoordinator(this, overrideConfigPath, this);
-    profileService = coordinator->profiles();
-    currentProfileId = profileService->currentProfileId();
-    settings = profileService->settings();
+    coordinator = new MainWindowCoordinator(this, overrideConfigPath, this, networkFactory);
+    savedConnections = coordinator->connectionSettingsService();
+    currentConnectionId = savedConnections->currentConnectionId();
+    settings = savedConnections->settings();
 
-    const bool isFirstLaunch =
-        !settings->contains("Common/ConfigVersion");
     upgradeSettings();
 
-    ui->setupUi(this);
-#ifdef Q_OS_MACOS
-    const QMargins centralMargins = ui->centralWidget->contentsMargins();
-    ui->centralWidget->setContentsMargins(centralMargins.left(), 12, centralMargins.right(), centralMargins.bottom());
+#ifndef Q_OS_MACOS
+    // On macOS Qt would replace the Dock icon supplied by the app bundle.
+    QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
 #endif
-    ui->logPlainTextEdit->setFont(
-        QFontDatabase::systemFont(QFontDatabase::FixedFont)
-    );
-    QStyleHints *styleHints = QGuiApplication::styleHints();
-    applyColorScheme(styleHints->colorScheme());
-    connect(styleHints, &QStyleHints::colorSchemeChanged,
-            this, &MainWindow::applyColorScheme);
+    ui->setupUi(this);
+    ui->centralWidget->setFocus(Qt::OtherFocusReason);
+    ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    ui->detailsDialog->resize(640,568);
+    PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
+    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
+        if (!ui->detailsDialog->isVisible()) {
+            ui->detailsTabs->setCurrentIndex(0);
+            ui->detailsTabs->tabBar()->setFocus();
+        }
+        updateDiagnostics();
+        PresentationHelpers::activateWindow(ui->detailsDialog);
+    });
+    ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
+    ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
+    ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
+    ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
+    connect(coordinator->diagnostics(), &ConnectionDiagnostics::changed, this, [this] {
+        if (ui->overviewTab->isVisible()) updateDiagnostics();
+    });
+    connect(ui->detailsTabs, &QTabWidget::currentChanged, this, [this] {
+        if (ui->overviewTab->isVisible()) updateDiagnostics();
+    });
+    connect(ui->refreshDiagnosticsButton, &QPushButton::clicked,
+        coordinator->networkPolicy(), &NetworkPolicySession::refresh);
+    PresentationHelpers::connectCopyButton(ui->copyDiagnosticsButton, [this] {
+        return QApplication::applicationVersion() + "\n" + coordinator->diagnostics()->report();
+    });
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();
     updateChecker = coordinator->updates();
+    connect(coordinator->credentials(),&CredentialAccess::configurationSaved,this,[this](const QString &path) {
+        if (settings && settings->fileName()==path) {
+            updateConnectionSummary();
+            if (currentConnectionId.isEmpty()) refreshConnectionMenu();
+        }
+    });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
             [this](const VersionInfo &) { updateVersionInfo(); });
-    connect(updateChecker, &UpdateChecker::checkFailed, this,
-            [this](UpdateComponent component, const QString &)
-            {
-                const QString componentName =
-                    component == UpdateComponent::Ui ? QStringLiteral("UI") : QStringLiteral("核心");
-                ui->versionLabel->setToolTip(
-                    ui->versionLabel->toolTip()
-                    + "\n检查" + componentName + "更新失败"
-                );
-            });
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
             {
                 QMessageBox msgBox(this);
-                msgBox.setText("UI 版本更新");
-                msgBox.setInformativeText(
-                    "存在 UI 版本更新：" + latestVersion + "\n是否前往 Github 发布页面查看？"
-                );
+                msgBox.setWindowTitle(tr("Update available"));
+                msgBox.setTextFormat(Qt::PlainText);
+                msgBox.setText(tr("Version %1 is available.").arg(latestVersion));
                 msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+                msgBox.button(QMessageBox::Ok)->setText(tr("Open page"));
                 msgBox.setDefaultButton(QMessageBox::Ok);
 
                 if (msgBox.exec() == QMessageBox::Ok)
@@ -119,61 +187,67 @@ MainWindow::MainWindow(
                     );
                 }
             });
-    connect(applicationLogger, &ApplicationLogger::entryAdded, this,
-            [this](const QString &entry)
-            {
-                ui->logPlainTextEdit->appendPlainText(entry);
-            });
-    connect(systemProxySession, &SystemProxySession::busyChanged, this,
-            [this](bool busy)
-            {
-                ui->pushButton2->setEnabled(!busy);
-                ui->disableProxyAction->setEnabled(!busy);
-            });
-    connect(systemProxySession, &SystemProxySession::enabledChanged, this,
-            [this](bool enabled)
-            {
-                ui->pushButton2->setText(enabled ? "清除系统代理" : "设置系统代理");
-                if (!enabled && connectionSession != nullptr && !connectionSession->isActive())
-                {
-                    ui->pushButton2->hide();
-                }
-                updateProfileSummary();
-                updateConnectionState(connectionSession->state());
-            });
+    logFlushTimer.setSingleShot(true);
+    connect(&logFlushTimer, &QTimer::timeout, this, &MainWindow::flushLog);
+    connect(applicationLogger, &ApplicationLogger::entryAdded, this, [this](const QString &entry) {
+        pendingLogEntries.append(entry);
+        if (pendingLogEntries.size() >= ui->logPlainTextEdit->maximumBlockCount())
+            flushLog();
+        else if (!logFlushTimer.isActive())
+            logFlushTimer.start();
+    });
+    connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
+        updateConnectionSummary();updateConnectionState(connectionSession->state());
+    });
     setupTrayIcon();
-    setupProfileMenu();
+    setupConnectionMenu();
+    auto *applicationMenu = new QMenu(ui->applicationMenuButton);
+    applicationMenu->setToolTipsVisible(true);
+    applicationMenu->addAction(ui->checkUpdateAction);
+    applicationMenu->addAction(ui->aboutAction);
+    ui->applicationMenuButton->setMenu(applicationMenu);
+    connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
+    ui->exitAction->setShortcut(QKeySequence::Quit);
+    ui->preferencesAction->setShortcut(QKeySequence::Preferences);
+    addAction(ui->exitAction);
+    addAction(ui->preferencesAction);
+#ifndef Q_OS_MACOS
+    ui->menubar->hide();
+#endif
 
-    setWindowIcon(QIcon(QPixmap(":/resource/icon.png").scaled(
-        512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation
-    )));
 
-    ui->applicationNameLabel->setText(QApplication::applicationDisplayName());
-
+    updateConnectionSummary();
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
+    trayIcon->show();
 
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
+    connect(connectionSession, &ConnectionSession::progressChanged, this, [this] { updateConnectionState(connectionSession->state()); });
 
 
     // 文件-退出
     connect(ui->exitAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
 
-    // 文件-设置
-    connect(ui->settingAction, &QAction::triggered, this,
-            [&]()
-            {
-                settingWindow = new SettingWindow(this, settings, currentProfileId);
-                settingWindow->show();
-            });
+    connect(ui->preferencesAction,&QAction::triggered,this,&MainWindow::showApplicationPreferences);
 
-    connect(ui->settingPushButton, &QPushButton::clicked,
-            ui->settingAction, &QAction::trigger);
-    connect(ui->guidePushButton, &QPushButton::clicked,
-            ui->configurationGuideAction, &QAction::trigger);
+    // 文件-设置
+    connect(ui->settingAction,&QAction::triggered,this,[this]{showConnectionSettings();});
+
     connect(ui->openLogPushButton, &QPushButton::clicked,
             ui->openLogAction, &QAction::trigger);
+
+    connect(ui->inspectNetworkAction, &QAction::triggered, this, [this] {
+        if (!networkPolicyWindow) {
+            networkPolicyWindow = new NetworkPolicyWindow(coordinator->networkPolicy(), this);
+            networkPolicyWindow->setAttribute(Qt::WA_DeleteOnClose);
+        }
+        networkPolicyWindow->show();
+        networkPolicyWindow->raise();
+        networkPolicyWindow->activateWindow();
+    });
+
+    connect(ui->diagnosticRulesButton, &QPushButton::clicked, ui->inspectNetworkAction, &QAction::trigger);
 
     // 文件-打开日志文件
     connect(ui->openLogAction, &QAction::triggered, this,
@@ -188,101 +262,26 @@ MainWindow::MainWindow(
                 }
                 else
                 {
-                    QMessageBox::warning(this, "日志文件", "日志文件创建失败。");
+                    QMessageBox::warning(this, tr("Log file"), tr("The log file could not be created."));
                 }
             });
 
-    // 文件-清除系统代理
-    connect(ui->disableProxyAction, &QAction::triggered,
-            [&]()
-            {
-                QMessageBox messageBox(this);
-                messageBox.setWindowTitle("清理系统代理");
-                messageBox.setText("是否清理系统代理？");
+    connect(ui->clearAuthenticationCacheAction,&QAction::triggered,this,[this] {
+        connectionUiController->clearAuthenticationCache();
+    });
 
-                messageBox.addButton(QMessageBox::Yes)->setText("是");
-                messageBox.addButton(QMessageBox::No)->setText("否");
-                messageBox.setDefaultButton(QMessageBox::Yes);
-
-                if (messageBox.exec() == QMessageBox::No)
-                {
-                    return;
-                }
-
-                connect(systemProxySession, &SystemProxySession::operationFinished, this,
-                        [this](bool enabled)
-                        {
-                            if (!enabled)
-                            {
-                                qInfo().noquote() << "已清理系统代理设置";
-                            }
-                        },
-                        Qt::SingleShotConnection);
-                systemProxySession->disable();
-            });
-
-    // 文件-清理登录数据
-    connect(ui->clearClientDataAction, &QAction::triggered, this,
-            [&]()
-            {
-                QMessageBox messageBox(this);
-                messageBox.setWindowTitle("清理登录缓存");
-                messageBox.setText("是否清理登录缓存？");
-
-                messageBox.addButton(QMessageBox::Yes)->setText("是");
-                messageBox.addButton(QMessageBox::No)->setText("否");
-                messageBox.setDefaultButton(QMessageBox::Yes);
-
-                if (messageBox.exec() == QMessageBox::No)
-                {
-                    return;
-                }
-
-                ApplicationPaths::clearClientData(currentProfileId);
-                qInfo().noquote() << "已清理登录缓存";
-            });
-
-    // 文件-设置授信设备
-    connect(ui->trustDeviceAction, &QAction::triggered, this,
-            [&]()
-            {
-                try
-                {
-                    DeviceTrust::set(this,
-                        settings->value("ZJUConnect/Protocol", "easyconnect").toString(),
-                        settings->value("ZJUConnect/ServerAddress").toString(),
-                        settings->value("ZJUConnect/ServerPort").toInt(),
-                        currentProfileId, true);
-                    qInfo().noquote() << "设置授信设备成功";
-                    QMessageBox::information(this, "成功", "已设置授信设备");
-                }
-                catch (const std::runtime_error &e)
-                {
-                    qWarning().noquote() << "设置授信设备失败：" + QString(e.what());
-                    QMessageBox::critical(this, "错误", "设置授信设备失败：\n" + QString(e.what()));
-                }
-            });
-
-    // 文件-取消授信设备
-    connect(ui->untrustDeviceAction, &QAction::triggered, this,
-            [&]()
-            {
-                try
-                {
-                    DeviceTrust::set(this,
-                        settings->value("ZJUConnect/Protocol", "easyconnect").toString(),
-                        settings->value("ZJUConnect/ServerAddress").toString(),
-                        settings->value("ZJUConnect/ServerPort").toInt(),
-                        currentProfileId, false);
-                    qInfo().noquote() << "取消授信设备成功";
-                    QMessageBox::information(this, "成功", "已取消授信设备");
-                }
-                catch (const std::runtime_error &e)
-                {
-                    qWarning().noquote() << "取消授信设备失败：" + QString(e.what());
-                    QMessageBox::critical(this, "错误", "取消授信设备失败：\n" + QString(e.what()));
-                }
-            });
+    connect(ui->clearClientDataAction,&QAction::triggered,this,[this] {
+        if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving()) {
+            QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before clearing legacy data."));return;
+        }
+        const auto source=coordinator->credentialSource();
+        if (!PresentationHelpers::actionPrompt(this,tr("Clear legacy data"),
+            tr("Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept."))) return;
+        coordinator->credentials()->clearLegacyCache(source).then(this,[this](const CredentialResult &result) {
+            if (!result.succeeded()) QMessageBox::warning(this,tr("Legacy data cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
+            else qInfo().noquote()<<tr("Legacy data cleared for the current connection");
+        });
+    });
 
     // 帮助-检查更新
     connect(ui->checkUpdateAction, &QAction::triggered,
@@ -297,42 +296,27 @@ MainWindow::MainWindow(
                 ));
             });
 
-    // 帮助-关于本软件
-    connect(ui->aboutAction, &QAction::triggered,
-            [&]()
-            {
-                PresentationHelpers::showAboutDialog(this);
-            });
+    connect(ui->aboutAction, &QAction::triggered, this, [this] { PresentationHelpers::showAboutDialog(this); });
 
-    // 复制日志
-    connect(ui->copyLogPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                auto logText = ui->logPlainTextEdit->toPlainText();
-                QApplication::clipboard()->setText(logText);
-            }
-    );
+    PresentationHelpers::connectCopyButton(ui->copyLogPushButton, [this] {
+        flushLog();
+        return ui->logPlainTextEdit->toPlainText();
+    });
+    connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
 
-    // 清空日志
-    connect(ui->clearLogPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                ui->logPlainTextEdit->clear();
-            }
-    );
-
-    clearLog();
+    resetConnectionLog();
     connectionUiController = new ConnectionUiController(
         this,
-        ui->pushButton1,
-        ui->pushButton2,
+        ui->connectButton,
         trayConnectAction,
         connectionSession,
         systemProxySession,
+        coordinator->networkPolicy(),
         authenticationDialogs,
         applicationLogger,
-        [this]() { return settings; },
-        [this]() { return currentProfileId; },
+        coordinator->credentials(),
+        [this]() { return savedConnections->settings(); },
+        [this]() { return coordinator->credentialSource(); },
         [this](
             const QString &title,
             const QString &content,
@@ -343,7 +327,33 @@ MainWindow::MainWindow(
         },
         this
     );
+    connect(connectionUiController,&ConnectionUiController::configurationRequested,this,[this] {
+        showConnectionSettings();
+        if (settingWindow) settingWindow->setConnectAfterSave(true);
+    });
+    qApp->installEventFilter(this);
+    QApplication::setQuitOnLastWindowClosed(false);
+    connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
+        exitReady=true;
+        emit shutdownSettled(true);
+        QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
+    });
+    connect(connectionUiController,&ConnectionUiController::quitFailed,this,[this](const QString &code) {
+        emit shutdownSettled(false);
+        qWarning() << code << "core_active" << connectionSession->isActive()
+            << "proxy_busy" << systemProxySession->isBusy() << "proxy_unrestored" << systemProxySession->needsCleanup()
+            << "credential_work" << coordinator->credentials()->isBusy();
+        if (property("systemShutdown").toBool()) return;
+        PresentationHelpers::activateWindow(this);
+        auto *message=new QMessageBox(QMessageBox::Warning,tr("Exit incomplete"),
+            tr("Cleanup failed or timed out. New connections and reconnection are stopped. Check network recovery and retry Exit. The application remains available while the core or storage work is still running."),
+            QMessageBox::Retry|QMessageBox::Cancel,this);
+        message->setAttribute(Qt::WA_DeleteOnClose);
+        connect(message,&QMessageBox::finished,this,[this](int result){if(result==QMessageBox::Retry) gracefullyQuit();});
+        message->open();
+    });
 
+    viewsInitialized=true;
     bool shouldConnect =
         settings->value("Common/ConnectAfterStart", false).toBool();
     if (qApp->arguments().contains("--connect"))
@@ -352,7 +362,7 @@ MainWindow::MainWindow(
     }
     if (shouldConnect)
     {
-        ui->pushButton1->click();
+        connectionUiController->enableCampusAccess();
     }
 
     if (settings->value("Common/CheckUpdateAfterStart", true).toBool())
@@ -364,539 +374,488 @@ MainWindow::MainWindow(
         updateChecker->markDisabled();
     }
 
-    if (!profileService->silentStartEnabled())
+    if (!savedConnections->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
     {
         show();
-        if (isFirstLaunch)
-        {
-            QTimer::singleShot(
-                0,
-                this,
-                &MainWindow::promptFirstLaunchGuide
-            );
-        }
-    }
-}
 
-void MainWindow::closeEvent(QCloseEvent *event)
-{
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        event->ignore();
-        hide();
-        showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
-    }
-    else
-    {
-        event->accept();
     }
 }
 
 void MainWindow::changeEvent(QEvent *event)
 {
-    if (event->type() == QEvent::WindowStateChange)
-    {
-        QWindowStateChangeEvent *stateChangeEvent = static_cast<QWindowStateChangeEvent *>(event);
-        if (windowState().testFlag(Qt::WindowMinimized) == true && !(stateChangeEvent->oldState() & Qt::WindowMinimized))
-        {
-            event->ignore();
-            hide();
-            showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
-        }
+    QMainWindow::changeEvent(event);
+    if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
+    ui->retranslateUi(this);
+    addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
+    trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
+    trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
+    connectionUiController->refreshActions();refreshConnectionMenu();updateConnectionSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
+    if (ui->overviewTab->isVisible()) updateDiagnostics();
+}
+
+bool MainWindow::eventFilter(QObject *watched,QEvent *event)
+{
+    if (watched==qApp && event->type()==QEvent::Quit && !exitReady) {
+        event->ignore();
+        gracefullyQuit();
+        return true;
     }
-    else
-    {
-        event->accept();
+    return QMainWindow::eventFilter(watched,event);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (exitReady) { event->accept();return; }
+    event->ignore();
+    if (SavedConnectionStore().closeToTray() && trayIcon && trayIcon->isVisible()
+        && QSystemTrayIcon::isSystemTrayAvailable()) {
+        hide();
+    } else {
+        gracefullyQuit();
     }
+}
+
+
+void MainWindow::showApplicationPreferences() {
+    if (!preferencesWindow) {
+        auto *view=new LocalizedDialog<QDialog>(this);preferencesWindow=view;
+        view->setObjectName("applicationSettingsDialog");view->setAttribute(Qt::WA_DeleteOnClose);
+        view->setWindowModality(Qt::WindowModal);
+        constexpr int padding=24,scrollInset=8;
+        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(padding,padding,scrollInset,padding);layout->setSpacing(16);
+        auto *scroll=new QScrollArea(view);scroll->setObjectName("applicationSettingsScroll");
+        scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        layout->addWidget(scroll);
+        auto *contents=new ApplicationPreferencesWidget(scroll);
+        contents->layout()->setContentsMargins(0,0,padding-scrollInset,0);
+        connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
+            view->setAttribute(Qt::WA_DeleteOnClose, false);
+        });
+        connect(contents, &ApplicationPreferencesWidget::startupSaveFinished, view, [this, view] {
+            view->setAttribute(Qt::WA_DeleteOnClose);
+            if (!view->isVisible()) {
+                preferencesWindow = nullptr;
+                view->deleteLater();
+            }
+        });
+        auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
+        buttons->setContentsMargins(0,0,padding-scrollInset,0);
+        connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
+        view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
+        view->setMinimumSize(320,360);view->resize(560,560);
+        scroll->setWidget(contents);
+        view->ensurePolished();
+        layout->activate();
+        contents->layout()->activate();
+        scroll->setFocus(Qt::OtherFocusReason);
+        scroll->verticalScrollBar()->setValue(0);
+        PresentationHelpers::activateWindow(view);
+        // A hidden scroll area can calculate a range before its viewport has its final size.
+        QTimer::singleShot(0, scroll, [scroll] {
+            scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        });
+        return;
+    }
+    PresentationHelpers::activateWindow(preferencesWindow);
+}
+
+void MainWindow::showConnectionSettings() {
+    if (connectionUiController->isConfigurationSaving()) {
+        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save to finish."));return;
+    }
+    if (!settingWindow) {
+        if (!connectionSession->isActive()) connectionUiController->cancelPendingCredentials();
+        settingWindow=new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource());
+        settingWindow->setObjectName("connectionSettingsDialog");
+        const auto path=settings->fileName();
+        connect(settingWindow,&SettingWindow::connectRequested,this,[this,path] {
+            if (settings->fileName()==path) connectionUiController->enableCampusAccess();
+        },Qt::QueuedConnection);
+    }
+    settingWindow->setProfileEditable(!connectionSession->isActive());
+    PresentationHelpers::activateWindow(settingWindow);
+}
+
+void MainWindow::flushLog()
+{
+    logFlushTimer.stop();
+    if (pendingLogEntries.isEmpty()) return;
+    const auto text = pendingLogEntries.join(u'\n');
+    pendingLogEntries.clear();
+    ui->logPlainTextEdit->appendPlainText(text);
 }
 
 void MainWindow::clearLog()
 {
+    logFlushTimer.stop();
+    pendingLogEntries.clear();
     ui->logPlainTextEdit->clear();
-    ui->logPlainTextEdit->appendPlainText(
-        "欢迎使用 " + QApplication::applicationDisplayName() + "\n"
-        "当前版本：" + QApplication::applicationVersion() + "\n"
-        "系统版本：" + QSysInfo::prettyProductName() + "\n"
-        "当前配置：" + (currentProfileId.isEmpty() ? "默认" : currentProfileId) + "\n"
-        "配置路径：" + settings->fileName() + "\n");
 }
 
-void MainWindow::resetZjuConnectUi()
+void MainWindow::resetConnectionLog()
 {
-    ui->pushButton1->setText("连接服务器");
-    trayConnectAction->setText("连接服务器");
-    ui->pushButton2->setText("设置系统代理");
-    ui->pushButton2->hide();
+    clearLog();
+    ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nConnection: %3\nConfiguration: %4\n")
+        .arg(QApplication::applicationDisplayName(),QSysInfo::prettyProductName(),
+            connectionName(),settings->fileName()));
+}
+
+void MainWindow::resetConnectionUi()
+{
+    connectionUiController->cancelPendingCredentials();
     updateConnectionState(ConnectionState::Disconnected);
-    updateProfileSummary();
-}
-
-void MainWindow::applyColorScheme(Qt::ColorScheme scheme)
-{
-    const QString themePath = scheme == Qt::ColorScheme::Dark
-        ? QStringLiteral(":/resource/mainwindow-dark.qss")
-        : QStringLiteral(":/resource/mainwindow-light.qss");
-
-    QString styleSheet;
-    if (!appendStyleSheet(QStringLiteral(":/resource/mainwindow.qss"), styleSheet)
-        || !appendStyleSheet(themePath, styleSheet))
-    {
-        return;
-    }
-
-    setStyleSheet(styleSheet);
+    updateConnectionSummary();
 }
 
 void MainWindow::updateConnectionState(ConnectionState state)
 {
-    QString propertyValue;
+    if (settingWindow) settingWindow->setProfileEditable(!connectionSession->isActive());
+    const auto phase = connectionSession->phase();
+    const bool recoveryFailed = connectionSession->networkRecoveryFailed();
     QString title;
     QString detail;
 
     switch (state)
     {
     case ConnectionState::Disconnected:
-        propertyValue = "disconnected";
-        title = "尚未连接";
-        detail = "连接后即可访问网络资源。";
+        title = tr("Not connected");
+        detail = tr("Connect to access campus resources.");
         break;
     case ConnectionState::Starting:
-        propertyValue = "starting";
-        title = "正在连接";
-        detail = "正在启动核心并建立安全通道。";
+        switch (phase) {
+        case ConnectionPhase::Initializing: title=tr("Initializing");break;
+        case ConnectionPhase::Starting: title=tr("Starting session");break;
+        case ConnectionPhase::Restoring: title=tr("Restoring authentication");break;
+        case ConnectionPhase::Authenticating: title=tr("Waiting for sign-in");break;
+        case ConnectionPhase::AuthenticationSucceeded: title=tr("Establishing tunnel");break;
+        case ConnectionPhase::ReauthenticationRequired: title=tr("Sign in again");break;
+        case ConnectionPhase::TransportReady: title=tr("Tunnel ready");break;
+        case ConnectionPhase::NetworkRecovering: title=tr("Checking network recovery");break;
+        case ConnectionPhase::NetworkPreparing: title=tr("Preparing campus access");break;
+        case ConnectionPhase::NetworkRestoring: title=tr("Restoring network");break;
+        case ConnectionPhase::CampusReady: title=tr("Campus access ready");break;
+        }
+        detail = tr("Campus access is not ready yet.");
         break;
     case ConnectionState::Running:
-        propertyValue = "running";
-        title = "已连接";
-        detail = systemProxySession->isEnabled()
-            ? "VPN 通道与系统代理均已启用。"
-            : "VPN 通道运行中，可按需启用系统代理。";
+        title = phase == ConnectionPhase::CampusReady ? tr("Connected")
+            : phase == ConnectionPhase::NetworkRestoring ? tr("Restoring network") : tr("Tunnel ready");
+        detail = phase == ConnectionPhase::CampusReady ? tr("Campus IPv4 access is ready.")
+            : phase == ConnectionPhase::NetworkRestoring ? tr("Campus access is paused until network recovery is confirmed.")
+            : systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
+            ? tr("System proxy state is unconfirmed. Check remaining settings.")
+            : systemProxySession->isEnabled()
+            ? tr("Tunnel and system proxy are available; campus access is not ready yet.")
+            : tr("Tunnel and local proxy are available; campus access is not ready yet.");
         break;
     case ConnectionState::Stopping:
-        propertyValue = "stopping";
-        title = "正在断开";
-        detail = "正在安全关闭当前连接。";
+        title = recoveryFailed ? tr("Recovery incomplete") : tr("Disconnecting");
+        detail = recoveryFailed ? tr("Select Retry recovery to finish restoring your network.") : tr("Safely closing this connection.");
         break;
     case ConnectionState::Reconnecting:
-        propertyValue = "reconnecting";
-        title = "正在重连";
-        detail = "连接中断，正在按当前策略重新尝试。";
+        title = tr("Reconnecting");
+        detail = tr("Reconnect %1/%2 is waiting for its next attempt.").arg(connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts);
         break;
     case ConnectionState::Interrupted:
-        propertyValue = "failed";
-        title = "连接已断开";
-        detail = "VPN 核心意外退出，请查看右侧日志。";
+        title = tr("Connection interrupted");
+        detail = tr("The core stopped unexpectedly. See Details for the log.");
         break;
     case ConnectionState::Failed:
-        propertyValue = "failed";
-        title = "连接失败";
-        detail = "请查看右侧日志，确认网络与账户配置。";
+        if(phase==ConnectionPhase::NetworkRestoring){
+            title=tr("Disconnected");
+            detail=tr("Network recovery is confirmed. See Details for the earlier error.");
+        }else{
+            title = phase==ConnectionPhase::ReauthenticationRequired ? tr("Sign in again") : tr("Connection failed");
+            detail = tr("Check your network and account settings. See Details for the log.");
+        }
         break;
     }
 
+    const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || recoveryFailed;
+    ui->statusHintLabel->setText(needsAttention ? detail : QString());
+    ui->statusHintLabel->setVisible(needsAttention);
+    static const QHash<QString, const char *> results{
+        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
+        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
+        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
+    };
+    const auto traffic=connectionSession->observation("traffic");
+    const auto mode=connectionSession->keepAliveOptions().mode;
+    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
+        {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
+        {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
+    for (const auto &[stage,label]:maintenance) {
+        const auto observed=connectionSession->observation(stage);
+        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
+        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
+    }
+    if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
     ui->statusTitleLabel->setText(title);
+    static const QIcon idleArtwork(":/resource/connection.svg");
+    static const QIcon connectedArtwork(":/resource/connection-ready.svg");
+    const bool connected = state == ConnectionState::Running && phase == ConnectionPhase::CampusReady;
+    ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
+        .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
+    if (trayIcon) {
+        trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
+#ifdef Q_OS_MACOS
+        static const QIcon idleTrayArtwork = [] {
+            QIcon icon(":/resource/tray-link.svg");icon.setIsMask(true);return icon;
+        }();
+        static const QIcon connectedTrayArtwork = [] {
+            QIcon icon(":/resource/tray-link-ready.svg");icon.setIsMask(true);return icon;
+        }();
+        const auto &trayArtwork = connected ? connectedTrayArtwork : idleTrayArtwork;
+#else
+        const auto trayArtwork = connected ? connectedArtwork : QApplication::windowIcon();
+#endif
+        if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
+            trayIcon->setIcon(trayArtwork);
+    }
     ui->statusDetailLabel->setText(detail);
 
-    const QList<QWidget *> styledWidgets{
-        ui->statusIndicator,
-        ui->pushButton1
-    };
-    for (QWidget *widget : styledWidgets)
-    {
-        widget->setProperty("connectionState", propertyValue);
-        widget->style()->unpolish(widget);
-        widget->style()->polish(widget);
-        widget->update();
+    const bool primary = state == ConnectionState::Disconnected || state == ConnectionState::Failed
+        || state == ConnectionState::Interrupted || (state == ConnectionState::Stopping && recoveryFailed);
+    auto *button = ui->connectButton;
+    const auto oldPrimary = button->property("primaryAction");
+    if (!oldPrimary.isValid() || oldPrimary.toBool() != primary) {
+        button->setProperty("primaryAction",primary);
+        button->style()->unpolish(button);
+        button->style()->polish(button);
+        button->update();
     }
 }
 
-void MainWindow::updateProfileSummary()
+QString MainWindow::connectionName() const
 {
-    const QString profileName = currentProfileId.isEmpty()
-        ? QStringLiteral("默认")
-        : currentProfileId;
-    const QString protocolSetting = settings->value(
-        "ZJUConnect/Protocol",
-        "easyconnect"
-    ).toString();
-    const QString protocol = protocolSetting.compare(
-        "atrust",
-        Qt::CaseInsensitive
-    ) == 0 ? QStringLiteral("aTrust") : QStringLiteral("EasyConnect");
-    const QString server = settings->value(
-        "ZJUConnect/ServerAddress"
-    ).toString().trimmed();
+    if (savedConnections->usesOverrideConfiguration())
+        return QFileInfo(settings->fileName()).completeBaseName();
+    return currentConnectionId.isEmpty() ? defaultConnectionLabel(*settings) : currentConnectionId;
+}
 
-    QStringList details{protocol};
-    details.append(server.isEmpty() ? QStringLiteral("尚未配置服务器") : server);
-
-    ui->profileNameLabel->setText(profileName);
-    ui->profileDetailLabel->setText(details.join(QStringLiteral(" · ")));
+void MainWindow::updateConnectionSummary()
+{
+    const auto name = connectionName();
+    const auto server = settings->value("JustConnect/ServerAddress").toString().trimmed();
+    ui->profileMenuButton->setText(name);
+    ui->profileMenuButton->setAccessibleName(tr("Current connection: %1").arg(name));
+    ui->profileMenuButton->setToolTip(server.isEmpty() || server == name ? name : name + "\n" + server);
+    ui->profileDetailLabel->setText(QStringLiteral("aTrust · ") + name + (server.isEmpty()
+        ? QStringLiteral(" · ") + tr("No server configured")
+        : server == name ? QString() : QStringLiteral(" · ") + server));
 }
 
 void MainWindow::setupTrayIcon()
 {
     // 系统托盘
     trayIcon = new QSystemTrayIcon(this);
-    trayIcon->setIcon(
-        QIcon(QPixmap(":/resource/icon.png").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
     trayIcon->setToolTip(QApplication::applicationName());
-    connect(trayIcon, &QSystemTrayIcon::activated, this, [&](QSystemTrayIcon::ActivationReason reason) {
-        switch (reason)
-        {
-        case QSystemTrayIcon::Context:
-            break;
-        default:
-            if (isHidden())
-            {
-                show();
-            }
-            setWindowState(Qt::WindowState::WindowActive);
-            setFocus();
-            break;
-        }
-    });
 
-    trayConnectAction = new QAction("连接服务器", this);
-    trayProfileMenu = new QMenu("配置选择", this);
-    trayShowAction = new QAction("显示主界面", this);
-    trayCloseAction = new QAction("退出 " + QApplication::applicationName(), this);
-    trayMenu = new QMenu(this);
+    trayConnectAction = new QAction(tr("Connect"), this);
+    trayConnectionMenu = new QMenu(tr("Connections"), this);
+    trayShowAction = new QAction(tr("Show window"), this);trayShowAction->setObjectName("trayShowAction");
+    trayCloseAction = new QAction(tr("Exit %1").arg(QApplication::applicationName()), this);
+    auto *trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
     trayMenu->addSeparator();
-    trayMenu->addMenu(trayProfileMenu);
+    trayMenu->addMenu(trayConnectionMenu);
     trayMenu->addSeparator();
     trayMenu->addAction(trayShowAction);
     trayMenu->addAction(trayCloseAction);
-    connect(trayConnectAction, &QAction::triggered, this, [&]() { ui->pushButton1->click(); });
     connect(trayShowAction, &QAction::triggered, this, [&]() {
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
-        setFocus();
+        PresentationHelpers::activateWindow(this);
     });
     connect(trayCloseAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
     trayIcon->setContextMenu(trayMenu);
-    trayIcon->show();
-}
-
-void MainWindow::setupProfileMenu()
-{
-    // 务必在 setupTrayIcon 之后调用，以确保 trayProfileMenu 已正确初始化
-    ui->profileMenu->addSeparator();
-    newProfileAction = ui->profileMenu->addAction("新建配置");
-    renameProfileAction = ui->profileMenu->addAction("重命名当前配置");
-    deleteProfileAction = ui->profileMenu->addAction("删除当前配置");
-    ui->profileMenu->addSeparator();
-
-    connect(
-        ui->configurationGuideAction,
-        &QAction::triggered,
-        this,
-        &MainWindow::openConfigurationGuide
-    );
-    connect(newProfileAction, &QAction::triggered, this, &MainWindow::createProfile);
-    connect(renameProfileAction, &QAction::triggered, this, &MainWindow::renameCurrentProfile);
-    connect(deleteProfileAction, &QAction::triggered, this, &MainWindow::deleteCurrentProfile);
-
-    refreshProfileMenu();
-}
-
-void MainWindow::refreshProfileMenu()
-{
-    const QList<QAction *> actions = ui->profileMenu->actions();
-    bool remove = false;
-    for (QAction *action : actions)
-    {
-        if (action == ui->configurationGuideAction
-            || action == newProfileAction
-            || action == renameProfileAction
-            || action == deleteProfileAction)
-        {
-            continue;
-        }
-        if (action->isSeparator())
-        {
-            remove = true;
-            continue;
-        }
-        if (remove)
-        {
-            ui->profileMenu->removeAction(action);
-            delete action;
-        }
-    }
-
-    QActionGroup *switchGroup = new QActionGroup(ui->profileMenu);
-    QActionGroup *traySwitchGroup = nullptr;
-
-    if (trayProfileMenu != nullptr)
-    {
-        trayProfileMenu->clear();
-        traySwitchGroup = new QActionGroup(trayProfileMenu);
-        traySwitchGroup->setExclusive(true);
-    }
-
-    switchGroup->setExclusive(true);
-    QAction *action = ui->profileMenu->addAction("默认");
-    action->setCheckable(true);
-    action->setChecked(currentProfileId.isEmpty());
-    switchGroup->addAction(action);
-    connect(action, &QAction::triggered, this, [this]()
-    {
-        switchProfile("");
+#ifndef Q_OS_MACOS
+    connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason != QSystemTrayIcon::Context) PresentationHelpers::activateWindow(this);
     });
-    if (trayProfileMenu != nullptr)
-    {
-        QAction *trayAction = trayProfileMenu->addAction("默认");
-        trayAction->setCheckable(true);
-        trayAction->setChecked(currentProfileId.isEmpty());
-        traySwitchGroup->addAction(trayAction);
-        connect(trayAction, &QAction::triggered, this, [this]()
-        {
-            switchProfile("");
-        });
-    }
-
-    for (const QString &profileId : profileService->profiles())
-    {
-        QAction *action = ui->profileMenu->addAction(profileId);
-        action->setCheckable(true);
-        action->setChecked(
-            !profileService->usesOverrideConfiguration()
-            && profileId == currentProfileId
-        );
-        switchGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [this, profileId]()
-        {
-            switchProfile(profileId);
-        });
-
-        if (trayProfileMenu != nullptr)
-        {
-            QAction *trayAction = trayProfileMenu->addAction(profileId);
-            trayAction->setCheckable(true);
-            trayAction->setChecked(
-                !profileService->usesOverrideConfiguration()
-                && profileId == currentProfileId
-            );
-            traySwitchGroup->addAction(trayAction);
-            connect(trayAction, &QAction::triggered, this, [this, profileId]()
-            {
-                switchProfile(profileId);
-            });
-        }
-    }
-
-    const bool currentProfileIsManaged =
-        !currentProfileId.isEmpty()
-        && !profileService->usesOverrideConfiguration();
-    renameProfileAction->setEnabled(currentProfileIsManaged);
-    deleteProfileAction->setEnabled(currentProfileIsManaged);
+#endif
 }
 
-bool MainWindow::switchProfile(const QString &profileId)
+void MainWindow::setupConnectionMenu()
 {
-    if (!profileService->usesOverrideConfiguration()
-        && profileId == currentProfileId)
+    // Cocoa uses separate menu surfaces. Share their actions instead of sharing submenus.
+    auto *popup = new QMenu(ui->profileMenuButton);
+    ui->profileMenuButton->setMenu(popup);
+    switchGroup = new QActionGroup(ui->profileMenu);
+    traySwitchGroup = new QActionGroup(trayConnectionMenu);
+    switchGroup->setExclusive(true);
+    traySwitchGroup->setExclusive(true);
+    connectionActionsSeparator = ui->profileMenu->addSeparator();
+    ui->profileMenu->addAction(ui->settingAction);
+    addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
+    renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
+    renameConnectionAction->setObjectName("renameConnectionAction");
+    deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
+    deleteConnectionAction->setObjectName("deleteConnectionAction");
+    ui->profileMenu->addSeparator();
+    ui->profileMenu->addAction(ui->clearAuthenticationCacheAction);
+    ui->profileMenu->addAction(ui->clearClientDataAction);
+    popup->addActions(ui->profileMenu->actions());
+
+    connect(addConnectionAction, &QAction::triggered, this, &MainWindow::createConnection);
+    addConnectionAction->setObjectName("addConnectionAction");
+    connect(renameConnectionAction, &QAction::triggered, this, &MainWindow::renameCurrentConnection);
+    connect(deleteConnectionAction, &QAction::triggered, this, &MainWindow::deleteCurrentConnection);
+
+    refreshConnectionMenu();
+}
+
+void MainWindow::refreshConnectionMenu()
+{
+    auto connectionIds = savedConnections->connections();
+    connectionIds.prepend(QString());
+    const auto actions = switchGroup->actions();
+    const bool rebuild = actions.size() != connectionIds.size()
+        || !std::equal(actions.cbegin(), actions.cend(), connectionIds.cbegin(),
+            [](const QAction *action, const QString &id) { return action->data().toString() == id; });
+    const bool overrideConfiguration = savedConnections->usesOverrideConfiguration();
+    const auto defaultName = currentConnectionId.isEmpty() && !overrideConfiguration
+        ? connectionName()
+        : defaultConnectionLabel(QSettings(SavedConnectionStore().connectionPath({}), QSettings::IniFormat));
+    const auto updateMenu = [&](QMenu *menu, QActionGroup *group, QAction *before = nullptr) {
+        if (rebuild) {
+            qDeleteAll(group->actions());
+            for (const auto &id : connectionIds) {
+                auto *action = new QAction(id, menu);
+                menu->insertAction(before, action);
+                action->setData(id);
+                action->setCheckable(true);
+                group->addAction(action);
+                connect(action, &QAction::triggered, this, [this, id] { switchConnection(id); });
+            }
+        }
+        for (auto *action : group->actions()) {
+            const auto id = action->data().toString();
+            if (id.isEmpty()) action->setText(defaultName);
+            action->setChecked(id == currentConnectionId && (id.isEmpty() || !overrideConfiguration));
+        }
+    };
+    updateMenu(ui->profileMenu, switchGroup, connectionActionsSeparator);
+    updateMenu(trayConnectionMenu, traySwitchGroup);
+    if (rebuild) ui->profileMenuButton->menu()->insertActions(connectionActionsSeparator, switchGroup->actions());
+
+    const bool currentProfileIsManaged = !currentConnectionId.isEmpty() && !overrideConfiguration;
+    renameConnectionAction->setEnabled(currentProfileIsManaged);
+    deleteConnectionAction->setEnabled(currentProfileIsManaged);
+}
+
+bool MainWindow::switchConnection(const QString &connectionId)
+{
+    if (!savedConnections->usesOverrideConfiguration()
+        && connectionId == currentConnectionId)
     {
         return true;
     }
 
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, "切换失败", "请先断开 VPN 连接，再切换配置。");
-        refreshProfileMenu();
+        QMessageBox::warning(this, tr("Could not switch connection"), tr("Disconnect before switching connections."));
+        refreshConnectionMenu();
         return false;
     }
 
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
+        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before switching connections."));refreshConnectionMenu();return false;
+    }
     if (settingWindow != nullptr)
     {
         settingWindow->close();
     }
 
-    if (!profileService->switchTo(profileId))
+    if (!savedConnections->switchTo(connectionId))
     {
-        refreshProfileMenu();
+        QMessageBox::warning(this,tr("Could not switch connection"),tr("Could not save the current connection or read the selected connection. Check the file permissions and contents."));
+        refreshConnectionMenu();
         return false;
     }
-    settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
-    currentProfileId = profileService->currentProfileId();
+    settings = savedConnections->settings();
+    currentConnectionId = savedConnections->currentConnectionId();
 
     upgradeSettings();
-    updateVersionInfo();
-    resetZjuConnectUi();
-    clearLog();
-    refreshProfileMenu();
+    resetConnectionUi();
+    resetConnectionLog();
+    refreshConnectionMenu();
 
-    qInfo().noquote() << "已切换到配置：" + currentProfileId;
+    qInfo().noquote() << tr("Switched connection to %1").arg(connectionName());
     return true;
 }
 
-void MainWindow::createProfile()
+void MainWindow::createConnection()
 {
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
+        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before adding a connection."));return;
+    }
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, "新建失败", "请先断开 VPN 连接，再新建配置。");
+        QMessageBox::warning(this, tr("Could not add connection"), tr("Disconnect before adding a connection."));
         return;
     }
 
-    bool ok = false;
-    const QString name = QInputDialog::getText(
-        this,
-        "新建配置",
-        "请输入配置名称：\n（仅支持字母、数字、下划线和连字符）",
-        QLineEdit::Normal,
-        "",
-        &ok
-    );
-    if (!ok)
+    const auto name=requestConnectionName(this,tr("Add connection…"),tr("Continue"));
+    if (!name)
     {
         return;
     }
 
-    if (settingWindow != nullptr)
+    const auto draft=std::make_shared<QTemporaryDir>();
+    if (!draft->isValid())
     {
-        settingWindow->close();
-    }
-
-    const QString newProfileId = profileService->createAndSwitch(name);
-    if (newProfileId.isEmpty())
-    {
-        QMessageBox::critical(this, "创建失败", "无法创建新配置。");
+        QMessageBox::critical(this, tr("Could not add connection"), tr("The new connection could not be created."));
         return;
     }
-
-    settings = profileService->settings();
-    currentProfileId = profileService->currentProfileId();
-    authenticationDialogs->setSettings(settings);
-    upgradeSettings();
-    updateVersionInfo();
-    resetZjuConnectUi();
-    updateVersionInfo();
-    clearLog();
-    refreshProfileMenu();
-
-    promptConfigurationGuide(
-        "配置已创建",
-        "配置 \"" + newProfileId + "\" 已创建，是否现在使用配置引导完成设置？"
-    );
+    QSettings draftSettings(draft->filePath("connection.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(draftSettings);
+    const auto source=CredentialAccess::source(draftSettings,{});
+    if (source.scope.isEmpty()) {
+        QMessageBox::critical(this,tr("Could not add connection"),tr("The new connection could not be created."));
+        return;
+    }
+    if (settingWindow) settingWindow->close();
+    connectionUiController->cancelPendingCredentials();
+    settingWindow=new SettingWindow(this,coordinator->credentials(),source,nullptr,[this,draft,requestedName=*name] {
+        if (connectionSession->isActive()
+            || savedConnections->createAndSwitch(requestedName,draft->filePath("connection.ini")).isEmpty()) return false;
+        settings=savedConnections->settings();
+        currentConnectionId=savedConnections->currentConnectionId();
+        resetConnectionUi();
+        resetConnectionLog();
+        refreshConnectionMenu();
+        return true;
+    });
+    settingWindow->setObjectName("connectionSettingsDialog");
+    connect(settingWindow,&SettingWindow::connectRequested,connectionUiController,&ConnectionUiController::enableCampusAccess,Qt::QueuedConnection);
+    PresentationHelpers::activateWindow(settingWindow);
 }
 
-void MainWindow::openConfigurationGuide()
+void MainWindow::renameCurrentConnection()
 {
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        QMessageBox::warning(
-            this,
-            "无法修改配置",
-            "请先断开 VPN 连接，再使用配置引导。"
-        );
-        return;
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
+        QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
-
-    if (settingWindow != nullptr)
-    {
-        settingWindow->close();
-    }
-
-    const QString oldServerAddress =
-        settings->value("ZJUConnect/ServerAddress").toString();
-    const int oldServerPort =
-        settings->value("ZJUConnect/ServerPort").toInt();
-    const QString oldProtocol =
-        settings->value("ZJUConnect/Protocol").toString();
-    const QString oldAuthType =
-        settings->value("ZJUConnect/AuthType").toString();
-    const QString oldEasyConnectAuthType =
-        settings->value("ZJUConnect/EasyConnectAuthType").toString();
-    const QString oldLoginDomain =
-        settings->value("ZJUConnect/LoginDomain").toString();
-    const QString oldLoginUrl =
-        settings->value("ZJUConnect/LoginURL").toString();
-
-    ConfigurationGuideDialog guide(this, settings);
-    if (guide.exec() != QDialog::Accepted)
-    {
-        return;
-    }
-    guide.applyTo(*settings);
-
-    const bool authenticationSettingsChanged =
-        oldServerAddress != settings->value("ZJUConnect/ServerAddress").toString()
-        || oldServerPort != settings->value("ZJUConnect/ServerPort").toInt()
-        || oldProtocol != settings->value("ZJUConnect/Protocol").toString()
-        || oldAuthType != settings->value("ZJUConnect/AuthType").toString()
-        || oldEasyConnectAuthType
-            != settings->value("ZJUConnect/EasyConnectAuthType").toString()
-        || oldLoginDomain != settings->value("ZJUConnect/LoginDomain").toString()
-        || oldLoginUrl != settings->value("ZJUConnect/LoginURL").toString();
-    if (authenticationSettingsChanged)
-    {
-        ApplicationPaths::clearClientData(currentProfileId);
-    }
-
-    resetZjuConnectUi();
-    clearLog();
-    qInfo().noquote() << "已通过配置引导更新当前配置";
-}
-
-void MainWindow::promptFirstLaunchGuide()
-{
-    promptConfigurationGuide(
-        "欢迎使用 JustConnect",
-        "检测到这是首次启动，是否现在配置 VPN 服务器？"
-    );
-}
-
-void MainWindow::promptConfigurationGuide(
-    const QString &windowTitle,
-    const QString &text
-)
-{
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle(windowTitle);
-    messageBox.setText(text);
-    messageBox.setInformativeText(
-        "配置引导将协助你选择协议、填写服务器地址、认证方式和登录凭据。"
-    );
-
-    QPushButton *startButton = messageBox.addButton(
-        "使用配置引导",
-        QMessageBox::AcceptRole
-    );
-    messageBox.addButton("稍后配置", QMessageBox::RejectRole);
-    messageBox.setDefaultButton(startButton);
-    messageBox.exec();
-
-    if (messageBox.clickedButton() == startButton)
-    {
-        openConfigurationGuide();
-    }
-}
-
-void MainWindow::renameCurrentProfile()
-{
-    bool ok = false;
-    QString name = QInputDialog::getText(this, "重命名配置", "请输入新配置名称：\n（仅支持字母、数字、下划线）", QLineEdit::Normal, currentProfileId, &ok);
-    if (!ok)
+    const auto name=requestConnectionName(this,tr("Rename connection…"),tr("Rename"),currentConnectionId);
+    if (!name)
     {
         return;
     }
 
-    const QString normalizedName = profileService->normalizeProfileId(name);
+    const QString normalizedName = savedConnections->normalizeConnectionId(*name);
     if (normalizedName.isEmpty())
     {
-        QMessageBox::warning(this, "重命名失败", "配置名称不能为空。");
+        QMessageBox::warning(this, tr("Could not rename connection"), tr("The connection name cannot be empty."));
         return;
     }
-    if (normalizedName == currentProfileId)
+    if (normalizedName == currentConnectionId)
     {
         return;
     }
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, "重命名失败", "请先断开 VPN 连接，再重命名配置。");
+        QMessageBox::warning(this, tr("Could not rename connection"), tr("Disconnect before renaming a connection."));
         return;
     }
 
@@ -904,108 +863,101 @@ void MainWindow::renameCurrentProfile()
     {
         settingWindow->close();
     }
-    if (!profileService->renameCurrent(normalizedName))
-    {
-        QMessageBox::warning(this, "重命名失败", "目标配置已存在，或当前配置不可重命名。");
-        return;
-    }
-
-    currentProfileId = profileService->currentProfileId();
-    settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
-    updateVersionInfo();
-    refreshProfileMenu();
-    clearLog();
-    qInfo().noquote() << "当前配置已重命名为：" + currentProfileId;
+    connectionUiController->cancelPendingCredentials();
+    const auto source=coordinator->credentialSource();
+    coordinator->credentials()->migrate(source).then(this,[this,source,normalizedName](const CredentialResult &result) {
+        if (!CredentialAccess::matches(source,*settings)) return;
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or add a new connection."));return;}
+        if (!savedConnections->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename connection"),tr("The name is already in use or the connection cannot be renamed."));return;}
+        currentConnectionId=savedConnections->currentConnectionId();settings=savedConnections->settings();
+        updateConnectionSummary();refreshConnectionMenu();resetConnectionLog();qInfo().noquote()<<tr("Connection renamed to: ")+currentConnectionId;
+    });
 }
 
-void MainWindow::deleteCurrentProfile()
+void MainWindow::deleteCurrentConnection()
 {
-    if (currentProfileId.isEmpty())
+    if (savedConnections->usesOverrideConfiguration()) {QMessageBox::warning(this,tr("Could not delete connection"),tr("External connections cannot be deleted here."));return;}
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
+        QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before deleting the connection."));return;
+    }
+    if (currentConnectionId.isEmpty())
     {
-        QMessageBox::warning(this, "删除失败", "默认配置不可删除。");
+        QMessageBox::warning(this, tr("Could not delete connection"), tr("The primary connection cannot be deleted."));
         return;
     }
 
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle("删除配置");
-    messageBox.setText("确认删除当前配置 \"" + currentProfileId + "\" 吗？");
-    messageBox.addButton(QMessageBox::Yes)->setText("是");
-    messageBox.addButton(QMessageBox::No)->setText("否");
-    messageBox.setDefaultButton(QMessageBox::No);
-    if (messageBox.exec() != QMessageBox::Yes)
-    {
-        return;
-    }
+    if (!PresentationHelpers::actionPrompt(this,tr("Delete connection"),
+        tr("Delete “%1”?").arg(currentConnectionId) + "\n\n" +
+        tr("This removes its settings and old cache. Clear saved credentials and sign-ins first if you want them removed too."),
+        QDialogButtonBox::Yes,QDialogButtonBox::Cancel,tr("Delete"))) return;
 
-    const QString removedProfileId = currentProfileId;
+    const QString removedConnectionId = currentConnectionId;
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, "删除失败", "请先断开 VPN 连接，再删除配置。");
+        QMessageBox::warning(this, tr("Could not delete connection"), tr("Disconnect before deleting a connection."));
         return;
     }
     if (settingWindow != nullptr)
     {
         settingWindow->close();
     }
-    if (!profileService->removeCurrentAndSwitchToDefault())
+    connectionUiController->cancelPendingCredentials();
+    const auto legacy=coordinator->credentialSource().legacyCachePath;
+    if (!legacy.isEmpty() && QFileInfo::exists(legacy) && !QFile::remove(legacy)) {
+        QMessageBox::warning(this,tr("Delete incomplete"),tr("The legacy cache could not be removed. The connection was preserved. Check access permissions and retry."));return;
+    }
+    if (!savedConnections->removeCurrentAndSwitchToDefault())
     {
-        QMessageBox::warning(this, "删除失败", "无法删除该配置文件。");
+        QMessageBox::warning(this, tr("Could not delete connection"), tr("The connection settings file could not be deleted."));
         return;
     }
 
-    currentProfileId = profileService->currentProfileId();
-    settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
+    currentConnectionId = savedConnections->currentConnectionId();
+    settings = savedConnections->settings();
     upgradeSettings();
-    updateVersionInfo();
-    resetZjuConnectUi();
-    clearLog();
-    refreshProfileMenu();
-    qInfo().noquote() << "已删除配置：" + removedProfileId;
+    resetConnectionUi();
+    resetConnectionLog();
+    refreshConnectionMenu();
+    qInfo().noquote() << tr("Deleted connection: ") + removedConnectionId;
 }
 
 void MainWindow::upgradeSettings()
 {
-    const SettingsMigrationAction action = SettingsMigrator::prepare(*settings);
+    const SettingsMigrationAction action = SettingsMigrator::prepare(*settings,
+        currentConnectionId.isEmpty() && !savedConnections->usesOverrideConfiguration());
     if (action == SettingsMigrationAction::MigrateAutoStart)
     {
-        profileService->migrateAutoStartSetting(
-            settings->value("Common/AutoStart", false).toBool()
-        );
-    }
-    else if (action == SettingsMigrationAction::RecommendReset)
-    {
-        QMessageBox msgBox;
-        msgBox.setText("存在配置更新");
-        msgBox.setInformativeText("建议恢复默认设置，以使用优化的配置。\n\n是否恢复默认设置？");
-        msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-        msgBox.setDefaultButton(QMessageBox::Cancel);
-
-        const bool reset = msgBox.exec() == QMessageBox::Ok;
-        SettingsMigrator::finish(*settings, reset);
-        if (reset)
-        {
-            QMessageBox::information(this, "完成", "已恢复默认设置。");
+        if (!savedConnections->migrateAutoStartSetting(settings->value("Common/AutoStart", false).toBool())) {
+            QMessageBox::warning(this, tr("Startup preference migration failed"), tr("The previous startup preference could not be saved. The old configuration is preserved for retry."));
+            return;
         }
-        return;
     }
-    SettingsMigrator::finish(*settings, false);
+    if (action == SettingsMigrationAction::Failed || !SettingsMigrator::finish(*settings))
+    {
+        QMessageBox::warning(this, tr("Connection settings migration incomplete"), tr("The upgraded connection settings could not be saved. The previous settings were kept for retry."));
+    }
 }
 
 void MainWindow::updateVersionInfo()
 {
     const VersionInfo &versionInfo = updateChecker->versionInfo();
-    ui->versionLabel->setText("版本 " + versionInfo.uiVersion);
-    ui->versionLabel->setToolTip(
-        "UI 版本：" + versionInfo.uiVersion + "（最新：" + versionInfo.uiLatest + "）\n"
-        "核心版本：" + versionInfo.coreVersion + "（最新：" + versionInfo.coreLatest + "）"
-    );
-    updateProfileSummary();
+    QString latest;
+    switch(versionInfo.updateState){
+    case VersionInfo::UpdateState::Checking:latest=tr("Checking…");break;
+    case VersionInfo::UpdateState::Disabled:latest=tr("Disabled");break;
+    case VersionInfo::UpdateState::Failed:latest=tr("Check failed");break;
+    case VersionInfo::UpdateState::Ready:latest=versionInfo.uiLatest;break;
+    }
+    ui->checkUpdateAction->setToolTip(tr("Update status: %1").arg(latest));
 }
 
 void MainWindow::showNotification(const QString &title, const QString &content, QSystemTrayIcon::MessageIcon icon)
 {
+    if(!QSystemTrayIcon::isSystemTrayAvailable() || !QSystemTrayIcon::supportsMessages()){
+        auto *notice=new QMessageBox(icon==QSystemTrayIcon::Warning?QMessageBox::Warning:QMessageBox::Information,
+            title,content,QMessageBox::Ok,this);
+        notice->setAttribute(Qt::WA_DeleteOnClose);notice->setWindowModality(Qt::NonModal);notice->show();return;
+    }
     disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
     trayIcon->showMessage(
         title,
@@ -1018,40 +970,21 @@ void MainWindow::showNotification(const QString &title, const QString &content, 
     {
         disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
 
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
+        PresentationHelpers::activateWindow(this);
     });
 }
 
 void MainWindow::cleanUpWhenQuit()
 {
-    // 保存配置
-    if (settings->value("Common/ConfigVersion", 0).toInt() <=
-        ApplicationConstants::ConfigVersion)
-    {
-        settings->setValue(
-            "Common/ConfigVersion",
-            ApplicationConstants::ConfigVersion
-        );
-    }
     settings->sync();
 
-    // 清除系统代理
-    coordinator->prepareForShutdown();
+    if (connectionSession->isActive() || systemProxySession->isBusy() || systemProxySession->needsCleanup() || coordinator->credentials()->isBusy())
+        qWarning() << "Application exited before ordered cleanup completed";
 }
 
 void MainWindow::gracefullyQuit()
 {
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        connect(connectionSession, &ConnectionSession::finished, qApp,
-                [](ZJU_ERROR) { QApplication::quit(); });
-        ui->pushButton1->click();
-    }
-    else
-    {
-        qApp->quit();
-    }
+    connectionUiController->prepareForQuit();
 }
 
 MainWindow::~MainWindow()
@@ -1062,4 +995,30 @@ MainWindow::~MainWindow()
     QObject::disconnect(applicationLogger, nullptr, this, nullptr);
     delete ui;
     ui = nullptr;
+}
+
+void MainWindow::endSystemSession()
+{
+    // Cocoa can ask again when the final Qt quit is delivered after cleanup.
+    if (exitReady) return;
+    QEventLoop cleanup;
+    bool settled=false;
+    const auto finished=connect(this,&MainWindow::shutdownSettled,&cleanup,[&](bool) {settled=true;cleanup.quit();});
+    QTimer deadline;deadline.setSingleShot(true);deadline.setInterval(16000);
+    connect(&deadline,&QTimer::timeout,&cleanup,&QEventLoop::quit);
+    setProperty("systemShutdown",true);
+    gracefullyQuit();
+    if (!settled) {deadline.start();cleanup.exec();}
+    setProperty("systemShutdown",false);
+    disconnect(finished);
+}
+
+void MainWindow::updateDiagnostics()
+{
+    const auto fields=coordinator->diagnostics()->fields();
+    QList<QStringList> rows;
+    for(const auto &[label,value]:fields) rows.append(QStringList{label,value});
+    PresentationHelpers::setTreeRows(ui->diagnosticReport,rows);
+    auto *policy = coordinator->networkPolicy();
+    ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }
