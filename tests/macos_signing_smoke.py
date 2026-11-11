@@ -1,4 +1,5 @@
 """Exercise the production signing script with real Mach-O files and Keychain."""
+import base64
 import hashlib
 import json
 import os
@@ -35,13 +36,47 @@ def main():
         host = binaries / 'JustConnect'
         source = b'''
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
 #import <ServiceManagement/ServiceManagement.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 extern int fixture(void);
+static int cache(const char *operation, const char *path) {
+    SecKeychainRef keychain = NULL;
+    OSStatus status = SecKeychainOpen(path, &keychain);
+    if (status != errSecSuccess || SecKeychainSetUserInteractionAllowed(false) != errSecSuccess) return 4;
+    NSMutableDictionary *query = [@{(id)kSecClass:(id)kSecClassGenericPassword,
+        (id)kSecAttrService:@"JustConnect signing fixture", (id)kSecAttrAccount:@"one-account",
+        (id)kSecUseAuthenticationUI:(id)kSecUseAuthenticationUIFail} mutableCopy];
+    NSData *expected = [@"fixture" dataUsingEncoding:NSUTF8StringEncoding];
+    bool writing = !strcmp(operation, "--write-cache");
+    CFTypeRef data = NULL;
+    if (writing) {
+        query[(id)kSecUseKeychain] = (id)keychain;
+        query[(id)kSecValueData] = expected;
+        status = SecItemAdd((CFDictionaryRef)query, NULL);
+    } else {
+        query[(id)kSecMatchSearchList] = @[(id)keychain];
+        query[(id)kSecReturnData] = @YES;
+        status = SecItemCopyMatching((CFDictionaryRef)query, &data);
+    }
+    bool denied = !strcmp(operation, "--deny-cache");
+    bool okay = denied ? (status == errSecAuthFailed || status == errSecInteractionNotAllowed)
+        : status == errSecSuccess && (writing || (data && CFEqual(data, expected)));
+    if (!okay) fprintf(stderr, "Keychain %s failed: %d\\n", operation, (int)status);
+    if (data) CFRelease(data);
+    CFRelease(keychain);
+    return okay ? 0 : 5;
+}
 int main(int argc, char **argv) {
     if (fixture() != 42) return 2;
+    if (argc == 2 && !strcmp(argv[1], "--fixture-version")) return FIXTURE_VERSION;
+    if (argc == 3 && (!strcmp(argv[1], "--write-cache") || !strcmp(argv[1], "--read-cache")
+        || !strcmp(argv[1], "--deny-cache"))) {
+        @autoreleasepool { return cache(argv[1], argv[2]); }
+    }
     if (argc == 3 && !strcmp(argv[1], "--load-foreign")) {
         void *handle = dlopen(argv[2], RTLD_NOW);
         if (handle) {
@@ -97,13 +132,20 @@ int main(int argc, char **argv) {
         fixture = root / 'fixture.o'
         run('/usr/bin/clang', '-c', '-x', 'c', '-', '-o', fixture,
             input=b'int fixture(void) { return 42; }\n')
-        run('/usr/bin/clang', '-x', 'objective-c', '-', '-x', 'none', fixture,
-            '-framework', 'Foundation', '-framework', 'ServiceManagement', '-o', host, input=source)
+        def compile_host(version):
+            run('/usr/bin/clang', f'-DFIXTURE_VERSION={version}', '-x', 'objective-c', '-', '-x', 'none', fixture,
+                '-framework', 'Foundation', '-framework', 'Security', '-framework', 'ServiceManagement', '-o', host, input=source)
+
+        compile_host(1)
         shutil.copy2(host, helper)
         scratch = root / 'private-signing'
         scratch.mkdir()
-        run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
-            env=dict(os.environ, TMPDIR=str(scratch)))
+        def sign(identity=''):
+            run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
+                env=dict(os.environ, TMPDIR=str(scratch), JC_MAC_SIGNING_P12=identity))
+            assert not list(scratch.iterdir()), 'Private signing material survived'
+
+        sign()
         run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
         leaves = []
         for index, path in enumerate((app, helper, library)):
@@ -115,14 +157,41 @@ int main(int argc, char **argv) {
             run('/usr/bin/codesign', '--display', '--extract-certificates='+str(prefix), path)
             leaves.append(hashlib.sha256(Path(str(prefix)+'0').read_bytes()).hexdigest())
         assert len(set(leaves)) == 1, 'App/helper/framework have different signing identities'
-        assert not list(scratch.iterdir()), 'Private signing material survived'
         run(helper)
         rejection = run(host, '--load-foreign', library).stderr.decode()
         assert 'team' in rejection.lower(), rejection
         registration = run(host, '--registration-probe', daemon_name)
         print(registration.stderr.decode(), end='')
+
+        key, certificate, bundle = (root / name for name in ('fixture.key', 'fixture.pem', 'fixture.p12'))
+        run('/usr/bin/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+            '-config', '/dev/stdin', '-keyout', key, '-out', certificate,
+            input=b'[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=JustConnect local build\n'
+                  b'[ext]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=codeSigning\n')
+        run('/usr/bin/openssl', 'pkcs12', '-export', '-inkey', key, '-in', certificate,
+            '-out', bundle, '-passout', 'pass:')
+        identity = base64.b64encode(bundle.read_bytes()).decode()
+        cache_keychain = root / 'cache.keychain-db'
+        run('/usr/bin/security', 'create-keychain', '-p', 'fixture', cache_keychain)
+        try:
+            run('/usr/bin/security', 'unlock-keychain', '-p', 'fixture', cache_keychain)
+            sign(identity)
+            first = run('/usr/bin/codesign', '--display', '-r-', app).stderr
+            run(host, '--write-cache', cache_keychain)
+            run(host, '--read-cache', cache_keychain)
+            old_binary = hashlib.sha256(host.read_bytes()).digest()
+            compile_host(2)
+            sign(identity)
+            assert hashlib.sha256(host.read_bytes()).digest() != old_binary
+            run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
+            assert run('/usr/bin/codesign', '--display', '-r-', app).stderr == first
+            run(host, '--read-cache', cache_keychain)
+            sign()
+            run(host, '--deny-cache', cache_keychain)
+        finally:
+            run('/usr/bin/security', 'delete-keychain', cache_keychain)
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
-    print('PASS: local signing, same leaf, hardened roles, static startup, foreign library rejection, service registration and key cleanup')
+    print('PASS: hardened roles, service registration, key cleanup, upgrade cache reuse and rejection of a different signer')
 
 
 if __name__ == '__main__':

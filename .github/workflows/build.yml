@@ -200,8 +200,10 @@ jobs:
 
       - name: Sign macOS bundle
         if: runner.os == 'macOS'
+        env:
+          JC_MAC_SIGNING_P12: ${{ secrets.JC_MAC_SIGNING_P12 }}
         run: |
-          echo '::notice::Using an automatic local build identity; no external signing account or notarization.'
+          : "${JC_MAC_SIGNING_P12:?Configure the persistent macOS project signing identity}"
           ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
           codesign --verify --deep --strict "$TARGET_NAME.app"
 
