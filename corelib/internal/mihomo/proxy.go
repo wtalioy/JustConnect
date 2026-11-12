@@ -225,7 +225,7 @@ func (c *proxyUDP) Read(data []byte) (int, error) {
 		if err != nil {
 			continue
 		}
-		if packet.DstAddr.Port != c.target.Port || c.target.IP != nil && !packet.DstAddr.IP.Equal(c.target.IP) || packet.DstAddr.FQDN != "" && packet.DstAddr.FQDN != c.target.FQDN {
+		if !packet.MatchesReply(c.target) {
 			continue
 		}
 		return copy(data, packet.Data), nil

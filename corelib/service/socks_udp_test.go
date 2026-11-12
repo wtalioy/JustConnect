@@ -177,7 +177,7 @@ func TestSOCKSUDPDatagramsAndActiveAssociationStop(t *testing.T) {
 						t.Fatal(err)
 					}
 					decoded, err := socksudp.Parse(response[:n])
-					if err != nil || decoded.DstAddr.String() != datagram.DstAddr.String() || !bytes.Equal(decoded.Data, payload) {
+					if err != nil || decoded.Destination() != datagram.DstAddr.String() || !bytes.Equal(decoded.Data, payload) {
 						t.Fatalf("datagram=%v, %v", decoded, err)
 					}
 				}
@@ -221,19 +221,24 @@ func socksUDPEchoPipe(size int) net.Conn {
 
 func BenchmarkSOCKSUDPDatagrams(b *testing.B) {
 	const payloadSize = 1200
-	b.Run("native", func(b *testing.B) { benchmarkSOCKSUDPDatagrams(b, payloadSize) })
+	b.Run("native", func(b *testing.B) { benchmarkSOCKSUDPDatagrams(b, payloadSize, false) })
+	b.Run("domain", func(b *testing.B) { benchmarkSOCKSUDPDatagrams(b, payloadSize, true) })
 	b.Run("user-space", func(b *testing.B) {
-		benchmarkSOCKSUDPDatagrams(b, payloadSize, func(context.Context, string, string) (net.Conn, error) {
+		benchmarkSOCKSUDPDatagrams(b, payloadSize, false, func(context.Context, string, string) (net.Conn, error) {
 			return socksUDPEchoPipe(payloadSize), nil
 		})
 	})
 }
 
-func benchmarkSOCKSUDPDatagrams(b *testing.B, payloadSize int, upstream ...client.DialContextFunc) {
+func benchmarkSOCKSUDPDatagrams(b *testing.B, payloadSize int, domain bool, upstream ...client.DialContextFunc) {
 	f := newSOCKSUDPFixture(b, "127.0.0.1", false, upstream...)
 	datagram, err := statute.NewDatagram(f.targets[0], bytes.Repeat([]byte{0x5a}, payloadSize))
 	if err != nil {
 		b.Fatal(err)
+	}
+	if domain {
+		datagram.DstAddr.FQDN = datagram.DstAddr.IP.String()
+		datagram.DstAddr.AddrType = statute.ATYPDomain
 	}
 	packet := datagram.Bytes()
 	response := make([]byte, maxUDPPacket)

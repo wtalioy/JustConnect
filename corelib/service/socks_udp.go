@@ -99,7 +99,7 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 				if full {
 					continue
 				}
-				conn, err := p.dial(ctx, "udp", packet.DstAddr.String())
+				conn, err := p.dial(ctx, "udp", packet.Destination())
 				if err != nil {
 					continue
 				}

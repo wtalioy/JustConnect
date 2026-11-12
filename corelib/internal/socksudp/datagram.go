@@ -5,19 +5,46 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"strconv"
 
 	"github.com/things-go/go-socks5/statute"
 )
 
 var ErrDatagram = errors.New("invalid SOCKS UDP datagram")
 
+type Datagram struct {
+	Data   []byte
+	host   []byte
+	port   int
+	domain bool
+}
+
+// Destination formats the address when a new flow needs to dial it.
+func (p Datagram) Destination() string {
+	port := strconv.Itoa(p.port)
+	if p.domain {
+		return net.JoinHostPort(string(p.host), port)
+	}
+	return net.JoinHostPort(net.IP(p.host).String(), port)
+}
+
+// MatchesReply accepts a resolved IP for a name-only target, but never another name or port.
+func (p Datagram) MatchesReply(target statute.AddrSpec) bool {
+	if p.port != target.Port {
+		return false
+	}
+	if target.IP != nil && (p.domain || !net.IP(p.host).Equal(target.IP)) {
+		return false
+	}
+	return !p.domain || string(p.host) == target.FQDN
+}
+
 // Parse borrows the packet, accepts empty payloads, and rejects unsupported fragmentation.
-func Parse(data []byte) (statute.Datagram, error) {
-	var packet statute.Datagram
+func Parse(data []byte) (Datagram, error) {
+	var packet Datagram
 	if len(data) < 4 || data[0] != 0 || data[1] != 0 || data[2] != 0 {
 		return packet, ErrDatagram
 	}
-	packet.DstAddr.AddrType = data[3]
 	offset, size := 4, 0
 	switch data[3] {
 	case statute.ATYPIPv4:
@@ -29,6 +56,7 @@ func Parse(data []byte) (statute.Datagram, error) {
 			return packet, ErrDatagram
 		}
 		offset, size = 5, int(data[4])
+		packet.domain = true
 	default:
 		return packet, ErrDatagram
 	}
@@ -36,15 +64,11 @@ func Parse(data []byte) (statute.Datagram, error) {
 	if len(data) < end+2 {
 		return packet, ErrDatagram
 	}
-	if data[3] == statute.ATYPDomain {
-		packet.DstAddr.FQDN = string(data[offset:end])
-	} else {
-		packet.DstAddr.IP = net.IP(data[offset:end])
-	}
-	packet.DstAddr.Port = int(binary.BigEndian.Uint16(data[end : end+2]))
-	if packet.DstAddr.Port == 0 {
+	packet.port = int(binary.BigEndian.Uint16(data[end : end+2]))
+	if packet.port == 0 {
 		return packet, ErrDatagram
 	}
+	packet.host = data[offset:end]
 	packet.Data = data[end+2:]
 	return packet, nil
 }
