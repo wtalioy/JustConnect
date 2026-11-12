@@ -178,6 +178,18 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if err := ValidateKeepAlive(options.KeepAliveMode, options.KeepAliveURL); err != nil {
 		return err
 	}
+	var reservedSOCKS net.Listener
+	if options.LocalProxy && !options.QueryAuthMethods {
+		reservedSOCKS, err = service.ListenLoopback(ctx, options.SOCKS)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrLocalProxyListen, err)
+		}
+		defer func() {
+			if reservedSOCKS != nil {
+				_ = reservedSOCKS.Close()
+			}
+		}()
+	}
 	clientOptions := options.Client
 	if clientOptions.UnderlayDialer == nil {
 		if options.Underlay.Diagnostic == nil {
@@ -267,15 +279,13 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		s.upstream.Store(upstream)
 		defer s.upstream.Store(nil)
 	}
-	ingress := dialer
-	if options.LocalProxy {
-		ingress = dialer.CampusOnly()
+	if reservedSOCKS != nil {
+		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer.CampusOnly())
+		reservedSOCKS = nil
+	} else {
+		listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
 	}
-	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, ingress, resolver)
 	if err != nil {
-		if options.LocalProxy && ctx.Err() == nil {
-			return fmt.Errorf("%w: %w", ErrLocalProxyListen, err)
-		}
 		return fmt.Errorf("listeners_failed: %w", err)
 	}
 	s.listeners.Store(listeners)

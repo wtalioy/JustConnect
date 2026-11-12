@@ -42,11 +42,31 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	defer occupied.Close()
 	c.Listeners.SOCKS = occupied.Addr().String()
 	c.Listeners.HTTP = ""
-	startProtocol(t, e, h, c)
-	if event := next(t, e, h); event.Type != "terminal" || event.Status != LocalProxyListen {
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	if event := next(t, e, h); event.State != "starting" {
 		t.Fatal(event)
 	}
+	if event := next(t, e, h); event.Type != "terminal" || event.Status != LocalProxyListen {
+		t.Fatal("port conflict should end before sign-in", event)
+	}
 	occupied.Close()
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	if event := next(t, e, h); event.State != "starting" {
+		t.Fatal(event)
+	}
+	if event := next(t, e, h); event.Type != "authentication" {
+		t.Fatal(event)
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("cancel during authentication")
+	}
+	if event := next(t, e, h); event.Type != "terminal" || event.Status != Cancelled {
+		t.Fatal(event)
+	}
 	startProtocol(t, e, h, c)
 	ready := next(t, e, h)
 	if ready.State != "ready" {

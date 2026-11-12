@@ -134,8 +134,30 @@ func joinedContext(ctx, parent context.Context) (context.Context, context.Cancel
 	return child, func() { stop(); cancel() }
 }
 
+// ListenLoopback reserves the port without starting a proxy worker.
+func ListenLoopback(ctx context.Context, address string) (net.Listener, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil || !net.ParseIP(host).IsLoopback() {
+		return nil, errors.New("proxy listener must use a loopback IP address")
+	}
+	var config net.ListenConfig
+	return config.Listen(ctx, "tcp", address)
+}
+
 func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
+	return startListeners(ctx, socksAddr, httpAddr, nil, dialer, resolver)
+}
+
+// StartLocalSOCKS takes ownership of a reserved loopback socket, even on error.
+func StartLocalSOCKS(ctx context.Context, socket net.Listener, dialer *dial.Dialer) (*Listeners, error) {
+	return startListeners(ctx, "", "", socket, dialer, nil)
+}
+
+func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListener net.Listener, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
 	if err := ctx.Err(); err != nil {
+		if socksListener != nil {
+			_ = socksListener.Close()
+		}
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -146,27 +168,26 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 			p.Close()
 		}
 	}()
-	var socksListener, httpListener net.Listener
-	for _, entry := range []struct {
-		address string
-		target  *net.Listener
-		bound   *string
-	}{{socksAddr, &socksListener, &p.addresses.SOCKS}, {httpAddr, &httpListener, &p.addresses.HTTP}} {
-		if entry.address == "" {
-			continue
-		}
-		host, _, err := net.SplitHostPort(entry.address)
-		ip := net.ParseIP(host)
-		if err != nil || ip == nil || !ip.IsLoopback() {
-			return nil, errors.New("proxy listener must use a loopback IP address")
-		}
-		listener, err := net.Listen("tcp", entry.address)
+	if socksAddr != "" {
+		var err error
+		socksListener, err = ListenLoopback(ctx, socksAddr)
 		if err != nil {
 			return nil, err
 		}
-		*entry.target = listener
-		*entry.bound = listener.Addr().String()
-		p.listeners = append(p.listeners, listener)
+	}
+	if socksListener != nil {
+		p.addresses.SOCKS = socksListener.Addr().String()
+		p.listeners = append(p.listeners, socksListener)
+	}
+	var httpListener net.Listener
+	if httpAddr != "" {
+		var err error
+		httpListener, err = ListenLoopback(ctx, httpAddr)
+		if err != nil {
+			return nil, err
+		}
+		p.addresses.HTTP = httpListener.Addr().String()
+		p.listeners = append(p.listeners, httpListener)
 	}
 	if socksListener != nil {
 		server := p.socksServer()
