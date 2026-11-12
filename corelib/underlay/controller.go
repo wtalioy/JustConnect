@@ -11,46 +11,74 @@ import (
 
 var discoverController = mihomo.Discover
 
+type controllerCheck struct {
+	done  chan struct{}
+	err   error
+	retry bool
+}
+
 func (d *Dialer) ensureController(ctx context.Context) error {
-	d.mu.Lock()
-	if d.controllerGate == nil {
-		d.controllerGate = make(chan struct{}, 1)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		d.mu.Lock()
+		if pending := d.controllerCheck; pending != nil {
+			d.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-pending.done:
+			}
+			if pending.retry {
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return pending.err
+		}
+		if d.controller != nil {
+			if d.controller.Alive() {
+				d.mu.Unlock()
+				return nil
+			}
+			d.controller.Close()
+			d.controller, d.resolver, d.tunDevice = nil, nil, ""
+		}
+		pending := &controllerCheck{done: make(chan struct{})}
+		d.controllerCheck = pending
+		d.mu.Unlock()
+
+		return d.findController(ctx, pending)
 	}
-	gate := d.controllerGate
-	d.mu.Unlock()
-	select {
-	case gate <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	defer func() { <-gate }()
-	d.mu.RLock()
-	ready := d.controller != nil && d.controller.Alive()
-	d.mu.RUnlock()
-	if ready {
-		return nil
-	}
-	d.mu.Lock()
-	if d.controller != nil {
-		d.controller.Close()
-		d.controller, d.resolver, d.tunDevice = nil, nil, ""
-	}
-	d.mu.Unlock()
+}
+
+func (d *Dialer) findController(ctx context.Context, pending *controllerCheck) (err error) {
+	err = mihomo.ErrUnavailable
+	defer func() {
+		d.mu.Lock()
+		// Share absence only with concurrent callers; a later dial must see a newly started controller.
+		pending.err, pending.retry = err, err != nil && ctx.Err() != nil
+		d.controllerCheck = nil
+		close(pending.done)
+		d.mu.Unlock()
+	}()
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	controller, err := discoverController(deadline, d.controllerAddress)
-	if err != nil {
+	controller, discoverErr := discoverController(deadline, d.controllerAddress)
+	if discoverErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if d.diagnostic != nil {
-			if err == mihomo.ErrAmbiguous {
+			if discoverErr == mihomo.ErrAmbiguous {
 				d.diagnostic("local_controller_ambiguous")
 			} else {
 				d.diagnostic("local_controller_unavailable")
 			}
 		}
-		return err
+		return discoverErr
 	}
 	if controller == nil {
 		return nil

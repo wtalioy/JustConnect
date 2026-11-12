@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
@@ -310,6 +311,77 @@ func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 				t.Fatal("close did not cancel initialization")
 			}
 
+		})
+	}
+}
+
+func TestOverlappingControllerRequestsShareOnlyTheirDiscovery(t *testing.T) {
+	for _, cancelFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint("cancelFirst=", cancelFirst), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				original := discoverController
+				t.Cleanup(func() { discoverController = original })
+				release := make(chan struct{})
+				var calls atomic.Int32
+				discoverController = func(ctx context.Context, _ string) (*mihomo.Client, error) {
+					call := calls.Add(1)
+					if call == 1 || (cancelFirst && call == 2) {
+						select {
+						case <-release:
+						case <-ctx.Done():
+							return nil, ctx.Err()
+						}
+					}
+					return nil, nil
+				}
+				dialer, err := New(Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer dialer.Close()
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				first := make(chan error, 1)
+				go func() {
+					_, err := dialer.ObserveNetwork(ctx)
+					first <- err
+				}()
+				synctest.Wait()
+				const waiters = 5
+				others := make(chan error, waiters)
+				for range waiters {
+					go func() {
+						_, err := dialer.ObserveNetwork(t.Context())
+						others <- err
+					}()
+				}
+				synctest.Wait()
+				if cancelFirst {
+					cancel()
+					synctest.Wait()
+				}
+				close(release)
+				want := int32(1)
+				if cancelFirst {
+					want++
+					if err := <-first; !errors.Is(err, context.Canceled) {
+						t.Fatal(err)
+					}
+				} else if err := <-first; err != nil {
+					t.Fatal(err)
+				}
+				for range waiters {
+					if err := <-others; err != nil {
+						t.Fatal(err)
+					}
+				}
+				if got := calls.Load(); got != want {
+					t.Fatalf("overlapping requests made %d discoveries; want %d", got, want)
+				}
+				if _, err := dialer.ObserveNetwork(t.Context()); err != nil || calls.Load() != want+1 {
+					t.Fatalf("a later request did not rediscover a newly started controller: %v", err)
+				}
+			})
 		})
 	}
 }
