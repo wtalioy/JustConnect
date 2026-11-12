@@ -16,5 +16,6 @@ enum class ConnectionError
     TIMED_OUT,
     CLIENT_FAILED,
     BACKGROUND_HELPER_UNAVAILABLE,
+    LOCAL_PROXY_LISTEN,
     OTHER,
 };

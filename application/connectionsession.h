@@ -53,6 +53,7 @@ public:
     SessionObservation observation(const QString &stage) const { return observations.value(stage); }
     bool isActive() const;
     bool networkRecoveryFailed() const { return networkRestore == NetworkRestoreState::Failed; }
+    bool usesLocalProxy() const { return currentOptions.routingMode == RoutingMode::LocalProxy; }
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentOptions.proxy; }
     KeepAliveOptions keepAliveOptions() const { return currentOptions.keepAlive; }

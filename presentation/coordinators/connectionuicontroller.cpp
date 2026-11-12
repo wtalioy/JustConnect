@@ -399,6 +399,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     case ConnectionError::NETWORK_FAILED:
         message=tr("The network connection failed. Check DNS, connectivity and the server address.");
         break;
+    case ConnectionError::LOCAL_PROXY_LISTEN:
+        message=tr("The local SOCKS5 port could not be opened. Close the app using it or change the port in connection settings.");
+        break;
     case ConnectionError::TIMED_OUT:
         message=tr("The connection or sign-in timed out. Please retry.");
         break;

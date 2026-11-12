@@ -53,6 +53,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
 		KeepAliveMode: config.KeepAlive.Mode, KeepAliveURL: config.KeepAlive.URL,
 		QueryAuthMethods: config.Operation == "auth_methods",
+		LocalProxy:       config.LocalProxy,
 		ProtectionPolicy: host.ProtectionPolicy,
 		OriginalDNS:      config.originalDNS,
 		DomainDNS:        config.domainDNS,
@@ -98,6 +99,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, context.Canceled) {
 		return Cancelled
+	}
+	if errors.Is(err, corelib.ErrLocalProxyListen) {
+		return LocalProxyListen
 	}
 	if errors.Is(err, mihomo.ErrAmbiguous) {
 		return Unsupported

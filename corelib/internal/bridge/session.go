@@ -96,7 +96,7 @@ type Session struct {
 	auth             *pending
 	policy           *policy.ProtectionPolicy
 	policyRevision   uint64
-	connectOperation bool
+	captureOperation bool
 	coexistence      []byte
 	resources        *publishedResources
 	resourcesStatus  Status
@@ -166,7 +166,7 @@ func (e *Engine) Start(handle uint64, input []byte) (uint64, Status) {
 	s.running, s.ready, s.stopping = true, false, false
 	s.ctx, s.cancel, s.done = ctx, cancel, make(chan struct{})
 	s.auth = nil
-	s.policy, s.policyRevision, s.connectOperation = config.initialPolicy, 0, config.Operation != "auth_methods"
+	s.policy, s.policyRevision, s.captureOperation = config.initialPolicy, 0, config.Operation != "auth_methods" && !config.LocalProxy
 	s.resources, s.resourcesStatus = nil, Busy
 	s.coexistence = nil
 	s.push(event{Type: "state", State: "starting"})
@@ -190,7 +190,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid, PermissionDenied:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid, PermissionDenied, LocalProxyListen:
 		default:
 			status = Internal
 		}

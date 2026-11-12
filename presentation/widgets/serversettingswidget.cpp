@@ -2,6 +2,7 @@
 #include <QEvent>
 #include "presentation/widgets/alignedcheckbox.h"
 #include <QPlainTextEdit>
+#include <QComboBox>
 #include <QLabel>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -30,12 +31,30 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     port = new QSpinBox(this);
     port->setObjectName("serverPortSpinBox");
     port->setRange(1,65535); port->setValue(443);
-    for(auto *field:QList<QWidget *>{address,port}) {
+    routingMode=new QComboBox(this);
+    routingMode->setObjectName("routingModeComboBox");
+    routingMode->addItem(QString{},QString::fromLatin1(DefaultSettings::AutomaticMode));
+    routingMode->addItem(QString{},QString::fromLatin1(DefaultSettings::LocalProxyMode));
+    socksPort=new QSpinBox(this);
+    socksPort->setObjectName("localSocksPortSpinBox");
+    socksPort->setRange(0,65535);
+    socksPort->setValue(DefaultSettings::DefaultSocksPort);
+    campusTargets=new QPlainTextEdit(this);
+    campusTargets->setObjectName("campusTargetsEdit");
+    campusTargets->setMaximumHeight(112);
+    clashHelp=new QLabel(this);
+    clashHelp->setWordWrap(true);
+    clashHelp->setProperty("secondary",true);
+    connect(routingMode,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::updateRoutingFields);
+    for(auto *field:QList<QWidget *>{address,port,routingMode,socksPort}) {
         auto *label=new QLabel(this);label->setBuddy(field);
         // QFormLayout otherwise caps label height at 7/4 of its text height, above our taller inputs.
         label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
         form->addRow(label,field);
     }
+    form->addRow(new QLabel(this),campusTargets);
+    qobject_cast<QLabel *>(form->labelForField(campusTargets))->setBuddy(campusTargets);
+    form->addRow(clashHelp);
     layout->addLayout(form);
     layout->addSpacing(8);
 
@@ -78,6 +97,13 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
     retranslate();
+    updateRoutingFields();
+}
+void ServerSettingsWidget::updateRoutingFields() {
+    const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
+    form->setRowVisible(socksPort,local);
+    form->setRowVisible(campusTargets,local);
+    form->setRowVisible(clashHelp,local);
 }
 void ServerSettingsWidget::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
@@ -86,6 +112,14 @@ void ServerSettingsWidget::changeEvent(QEvent *event) {
 void ServerSettingsWidget::retranslate() {
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Address"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
+    qobject_cast<QLabel *>(form->labelForField(routingMode))->setText(tr("Routing mode"));
+    routingMode->setItemText(0,tr("Automatic routing"));
+    routingMode->setItemText(1,tr("Local proxy only"));
+    qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
+    socksPort->setSpecialValueText(tr("Off"));
+    qobject_cast<QLabel *>(form->labelForField(campusTargets))->setText(tr("Campus targets"));
+    campusTargets->setPlaceholderText(tr("One domain or IPv4 address per line"));
+    clashHelp->setText(tr("Clash routes these targets in Rule mode. After saving, copy the script from the connection menu."));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
@@ -104,6 +138,10 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     const QSignalBlocker blocker(this);
     const auto host = settings.value("JustConnect/ServerAddress").toString();
     const auto number = settings.value("JustConnect/ServerPort", 443).toInt();
+    routingMode->setCurrentIndex(qMax(0,routingMode->findData(settings.value(DefaultSettings::RoutingModeKey))));
+    socksPort->setValue(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
+    campusTargets->setPlainText(settings.value(DefaultSettings::CampusTargetsKey).toString());
+    updateRoutingFields();
     builtIn = DefaultSettings::isBuiltInConnection(settings);
     address->setText(host);
     address->setReadOnly(builtIn);
@@ -128,5 +166,7 @@ QVariantMap ServerSettingsWidget::settingsValues() const {
         {"JustConnect/AllowUnverifiedNodes",allowUnverifiedNodes->isChecked()},
         {"JustConnect/ConnectionKind", builtIn ? DefaultSettings::builtInConnection().value("JustConnect/ConnectionKind") : QVariant("Custom")},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
+        {DefaultSettings::RoutingModeKey,routingMode->currentData()},{DefaultSettings::SocksPortKey,socksPort->value()},
+        {DefaultSettings::CampusTargetsKey,campusTargets->toPlainText().trimmed()},
         {"Common/NeedsConfiguration",false}};
 }

@@ -55,6 +55,29 @@ func TestConfigBoundary(t *testing.T) {
 	}
 }
 
+func TestLocalProxyRequiresFixedLoopbackSOCKS(t *testing.T) {
+	var c Config
+	if err := json.Unmarshal([]byte(configJSON), &c); err != nil {
+		t.Fatal(err)
+	}
+	c.LocalProxy, c.Listeners.HTTP = true, ""
+	if _, status := ParseConfig(configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.Listeners.SOCKS = "" },
+		func(c *Config) { c.Listeners.SOCKS = "127.0.0.1:0" },
+		func(c *Config) { c.Listeners.HTTP = "127.0.0.1:1081" },
+		func(c *Config) { c.Operation = "auth_methods" },
+	} {
+		bad := c
+		mutate(&bad)
+		if _, status := ParseConfig(configBytes(t, bad)); status != InvalidArgument {
+			t.Fatal(status)
+		}
+	}
+}
+
 func TestAuthenticationCacheInputBoundary(t *testing.T) {
 	var original Config
 	if json.Unmarshal([]byte(configJSON), &original) != nil {

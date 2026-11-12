@@ -1,8 +1,10 @@
 #include "application/savedconnectionservice.h"
 #include "presentation/widgets/serversettingswidget.h"
 #include "application/defaultsettings.h"
+#include "application/clashextension.h"
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QPlainTextEdit>
 #include <QLabel>
 #include <QFile>
@@ -11,6 +13,8 @@
 #include <QSettings>
 #include <QSpinBox>
 #include <QTemporaryDir>
+#include <QProcess>
+#include <QStandardPaths>
 #include <cstdlib>
 #include <iostream>
 static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
@@ -38,11 +42,58 @@ int main(int argc,char **argv) {
     check(!allowNodes->isChecked() && nodeWarning->isHidden(),"node verification remains enabled by default");
     editor.resize(540,560);editor.show();app.processEvents();
     auto *form=editor.findChild<QFormLayout *>();
-    for(auto *field:QList<QWidget *>{address,port}) {
+    auto *mode=editor.findChild<QComboBox *>("routingModeComboBox");
+    auto *localPort=editor.findChild<QSpinBox *>("localSocksPortSpinBox");
+    auto *campusTargets=editor.findChild<QPlainTextEdit *>("campusTargetsEdit");
+    for(auto *field:QList<QWidget *>{address,port,mode}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
             "server address and port labels are centered beside their styled fields");
     }
+    check(mode->currentIndex()==0 && mode->y()>port->y() && mode->y()<verify->y()
+        && localPort->isHidden() && campusTargets->isHidden(),"mode is near the top and only local mode shows proxy fields");
+    mode->setCurrentIndex(1);
+    localPort->setValue(32081);
+    campusTargets->setPlainText("Campus.Example.Edu.\n192.0.2.18\ncampus.example.edu");
+    auto local=SavedConnectionService::load(editor.settingsValues());
+    check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
+        "local settings share one port");
+    check(!localPort->isHidden() && !campusTargets->isHidden(),"local settings are visible");
+    const auto script=ClashExtension::script(local);
+    check(!script.isEmpty(),"valid exact targets can be exported offline");
+    const auto node=QStandardPaths::findExecutable("node");
+    if (!node.isEmpty()) {
+        QProcess js;
+        js.start(node,{"-"});
+        check(js.waitForStarted(),"start JavaScript runtime");
+        js.write(script.toUtf8());
+        js.write(R"JS(
+const assert = require("node:assert/strict");
+const original = {name:"校园网", type:"http", server:"example.net", port:80};
+const groups = [{name:"校园网 2", type:"select", proxies:["DIRECT"]}];
+const rules = ["DOMAIN-SUFFIX,example.edu,DIRECT", "MATCH,DIRECT"];
+const dns = {enable:true};
+const config = main({proxies:[original], "proxy-groups":groups, rules, dns});
+assert.deepEqual(config.proxies,[original,{name:"校园网 3",type:"socks5",server:"127.0.0.1",port:32081,udp:true}]);
+assert.deepEqual(config.rules,[
+  "DOMAIN,campus.example.edu,校园网 3",
+  "IP-CIDR,192.0.2.18/32,校园网 3,no-resolve", ...rules]);
+assert.equal(config["proxy-groups"],groups);
+assert.equal(config.dns,dns);
+const once = JSON.stringify(config);
+assert.equal(JSON.stringify(main(config)),once);
+)JS");
+        js.closeWriteChannel();
+        check(js.waitForFinished(),"Clash script test finished");
+        check(js.exitStatus()==QProcess::NormalExit && js.exitCode()==0,js.readAllStandardError().constData());
+    }
+    local.campusTargets="campus.example.edu\n*.example.edu";
+    check(ClashExtension::invalidTargetLine(local)==2 && ClashExtension::script(local).isEmpty(),"wildcards are rejected with their line number");
+    local.campusTargets=local.endpoint.server;
+    check(ClashExtension::invalidTargetLine(local)==1,"the gateway cannot be routed back to the listener");
+    local.campusTargets="2001:db8::18";
+    check(ClashExtension::invalidTargetLine(local)==1,"IPv6 targets are unavailable on the aTrust data path");
+    mode->setCurrentIndex(0);
     check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
     allowNodes->setChecked(true);
     const auto nodePolicy=SavedConnectionService::load(editor.settingsValues());
@@ -61,6 +112,9 @@ int main(int argc,char **argv) {
     if (!SavedConnectionService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
+    check(SavedConnectionService::load(saved).campusTargets==campusTargets->toPlainText()
+        && campusTargets->toPlainText().contains("192.0.2.18") && campusTargets->isHidden(),
+        "switching modes preserves saved campus targets");
     check(SavedConnectionService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");

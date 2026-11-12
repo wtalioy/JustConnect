@@ -27,6 +27,8 @@ const DefaultDNSCacheTTL uint64 = 60
 const DefaultSessionRefreshInterval = 5 * time.Minute
 const DefaultNodeRefreshInterval = 5 * time.Minute
 
+var ErrLocalProxyListen = errors.New("local SOCKS5 listener unavailable")
+
 type Options struct {
 	Client           atrust.ClientOptions
 	Setup            atrust.SetupOptions
@@ -40,6 +42,7 @@ type Options struct {
 	KeepAliveMode    string
 	KeepAliveURL     string
 	QueryAuthMethods bool
+	LocalProxy       bool
 	ProtectionPolicy func() *policy.ProtectionPolicy
 	OriginalDNS      *resolve.OriginalDNS
 }
@@ -258,19 +261,26 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	dialer.OriginalAuthentication = originalAuthenticationOrigin(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
 	resolver.DomainDNS = options.DomainDNS
 	resolver.DomainDNSDial = dialer.DialDomainDNS
-	if ownedUnderlay != nil {
+	if ownedUnderlay != nil && !options.LocalProxy {
 		upstream := &sessionUpstream{source: ownedUnderlay, gate: make(chan struct{}, 1)}
 		dialer.Upstream = upstream.dialer
 		s.upstream.Store(upstream)
 		defer s.upstream.Store(nil)
 	}
-	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
+	ingress := dialer
+	if options.LocalProxy {
+		ingress = dialer.CampusOnly()
+	}
+	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, ingress, resolver)
 	if err != nil {
+		if options.LocalProxy && ctx.Err() == nil {
+			return fmt.Errorf("%w: %w", ErrLocalProxyListen, err)
+		}
 		return fmt.Errorf("listeners_failed: %w", err)
 	}
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
-	if observer.Resources != nil {
+	if observer.Resources != nil && !options.LocalProxy {
 		var domainDNSNames []string
 		for host := range options.DomainDNS {
 			domainDNSNames = append(domainDNSNames, host)

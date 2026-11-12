@@ -6,10 +6,13 @@
 
 using Status = CoreEngine::RequestStatus;
 
-NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent)
+NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent,
+    std::function<bool()> captureRequired)
     : QObject(parent), engine(engine), reader(std::move(reader))
 {
-    connect(engine, &CoreEngine::sessionStarted, this, &NetworkPolicySession::begin);
+    connect(engine, &CoreEngine::sessionStarted, this, [this, required = std::move(captureRequired)](const QString &id) {
+        if (!required || required()) begin(id);
+    });
     connect(engine, &CoreEngine::initialProtectionApplied, this, [this](const QJsonObject &policy) {
         if (generation.isEmpty() || policy["generation"] != generation || !confirmedPolicy.isEmpty() || isPolicyUpdating()
             || policy["schema_version"].toInteger() <= 0 || policy["revision"] != "0"

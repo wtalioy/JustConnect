@@ -31,6 +31,8 @@ func (s Status) Message() string {
 		return "Server requires an unsupported authentication step"
 	case PermissionDenied:
 		return "Network operation requires permission"
+	case LocalProxyListen:
+		return "Local SOCKS5 port could not be opened"
 	case SessionInvalid:
 		return "Session expired; reconnect to authenticate"
 	case CredentialsRequired:
@@ -59,6 +61,7 @@ func (s Status) Message() string {
 type Config struct {
 	SchemaVersion int               `json:"schema_version"`
 	Operation     string            `json:"operation"`
+	LocalProxy    bool              `json:"local_proxy,omitempty"`
 	Protection    *ProtectionConfig `json:"protection,omitempty"`
 	initialPolicy *policy.ProtectionPolicy
 	originalDNS   *resolve.OriginalDNS
@@ -188,6 +191,21 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {
 		return Config{}, InvalidArgument
+	}
+	if c.LocalProxy {
+		socks, err := netip.ParseAddrPort(c.Listeners.SOCKS)
+		if c.Operation == "auth_methods" || err != nil || socks.Addr() != netip.AddrFrom4([4]byte{127, 0, 0, 1}) ||
+			socks.Port() == 0 || c.Listeners.HTTP != "" || len(c.Network.OriginalDNS) != 0 {
+			return Config{}, InvalidArgument
+		}
+		if c.Protection == nil {
+			c.Protection = &ProtectionConfig{Protected: []string{}, Campus: []string{}}
+		}
+		if c.Protection.Protected == nil || c.Protection.Campus == nil ||
+			len(c.Protection.Campus) != 0 || len(c.Protection.CampusNames) != 0 {
+			return Config{}, InvalidArgument
+		}
+		c.Protection.Protected = append(c.Protection.Protected, "127.0.0.0/8", "::1/128")
 	}
 	if c.Protection != nil {
 		if c.Operation == "auth_methods" || c.Protection.Protected == nil || c.Protection.Campus == nil {

@@ -75,6 +75,16 @@ QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
     const auto unknown = tr("Unknown");
     if (!connection || !policy || !proxy)
         return {};
+    if (connection->usesLocalProxy()) {
+        const bool ready = connection->state() == ConnectionState::Running;
+        QList<QPair<QString,QString>> result{
+            {tr("Routing mode"),tr("Local proxy only")},
+            {tr("Local entry"),ready ? tr("SOCKS5 %1").arg(connection->proxyOptions().socksBind) : tr("Not active")},
+            {tr("Campus exit"),ready ? tr("Campus tunnel") : unknown}};
+        if (!code.isEmpty())
+            result.append({tr("Diagnostic code"),code});
+        return result;
+    }
     const auto model = confirmedModel;
     const bool confirmed = !generation.isEmpty() && policy->currentGeneration() == generation &&
                            model["schema_version"].toInteger() > 0;

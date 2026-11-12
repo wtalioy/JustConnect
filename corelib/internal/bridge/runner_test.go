@@ -29,6 +29,56 @@ import (
 
 type hostLogProbe struct{ written atomic.Bool }
 
+func TestLocalProxyOnlyLifecycle(t *testing.T) {
+	g := newGateway(t)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	c.Listeners.SOCKS = occupied.Addr().String()
+	c.Listeners.HTTP = ""
+	startProtocol(t, e, h, c)
+	if event := next(t, e, h); event.Type != "terminal" || event.Status != LocalProxyListen {
+		t.Fatal(event)
+	}
+	occupied.Close()
+	startProtocol(t, e, h, c)
+	ready := next(t, e, h)
+	if ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	if _, status := readResourceBytes(e, h, ready.Generation); status != Unsupported {
+		t.Fatal("local mode published capture resources", status)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	echo(t, connection)
+	for _, denied := range []string{c.Listeners.SOCKS, "192.0.2.99:80"} {
+		if rejected, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", denied); err == nil {
+			rejected.Close()
+			t.Fatal("local mode opened a non-campus connection")
+		}
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("local proxy did not stop")
+	}
+	awaitClosed(t, connection)
+}
+
 func (p *hostLogProbe) Write(data []byte) (int, error) {
 	p.written.Store(true)
 	return len(data), nil

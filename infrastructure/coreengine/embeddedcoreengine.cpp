@@ -61,6 +61,7 @@ Library &library() {
     return instance;
 }
 QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation operation) {
+    const bool localProxy = operation == CoreEngine::Operation::Connect && p.routingMode == RoutingMode::LocalProxy;
     QJsonObject config{{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
         {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem},{"allow_unverified_nodes",p.tls.allowUnverifiedNodes}}},
@@ -68,10 +69,11 @@ QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation oper
         {"auth", QJsonObject{{"auth_id",p.endpoint.authId},{"sub_type",p.endpoint.authSubType},{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
             {"username", p.credentials.username}, {"password", p.credentials.password},
             {"phone", p.endpoint.phone}, {"domain", p.endpoint.loginDomain}, {"totp_secret", p.credentials.totpSecret}}},
-        {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", p.proxy.httpBind}}},
+        {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", localProxy ? QString{} : p.proxy.httpBind}}},
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
+    if (localProxy) config["local_proxy"] = true;
     if (!p.behavior.controllerAddress.isEmpty()) {
         auto network=config["network"].toObject();
         network["controller_address"]=p.behavior.controllerAddress;
@@ -109,6 +111,7 @@ ConnectionError connectionError(int status) {
     if (status == JC_TLS_TRUST) return ConnectionError::TLS_TRUST;
     if (status == JC_TLS_PROTOCOL) return ConnectionError::TLS_PROTOCOL;
     if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
+    if (status == JC_LOCAL_PROXY_LISTEN) return ConnectionError::LOCAL_PROXY_LISTEN;
     if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
     if (status == JC_AUTH_UNSUPPORTED) return ConnectionError::AUTHENTICATION_UNSUPPORTED;
     if (status == JC_PERMISSION_DENIED) return ConnectionError::PERMISSION_DENIED;

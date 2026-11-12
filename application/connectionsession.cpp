@@ -102,7 +102,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
         clearAuthentication();
         if (sessionState.state() != ConnectionState::Starting) return;
         if (currentPhase == ConnectionPhase::NetworkPreparing) return;
-        if (this->network) {
+        if (!networkStopped) {
             currentPhase = ConnectionPhase::NetworkPreparing;
             emit progressChanged();
             this->network->activate(attempt, currentOptions);
@@ -212,14 +212,14 @@ bool ConnectionSession::isActive() const
 void ConnectionSession::startCore()
 {
     attempt = QUuid::createUuid();
-    networkStopped = !network;
+    networkStopped = !network || usesLocalProxy();
     networkRestore = NetworkRestoreState::Idle;
     networkLost = waitingCoreStop = false;
-    currentPhase = network ? ConnectionPhase::NetworkRecovering : ConnectionPhase::Initializing;
+    currentPhase = networkStopped ? ConnectionPhase::Initializing : ConnectionPhase::NetworkRecovering;
     observations.clear();
     clearAuthentication();
     emit progressChanged();
-    if (network) network->prepare(attempt);
+    if (!networkStopped) network->prepare(attempt);
     else startEngine();
 }
 

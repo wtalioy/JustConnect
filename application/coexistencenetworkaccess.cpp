@@ -131,11 +131,13 @@ void CoexistenceNetworkAccess::prepare(const QUuid &id) {
 void CoexistenceNetworkAccess::activate(const QUuid &id, const ConnectionOptions &connectionOptions) {
     if (id != attempt || stage != Stage::Prepared) return;
     stage = Stage::Activating;
+    emit proxyObservationRequired(true);
     native->activate(id, connectionOptions);
 }
 void CoexistenceNetworkAccess::stop(const QUuid &id) {
     if (id != attempt || stage == Stage::Idle || (stage == Stage::Stopping && nativeStopping)) return;
     stage = Stage::Stopping;
+    emit proxyObservationRequired(false);
     // Browser restoration changes the network before native teardown begins.
     policy->setNetworkBusy(generation, true);
     pending = Pending::None;

@@ -16,7 +16,8 @@ public:
     using OriginalViewFilter = std::function<std::optional<OriginalView>(const QJsonObject &, const QJsonObject &)>;
     using PolicyApplier = std::function<void(const QJsonObject &)>;
     using DnsReader = std::function<DnsSnapshot()>;
-    NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent = nullptr);
+    NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent = nullptr,
+        std::function<bool()> captureRequired = {});
     ~NetworkPolicySession() override;
     void clear();
     void setNetworkBusy(const QString &generation, bool busy);

@@ -147,7 +147,7 @@ func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Stat
 	if !s.running || s.stopping || s.generation != generation {
 		return 0, StaleRequest
 	}
-	if !s.connectOperation {
+	if !s.captureOperation {
 		return 0, Unsupported
 	}
 	if s.resourcesStatus != OK {

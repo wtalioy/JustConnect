@@ -29,6 +29,7 @@
 #include <QElapsedTimer>
 #include <QKeySequence>
 #include <QComboBox>
+#include <QClipboard>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QPlainTextEdit>
@@ -109,9 +110,12 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         "home, tray and native menu bar use separate profile menus");
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("addConnectionAction");
+    auto *copyScript=window.findChild<QAction *>("copyClashScriptAction");
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
+    check(copyScript && !copyScript->isEnabled() && menu->actions().indexOf(copyScript)==menu->actions().indexOf(editAction)+1,
+        "the automatic profile shows a disabled script action next to its editor");
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");
@@ -138,6 +142,9 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     defaultProfile.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");defaultProfile.sync();
     QSettings namedProfile(storage.connectionPath(profile),QSettings::IniFormat);
     namedProfile.setValue("JustConnect/ConnectionKind","Custom");
+    namedProfile.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
+    namedProfile.setValue(DefaultSettings::SocksPortKey,32081);
+    namedProfile.setValue(DefaultSettings::CampusTargetsKey,"campus.other-campus.invalid");
     namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
     const auto homeActions = menu->actions();
@@ -151,6 +158,16 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         choice->trigger();
         check(checked(menu)==name && checked(trayMenu)==name && checked(menuBarProfiles)==name,
             "home, tray and native profile selections stay synchronized");
+        check(copyScript->isEnabled()==(name==profile),"the script action tracks the selected profile's saved mode");
+        if (i==0 && name==profile) {
+            auto *clipboard=QApplication::clipboard();
+            const auto previous=clipboard->text();
+            copyScript->trigger();
+            const auto script=clipboard->text();
+            clipboard->setText(previous);
+            check(script.contains("\"port\":32081") && script.contains("DOMAIN,campus.other-campus.invalid"),
+                "an offline copy uses the selected profile's port and targets");
+        }
         check(menuButton->text()==name && menuButton->toolTip().contains(
             name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),
             "home shows the selected connection name and its tooltip shows the server address");

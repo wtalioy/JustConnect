@@ -25,7 +25,7 @@ func (e *Engine) AttachTUN(handle, generation uint64, device io.ReadWriteCloser,
 	if !s.running || s.stopping || s.generation != generation {
 		return StaleRequest
 	}
-	if !s.connectOperation {
+	if !s.captureOperation {
 		return Unsupported
 	}
 	if !s.ready {

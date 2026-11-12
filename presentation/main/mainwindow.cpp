@@ -6,6 +6,9 @@
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QAccessible>
+#include <QToolTip>
 #include <QActionGroup>
 #include <QDialog>
 #include <QLineEdit>
@@ -39,6 +42,7 @@
 #include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
+#include "application/clashextension.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
 #include "infrastructure/logging/applicationlogfile.h"
@@ -160,7 +164,7 @@ MainWindow::MainWindow(
     connect(coordinator->credentials(),&CredentialAccess::configurationSaved,this,[this](const QString &path) {
         if (settings && settings->fileName()==path) {
             updateConnectionSummary();
-            if (currentConnectionId.isEmpty()) refreshConnectionMenu();
+            refreshConnectionMenu();
         }
     });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
@@ -386,6 +390,7 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
+    copyClashScriptAction->setText(tr("Copy Clash extension script"));
     addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
     trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
@@ -514,6 +519,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     if (settingWindow) settingWindow->setProfileEditable(!connectionSession->isActive());
     const auto phase = connectionSession->phase();
     const bool recoveryFailed = connectionSession->networkRecoveryFailed();
+    const bool localProxyReady = connectionSession->usesLocalProxy() && phase == ConnectionPhase::TransportReady;
     QString title;
     QString detail;
 
@@ -540,6 +546,11 @@ void MainWindow::updateConnectionState(ConnectionState state)
         detail = tr("Campus access is not ready yet.");
         break;
     case ConnectionState::Running:
+        if (localProxyReady) {
+            title = tr("Connected");
+            detail = tr("Local proxy is ready. Clash routes the selected campus traffic.");
+            break;
+        }
         title = phase == ConnectionPhase::CampusReady ? tr("Connected")
             : phase == ConnectionPhase::NetworkRestoring ? tr("Restoring network") : tr("Tunnel ready");
         detail = phase == ConnectionPhase::CampusReady ? tr("Campus IPv4 access is ready.")
@@ -595,7 +606,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     ui->statusTitleLabel->setText(title);
     static const QIcon idleArtwork(":/resource/connection.svg");
     static const QIcon connectedArtwork(":/resource/connection-ready.svg");
-    const bool connected = state == ConnectionState::Running && phase == ConnectionPhase::CampusReady;
+    const bool connected = state == ConnectionState::Running && (phase == ConnectionPhase::CampusReady || localProxyReady);
     ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
@@ -687,6 +698,17 @@ void MainWindow::setupConnectionMenu()
     traySwitchGroup->setExclusive(true);
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
+    copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash extension script"));
+    copyClashScriptAction->setObjectName("copyClashScriptAction");
+    connect(copyClashScriptAction, &QAction::triggered, this, [this] {
+        const auto script=ClashExtension::script(SavedConnectionService::load(*settings));
+        auto *anchor=ui->profileMenuButton;
+        if (!script.isEmpty()) QApplication::clipboard()->setText(script);
+        const auto message=script.isEmpty() ? tr("Check the local port and campus targets.") : tr("Clash script copied");
+        QToolTip::showText(anchor->mapToGlobal(QPoint(0,anchor->height())),message,anchor,{},1800);
+        QAccessibleAnnouncementEvent announcement(anchor,message);
+        QAccessible::updateAccessibility(&announcement);
+    });
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
     renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
     renameConnectionAction->setObjectName("renameConnectionAction");
@@ -739,6 +761,8 @@ void MainWindow::refreshConnectionMenu()
     updateMenu(trayConnectionMenu, traySwitchGroup);
     if (rebuild) ui->profileMenuButton->menu()->insertActions(connectionActionsSeparator, switchGroup->actions());
 
+    copyClashScriptAction->setEnabled(
+        settings->value(DefaultSettings::RoutingModeKey).toString()==DefaultSettings::LocalProxyMode);
     const bool currentProfileIsManaged = !currentConnectionId.isEmpty() && !overrideConfiguration;
     renameConnectionAction->setEnabled(currentProfileIsManaged);
     deleteConnectionAction->setEnabled(currentProfileIsManaged);

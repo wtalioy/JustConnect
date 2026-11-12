@@ -309,6 +309,18 @@ This connection remains usable. You may need to sign in again later.</source>
         <source>No pending browser restoration</source>
         <translation>无需恢复浏览器代理</translation>
     </message>
+    <message>
+        <source>Routing mode</source>
+        <translation>分流模式</translation>
+    </message>
+    <message>
+        <source>Local proxy only</source>
+        <translation>仅本地代理</translation>
+    </message>
+    <message>
+        <source>SOCKS5 %1</source>
+        <translation>SOCKS5 %1</translation>
+    </message>
 </context>
 <context>
     <name>ConnectionUiController</name>
@@ -531,6 +543,10 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     <message>
         <source>This connection has no saved sign-in cache.</source>
         <translation>此连接没有已保存的登录缓存。</translation>
+    </message>
+    <message>
+        <source>The local SOCKS5 port could not be opened. Close the app using it or change the port in connection settings.</source>
+        <translation>无法打开本地 SOCKS5 端口。请关闭占用端口的应用，或在连接设置中更换端口。</translation>
     </message>
 </context>
 <context>
@@ -1401,6 +1417,22 @@ Configuration: %4
 配置文件：%4
 </translation>
     </message>
+    <message>
+        <source>Copy Clash extension script</source>
+        <translation>复制 Clash 扩展脚本</translation>
+    </message>
+    <message>
+        <source>Clash script copied</source>
+        <translation>已复制 Clash 脚本</translation>
+    </message>
+    <message>
+        <source>Check the local port and campus targets.</source>
+        <translation>请检查本地端口和校园目标。</translation>
+    </message>
+    <message>
+        <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
+        <translation>本地代理已就绪。Clash 负责分流选定的校园流量。</translation>
+    </message>
 </context>
 <context>
     <name>NetworkPolicyWindow</name>
@@ -1951,6 +1983,38 @@ Some system settings may have changed. Check them before retrying.</source>
         <source>Address</source>
         <translation>地址</translation>
     </message>
+    <message>
+        <source>Routing mode</source>
+        <translation>分流模式</translation>
+    </message>
+    <message>
+        <source>Automatic routing</source>
+        <translation>自动分流</translation>
+    </message>
+    <message>
+        <source>Local proxy only</source>
+        <translation>仅本地代理</translation>
+    </message>
+    <message>
+        <source>Local SOCKS5 port</source>
+        <translation>本地 SOCKS5 端口</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Campus targets</source>
+        <translation>校园目标</translation>
+    </message>
+    <message>
+        <source>One domain or IPv4 address per line</source>
+        <translation>每行一个域名或 IPv4 地址</translation>
+    </message>
+    <message>
+        <source>Clash routes these targets in Rule mode. After saving, copy the script from the connection menu.</source>
+        <translation>Clash 在规则模式下分流这些目标。保存后，可从连接菜单复制脚本。</translation>
+    </message>
 </context>
 <context>
     <name>SettingWindow</name>
@@ -2316,6 +2380,18 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>the current connection</source>
         <translation>当前连接</translation>
+    </message>
+    <message>
+        <source>Invalid campus target</source>
+        <translation>无效的校园目标</translation>
+    </message>
+    <message>
+        <source>Check line %1. Use a full domain name or a single IPv4 address, excluding the gateway and sign-in addresses.</source>
+        <translation>请检查第 %1 行。请输入完整域名或单个 IPv4 地址，且不要填入网关或登录地址。</translation>
+    </message>
+    <message>
+        <source>Choose a local SOCKS5 port to use Local proxy only.</source>
+        <translation>使用「仅本地代理」前，请设置本地 SOCKS5 端口。</translation>
     </message>
 </context>
 <context>

@@ -27,7 +27,10 @@ JC_API int32_t jc_network_snapshot(uint32_t abi, uint8_t *output, uint32_t capac
 JC_API int32_t jc_controller_validate(uint32_t abi, const uint8_t *address, uint32_t length);
 /* Enumerate verified local controllers without returning control credentials. */
 JC_API int32_t jc_controller_snapshot(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
-/* Pure validation: no session, listeners, DNS or network operations. */
+/* Pure validation: no session, listeners, DNS or network operations.
+ * local_proxy=true requires one fixed IPv4 loopback SOCKS5 listener.
+ * Such sessions do not support TUN, capture snapshots, or coexistence updates.
+ */
 JC_API int32_t jc_config_validate(uint32_t abi, const uint8_t *config, uint32_t length);
 JC_API int32_t jc_session_create(uint32_t abi, uint64_t *handle);
 /* Start validates and copies config synchronously, then starts asynchronously.

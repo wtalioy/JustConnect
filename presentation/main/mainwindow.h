@@ -112,6 +112,7 @@ private:
     QActionGroup *switchGroup;
     QActionGroup *traySwitchGroup;
     QAction *addConnectionAction;
+    QAction *copyClashScriptAction;
     QAction *renameConnectionAction;
     QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;

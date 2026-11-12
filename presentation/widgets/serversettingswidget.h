@@ -4,6 +4,7 @@
 class QFormLayout;
 class QLabel;
 class QCheckBox;
+class QComboBox;
 class QPlainTextEdit;
 class QLineEdit;
 class QSettings;
@@ -24,13 +25,16 @@ protected:
     void changeEvent(QEvent *event) override;
 private:
     void retranslate();
+    void updateRoutingFields();
     QFormLayout *form;
-    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel;
+    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel, *clashHelp;
     QLineEdit *address;
-    QSpinBox *port;
+    QSpinBox *port, *socksPort;
+    QComboBox *routingMode;
     QCheckBox *verify;
     QCheckBox *allowUnverifiedNodes;
     QPlainTextEdit *caPem;
     QPlainTextEdit *domainDnsRules;
+    QPlainTextEdit *campusTargets;
     bool builtIn = false;
 };
