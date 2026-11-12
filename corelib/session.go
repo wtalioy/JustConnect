@@ -268,7 +268,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	resolver.ProtectionPolicy = options.ProtectionPolicy
 	resolver.OriginalDNS = options.OriginalDNS
 
-	dialer := dial.NewDialer(network, resolver, ips, false)
+	dialer := dial.NewDialer(network, resolver, ips, options.LocalProxy)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
 	dialer.OriginalAuthentication = originalAuthenticationOrigin(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
 	resolver.DomainDNS = options.DomainDNS
@@ -280,7 +280,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		defer s.upstream.Store(nil)
 	}
 	if reservedSOCKS != nil {
-		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer.CampusOnly())
+		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer)
 		reservedSOCKS = nil
 	} else {
 		listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
@@ -306,19 +306,20 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address,
 			Listeners:                     listeners.Addresses()})
 	}
-	probeDNS := remoteDNS
-	if options.DisableRemoteDNS {
-		probeDNS = ""
+	var probeDNS net.IP
+	if !options.DisableRemoteDNS && options.KeepAliveMode != "off" {
+		probeDNS = authorizedDNS(remoteDNS, dialer)
 	}
+	campusProbe := dialer.CampusOnly()
 	probe = func(ctx context.Context) string {
-		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, probeDNS, network, resolver, ips, clientOptions.TLSConfig, options.ProtectionPolicy)
+		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, probeDNS, campusProbe, resolver, clientOptions.TLSConfig)
 	}
 	close(trafficReady)
 	if clientOptions.Observe != nil {
 		result := "unknown"
 		if options.KeepAliveMode == "off" {
 			result = "disabled"
-		} else if options.KeepAliveMode != "target" && authorizedDNS(probeDNS, ips) == nil {
+		} else if options.KeepAliveMode != "target" && probeDNS == nil {
 			result = "unavailable"
 		}
 		clientOptions.Observe("traffic", result)
