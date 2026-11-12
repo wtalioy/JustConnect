@@ -92,6 +92,11 @@ static void captureTargets()
     const auto contains = [](const QStringList &prefixes, const QString &address) {
         return std::any_of(prefixes.begin(),prefixes.end(),[&](const QString &prefix) { return QHostAddress(address).isInSubnet(QHostAddress::parseSubnet(prefix)); });
     };
+    const auto dynamic = campusCaptureTargets(resources,policy,{"198.51.100.7"});
+    check(dynamic && contains(dynamic->ipv4Prefixes,"198.51.100.7") && !contains(dynamic->ipv4Prefixes,"198.51.100.8"),
+        "A live campus address must add only its own route");
+    for (const auto &bad : {QString("198.51.100.007"),QString("::ffff:198.51.100.7")})
+        check(!campusCaptureTargets(resources,policy,{bad}),"A noncanonical live IPv4 address entered capture");
     auto externalAuth = originalAnswers;
     externalAuth["original_authentication_address"] = "203.0.113.16";
     const auto preserved = campusCaptureTargets(externalAuth,originalPolicy);
