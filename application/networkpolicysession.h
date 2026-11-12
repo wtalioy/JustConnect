@@ -36,7 +36,7 @@ public:
     bool isBusy() const { return refreshQueued || networkBusy || workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject confirmedProtection() const { return confirmedPolicy; }
-    QJsonObject model() const { return currentModel; }
+    QJsonObject model() const { return currentStatus == CoreEngine::RequestStatus::Success ? lastModel : QJsonObject{}; }
 signals:
     void changed();
 private:
@@ -59,7 +59,7 @@ private:
     CoreEngine::RequestStatus resourceStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus modelStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus currentStatus = CoreEngine::RequestStatus::Unavailable;
-    QJsonObject network, resources, currentModel;
+    QJsonObject network, resources, lastModel;
     QJsonValue networkVersion;
     QJsonObject confirmedPolicy, pendingPolicy;
     quint64 revision = 0;

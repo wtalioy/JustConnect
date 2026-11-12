@@ -209,6 +209,13 @@ static void ownershipViewsStaySerializedAndGenerationBound()
     until([&] { return !session.isBusy(); });
     check(session.status() == Status::Success && !session.model()["network"].toObject().contains("owned_filter")
           && session.model()["targets"].toArray().size() == 3, "New generation inherited previous ownership");
+    const auto previousModel = session.model();
+    const int beforeRefresh = reads.load();
+    check(session.refresh() && session.model().isEmpty(), "Pending read exposed the previous model");
+    reply(engine, "next", "192.168.12.19");
+    until([&] { return !session.isBusy(); });
+    check(reads == beforeRefresh + 1 && session.model() == previousModel,
+          "Stable facts did not produce the same view after a fresh DNS read");
     session.setOriginalViewFilter("next", [](const QJsonObject &, const QJsonObject &) -> std::optional<NetworkPolicySession::OriginalView> { return {}; });
     reply(engine, "next", "192.168.12.19");
     until([&] { return !session.isBusy(); });
