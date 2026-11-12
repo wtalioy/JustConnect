@@ -42,12 +42,9 @@ def stage_sdk(output, *, prepared=False):
     return contract, arch, metadata
 
 
-def build_native(arch, metadata):
-    native = pathlib.Path(metadata['native_build'])
-    subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
-        '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
-        '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
-    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
+def build_native(native, *targets):
+    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3',
+                    '--target', *targets], check=True, timeout=180)
     return native / 'Release'
 
 
@@ -80,15 +77,22 @@ def device():
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_WINTUN_DLL=' + str(dll) + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-    native = build_native(arch, metadata)
-    subprocess.run([str(native / 'windows_device_concurrency_test.exe')], check=True, timeout=15)
-    subprocess.run([str(native / 'windows_device_removal_test.exe')], check=True, timeout=15)
-    subprocess.run([str(native / 'windows_device_reuse_test.exe'), str(dll)], env=env, check=True, timeout=30)
-    subprocess.run([str(native / 'windows_session_wakeup_test.exe'), str(dll)], env=env, check=True, timeout=30)
-    subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
-    subprocess.run([str(native / 'windows_registry_journal_test.exe')], env=env, check=True, timeout=30)
-    subprocess.run([str(native / 'windows_packet_frame_test.exe')], env=env, check=True, timeout=15)
-    subprocess.run([str(native / 'windows_nrpt_test.exe')], env=env, check=True, timeout=30)
+    cases = (
+        ('device_concurrency', (), 15, None),
+        ('device_removal', (), 15, None),
+        ('device_reuse', (str(dll),), 30, env),
+        ('session_wakeup', (str(dll),), 30, env),
+        ('process_identity', (), 15, None),
+        ('registry_journal', (), 30, env),
+        ('packet_frame', (), 15, env),
+        ('nrpt', (), 30, env),
+    )
+    # The preceding helper checks configured this build with verified SDK inputs.
+    native = build_native(pathlib.Path(metadata['native_build']), 'windows_device_broker',
+                          *(f'windows_{case}_test' for case, *_ in cases))
+    for case, arguments, timeout, case_env in cases:
+        subprocess.run([str(native / f'windows_{case}_test.exe'), *arguments],
+                       env=case_env, check=True, timeout=timeout)
     env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'windows_device_broker.exe')
     trap = output / 'windows-device-loader-trap'
     trap.mkdir(exist_ok=True)
@@ -160,7 +164,12 @@ def main():
     if args.build_only:
         output = pathlib.Path('build/coreabi').resolve()
         _, arch, metadata = stage_sdk(output)
-        native = build_native(arch, metadata)
+        build = pathlib.Path(metadata['native_build'])
+        subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(build),
+            '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
+            '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
+        native = build_native(build, 'JustConnectDnsReader', 'windows_dnsreader_test', 'windows_session_test',
+                              'windows_installation_test', 'windows_system_dns_test', 'windows_recovery_test')
         verify_native_dns(native, output, arch)
         subprocess.run([str(native / 'windows_session_test.exe')], check=True, timeout=15)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
