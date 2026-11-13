@@ -83,7 +83,10 @@ func (p *Listeners) OriginalDNSRecords() map[string][]string {
 		result = p.resolver.OriginalDNSRecords()
 	}
 	if result == nil {
-		result = make(map[string][]string)
+		if len(pending) == 0 {
+			return nil
+		}
+		result = make(map[string][]string, len(pending))
 	}
 	for name, addresses := range pending {
 		merged := append(result[name], addresses...)

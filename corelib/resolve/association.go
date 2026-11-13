@@ -39,13 +39,16 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 		return nil
 	}
 	r.cacheMu.RLock()
-	result := make(map[string][]string)
+	var result map[string][]string
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
 		var text string
 		for _, binding := range bindings {
 			if binding.original != original || (!original && !binding.expires.After(now)) {
 				continue
+			}
+			if result == nil {
+				result = make(map[string][]string)
 			}
 			if text == "" {
 				text = address.String()
