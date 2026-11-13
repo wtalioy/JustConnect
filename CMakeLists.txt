@@ -163,8 +163,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE justconnect_desktop)
 justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
 add_dependencies(${PROJECT_NAME} JustConnectProxyRecovery)
 if(APPLE)
-    # Static Qt and Go also bring in code that the app never reaches.
-    target_link_options(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Release>:LINKER:-dead_strip>")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:JustConnectProxyRecovery>" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/")
 endif()
