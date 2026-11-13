@@ -58,7 +58,7 @@ Choose the built-in Fudan University profile, or add one for your own aTrust gat
 
 Choose **Local proxy only** in **Edit connection**. JustConnect listens on `127.0.0.1` at the **Local SOCKS5 port** shown there, leaving your system routes, DNS, and proxy settings alone. Any app that supports a SOCKS5 upstream can use that address. In your proxy app, route the campus traffic you need to that upstream and keep your usual rules for everything else.
 
-For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), connect first, then choose **Copy Clash extension script** from the connection menu. The script uses the current gateway’s campus grants, including the allowed TCP or UDP ports. It also includes exact Per-domain DNS names when their campus DNS answer matches an IP grant.
+For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), connect first, then choose **Copy Clash Extend Script** from the connection menu. In Clash Verge Rev, open **Extend Script** for the active profile. The script uses the current gateway’s campus grants, including the allowed TCP or UDP ports. It also includes exact Per-domain DNS names when their campus DNS answer matches an IP grant.
 
 - **No existing script:** Paste the whole script and use Rule mode.
 - **Already have a script:** Paste just the `addJustConnect` function, then add `addJustConnect(config);` just before your existing `main` returns its config.

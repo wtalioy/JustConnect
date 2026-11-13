@@ -321,7 +321,7 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
-    copyClashScriptAction->setText(tr("Copy Clash extension script"));
+    copyClashScriptAction->setText(tr("Copy Clash Extend Script"));
     addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
     trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
@@ -570,7 +570,7 @@ void MainWindow::setupConnectionMenu()
     traySwitchGroup->setExclusive(true);
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
-    copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash extension script"));
+    copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash Extend Script"));
     popup->setCopyAction(copyClashScriptAction);
     copyClashScriptAction->setObjectName("copyClashScriptAction");
     connect(connectionSession,&ConnectionSession::stateChanged,this,&MainWindow::updateClashExport);

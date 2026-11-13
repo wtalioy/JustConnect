@@ -1432,7 +1432,7 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>请等待保存完成，再切换连接。</translation>
     </message>
     <message>
-        <source>Copy Clash extension script</source>
+        <source>Copy Clash Extend Script</source>
         <translation>复制 Clash 扩展脚本</translation>
     </message>
     <message>
@@ -2010,8 +2010,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Once connected, copy the Clash script from the connection menu.</source>
-        <translation>连接后，从连接菜单复制 Clash 脚本。</translation>
+        <source>Once connected, choose Copy Clash Extend Script from the connection menu.</source>
+        <translation>连接后，在连接菜单中选择「复制 Clash 扩展脚本」。</translation>
     </message>
     <message>
         <source>Additional Clash destinations</source>

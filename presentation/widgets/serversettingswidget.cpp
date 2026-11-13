@@ -127,7 +127,7 @@ void ServerSettingsWidget::retranslate() {
     routingMode->setItemText(1,tr("Local proxy only"));
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
-    clashHelp->setText(tr("Once connected, copy the Clash script from the connection menu."));
+    clashHelp->setText(tr("Once connected, choose Copy Clash Extend Script from the connection menu."));
     clashTargetsLabel->setText(tr("Additional Clash destinations"));
     clashTargets->setPlaceholderText(tr("Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22"));
     verify->setText(tr("Verify server certificate"));
