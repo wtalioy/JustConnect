@@ -172,7 +172,9 @@ int installInitialProtection(QByteArray &config, QJsonObject &initialPolicy, QBy
     if (!capabilities["initial_protection"].toBool() || !capabilities["name_protection"].toBool()) return JC_UNSUPPORTED;
     const auto snapshot = readNativeSnapshot(buffer, CoreEngine::Snapshot::Network);
     if (snapshot.status != JC_OK) return snapshot.status;
-    const auto targets = originalNetworkProtection(snapshot.data["network"].toObject());
+    const auto original = originalProxyNetworkView(snapshot.data["network"].toObject());
+    if (!original) return JC_INTERNAL;
+    const auto targets = originalNetworkProtection(*original);
     if (!targets) return JC_INTERNAL;
     const auto dns = readSystemDnsSnapshot();
     if (!dns.result.succeeded()) {
