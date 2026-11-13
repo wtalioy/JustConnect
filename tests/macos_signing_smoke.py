@@ -112,10 +112,10 @@ int main(int argc, char **argv) {
 '''
         helper = binaries / layout['executable']
 
-        def info(path, identifier, executable, kind='APPL'):
+        def info(path, identifier, executable, kind='APPL', version=1):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(plistlib.dumps(dict(CFBundleIdentifier=identifier, CFBundleExecutable=executable,
-                CFBundlePackageType=kind, CFBundleVersion='1', CFBundleShortVersionString='1')))
+                CFBundlePackageType=kind, CFBundleVersion=str(version), CFBundleShortVersionString=str(version))))
 
         info(app / 'Contents/Info.plist', app_id, host.name)
         daemon_name = app_id+layout['service_suffix']+'.plist'
@@ -172,22 +172,35 @@ int main(int argc, char **argv) {
             '-out', bundle, '-passout', 'pass:JustConnect')
         identity = base64.b64encode(bundle.read_bytes()).decode()
         cache_keychain = root / 'cache.keychain-db'
+        installed = root / 'Applications' / app.name
+        installed.parent.mkdir()
+        installed_host = installed / host.relative_to(app)
+
+        def install():
+            if installed.exists():
+                shutil.rmtree(installed)
+            run('/usr/bin/ditto', app, installed)
+
         run('/usr/bin/security', 'create-keychain', '-p', 'fixture', cache_keychain)
         try:
             run('/usr/bin/security', 'unlock-keychain', '-p', 'fixture', cache_keychain)
             sign(identity)
-            first = run('/usr/bin/codesign', '--display', '-r-', app).stderr
-            run(host, '--write-cache', cache_keychain)
-            run(host, '--read-cache', cache_keychain)
-            old_binary = hashlib.sha256(host.read_bytes()).digest()
+            install()
+            first = run('/usr/bin/codesign', '--display', '-r-', installed).stderr
+            run(installed_host, '--write-cache', cache_keychain)
+            run(installed_host, '--read-cache', cache_keychain)
+            old_binary = hashlib.sha256(installed_host.read_bytes()).digest()
             compile_host(2)
+            info(app / 'Contents/Info.plist', app_id, host.name, version=2)
             sign(identity)
-            assert hashlib.sha256(host.read_bytes()).digest() != old_binary
-            run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
-            assert run('/usr/bin/codesign', '--display', '-r-', app).stderr == first
-            run(host, '--read-cache', cache_keychain)
+            install()
+            assert hashlib.sha256(installed_host.read_bytes()).digest() != old_binary
+            run('/usr/bin/codesign', '--verify', '--deep', '--strict', installed)
+            assert run('/usr/bin/codesign', '--display', '-r-', installed).stderr == first
+            run(installed_host, '--read-cache', cache_keychain)
             sign()
-            run(host, '--deny-cache', cache_keychain)
+            install()
+            run(installed_host, '--deny-cache', cache_keychain)
         finally:
             run('/usr/bin/security', 'delete-keychain', cache_keychain)
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
