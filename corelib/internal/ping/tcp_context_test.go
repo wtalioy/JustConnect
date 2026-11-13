@@ -108,6 +108,24 @@ func TestProbePreservesAttemptsAndPartialSuccess(t *testing.T) {
 	}
 }
 
+func TestSingleCandidateStopsOnlyAfterSuccessfulTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	policy := server.Client().Transport.(*http.Transport).TLSClientConfig
+	attempts := 0
+	result := Probe(t.Context(), Target{Address: server.Listener.Addr().String(), Counter: 3,
+		Interval: time.Millisecond, Timeout: time.Second, StopOnSuccess: true}, func(ctx context.Context, network, address string) (net.Conn, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("transient dial failure")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}, policy)
+	if attempts != 2 || result.Counter != 2 || result.SuccessCounter != 1 || result.Err != nil {
+		t.Fatalf("single candidate did not retry until its first valid TLS connection: attempts=%d result=%+v", attempts, result)
+	}
+}
+
 func TestProbeCancellationInterruptsTLSHandshake(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

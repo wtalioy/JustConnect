@@ -86,6 +86,7 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 					probe.result = ping.Probe(ctx, ping.Target{
 						Address: net.JoinHostPort(host, strconv.Itoa(port)), Counter: pingNum,
 						Interval: 500 * time.Millisecond, Timeout: nodeProbeTimeout,
+						StopOnSuccess: len(nodes) == 1,
 					}, dialContext, tlsPolicy)
 				})
 			}

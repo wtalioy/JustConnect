@@ -3,10 +3,11 @@ package ping
 import "time"
 
 type Target struct {
-	Address  string
-	Counter  int
-	Interval time.Duration
-	Timeout  time.Duration
+	Address       string
+	Counter       int
+	Interval      time.Duration
+	Timeout       time.Duration
+	StopOnSuccess bool
 }
 
 type Result struct {
