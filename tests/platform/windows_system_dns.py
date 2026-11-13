@@ -11,6 +11,9 @@ import uuid
 from dns_fixture import dns_answer
 
 
+DNS_CONFIGURATION_TIMEOUT = 30  # OS configuration, separate from the resolver under test.
+
+
 def verify(executable):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
         raise RuntimeError('System DNS writes require a disposable Windows runner')
@@ -52,10 +55,12 @@ def verify(executable):
             thread.start()
             threads.append(thread)
         try:
-            subprocess.run(['netsh', 'dnsclient', 'add', 'encryption', f'server={encrypted_server}',
-                            'dothost=dns.fixture.invalid:853', 'autoupgrade=yes', 'udpfallback=no'], check=True, timeout=10)
-            # The native parent owns cleanup; this outer deadline only catches a stuck fixture.
+            added = False
             try:
+                subprocess.run(['netsh', 'dnsclient', 'add', 'encryption', f'server={encrypted_server}',
+                                'dothost=dns.fixture.invalid:853', 'autoupgrade=yes', 'udpfallback=no'],
+                               check=True, timeout=DNS_CONFIGURATION_TIMEOUT)
+                added = True
                 facts = json.loads(subprocess.check_output([str(Path(executable).with_name('JustConnectDnsReader.exe'))], timeout=10))
                 if encrypted_server not in facts['configured_encryption']:
                     raise RuntimeError('Native reader omitted the configured DoT-only server')
@@ -63,7 +68,9 @@ def verify(executable):
                 if len(received[0]) < 2 or not received[1] or failures:
                     raise RuntimeError(f'Native resolver did not follow both DNS endpoints and restoration: {received}, {failures}')
             finally:
-                subprocess.run(['netsh', 'dnsclient', 'delete', 'encryption', f'server={encrypted_server}', 'protocol=dot'], check=True, timeout=10)
+                # The configuration may have been written before netsh returned or timed out.
+                subprocess.run(['netsh', 'dnsclient', 'delete', 'encryption', f'server={encrypted_server}', 'protocol=dot'],
+                               check=added, timeout=DNS_CONFIGURATION_TIMEOUT)
         finally:
             stopped.set()
             for thread in threads:
