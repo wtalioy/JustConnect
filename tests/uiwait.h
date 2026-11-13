@@ -7,7 +7,12 @@
 
 namespace UiWait {
 inline constexpr int OperationTimeoutMs=10000;
+#ifdef Q_OS_WIN
+// A fresh WebView2 process on the hosted runner can take 15 seconds before navigation starts.
+inline constexpr int BrowserStartupTimeoutMs=25000;
+#else
 inline constexpr int BrowserStartupTimeoutMs=15000;
+#endif
 
 template<class Predicate> void until(const char *file,int line,Predicate done,int timeoutMs=OperationTimeoutMs) {
     QElapsedTimer elapsed;elapsed.start();
