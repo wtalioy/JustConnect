@@ -16,6 +16,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/service"
@@ -58,6 +59,7 @@ type Resources struct {
 	IPs                           []client.IPResource
 	PrivateIPRanges               [][2]netip.Addr
 	Domains                       client.DomainResources
+	DomainDNSPermissions          client.DomainResources
 	DNSRecords                    map[string][]net.IP
 	CampusDNS                     string
 	CampusDNSEnabled              bool
@@ -290,7 +292,11 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
-	if observer.Resources != nil && !options.LocalProxy {
+	if observer.Resources != nil && options.LocalProxy {
+		scoped, _ := ipresource.ScopedRanges(ips)
+		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
+			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
+	} else if observer.Resources != nil {
 		var domainDNSNames []string
 		for host := range options.DomainDNS {
 			domainDNSNames = append(domainDNSNames, host)

@@ -8,72 +8,122 @@
 #include <QSet>
 #include <QUrl>
 #include <optional>
+#include <algorithm>
 
 namespace {
-std::optional<QString> target(QString value)
+struct PortScope {
+    QString protocol;
+    int first, last;
+};
+
+std::optional<PortScope> portScope(const QJsonObject &resource)
+{
+    const auto protocol = resource["protocol"].toString();
+    const int first = resource["port_min"].toInt(), last = resource["port_max"].toInt();
+    if ((protocol != "tcp" && protocol != "udp" && protocol != "all") || first < 1 || last > 65535 || first > last)
+        return {};
+    return PortScope{protocol, first, last};
+}
+
+std::optional<quint64> ipv4(const QString &value)
 {
     const QHostAddress address(value);
-    if (!address.isNull()) {
-        if (!address.scopeId().isEmpty() || address.isLoopback()
-            || address.isMulticast() || address == QHostAddress::AnyIPv4 || address == QHostAddress::AnyIPv6)
-            return {};
-        bool ipv4 = false;
-        const auto number = address.toIPv4Address(&ipv4);
-        // The aTrust data path currently accepts IPv4 destinations only.
-        if (!ipv4) return {};
-        return QHostAddress(number).toString();
-    }
-    if (!value.contains('.') || value.startsWith('.') || value.contains('_')) return {};
-    return canonicalProtectionName(std::move(value));
+    if (address.protocol() != QAbstractSocket::IPv4Protocol) return {};
+    return address.toIPv4Address();
 }
 
-int appendRules(const ConnectionOptions &options, QJsonArray *rules)
+QStringList exportRules(const ConnectionOptions &options, const QJsonObject &resources)
 {
-    const auto gateway = target(options.endpoint.server);
-    const auto signIn = target(options.endpoint.loginDomain);
-    const auto lines = options.campusTargets.split('\n');
+    QStringList result, excludedNames;
     QSet<QString> seen;
-    for (int i = 0; i < lines.size(); ++i) {
-        const auto value = lines[i].trimmed();
-        if (value.isEmpty()) continue;
-        const auto name = target(value);
-        if (!name || name == gateway || name == signIn) return i + 1;
-        if (!rules || seen.contains(*name)) continue;
-        seen.insert(*name);
-        const QHostAddress address(*name);
-        if (address.isNull()) rules->append(QJsonArray{"DOMAIN," + *name, ""});
-        else rules->append(QJsonArray{"IP-CIDR," + *name + "/32", ",no-resolve"});
+    QList<std::pair<quint64,quint64>> excludedIPs{{0,0xffffff}, {0x7f000000,0x7fffffff},
+        {0xa9fe0000,0xa9feffff}, {0xe0000000,0xffffffff}};
+    for (const auto &address : {options.endpoint.server, options.endpoint.loginDomain,
+            resources["original_authentication_address"].toString()}) {
+        if (const auto number = ipv4(address)) excludedIPs.append({*number,*number});
+        else if (const auto name = canonicalProtectionName(address); name && !excludedNames.contains(*name))
+            excludedNames.append(*name);
     }
-    return 0;
+    const auto append = [&](QString target, const PortScope &scope) {
+        QStringList conditions;
+        if (scope.protocol != "all") conditions.append("NETWORK," + scope.protocol.toUpper());
+        if (scope.first != 1 || scope.last != 65535) {
+            auto ports = QString::number(scope.first);
+            if (scope.last != scope.first) ports += "-" + QString::number(scope.last);
+            conditions.append("DST-PORT," + ports);
+        }
+        conditions.append(std::move(target));
+        for (const auto &name : excludedNames) conditions.append("NOT,((DOMAIN," + name + "))");
+        auto rule = "AND,((" + conditions.join("),(") + "))";
+        if (!seen.contains(rule)) { seen.insert(rule); result.append(std::move(rule)); }
+    };
+    for (const auto &key : {"domain_resources", "domain_dns_permissions"}) {
+        const bool exact = QByteArrayView(key) == "domain_dns_permissions";
+        const auto domains = resources[key].toObject();
+        for (auto it = domains.begin(); it != domains.end(); ++it) {
+            auto host = it.key().trimmed();
+            const bool subdomainsOnly = host.startsWith('.');
+            if (subdomainsOnly) host.remove(0,1);
+            const auto name = canonicalProtectionName(host);
+            if (!name || *name == "localhost" || name->endsWith(".localhost") || (exact && excludedNames.contains(*name))) continue;
+            QString target = (exact ? "DOMAIN," : "DOMAIN-SUFFIX,") + *name;
+            if (subdomainsOnly) target = "AND,((" + target + "),(NOT,((DOMAIN," + *name + "))))";
+            for (const auto &permission : it.value().toArray())
+                if (const auto scope = portScope(permission.toObject())) append(target,*scope);
+        }
+    }
+    std::sort(excludedIPs.begin(),excludedIPs.end());
+    const auto appendRange = [&](quint64 first, quint64 last, const PortScope &scope) {
+        while (first <= last) {
+            quint64 span = quint64(1) << 32;
+            int bits = 0;
+            while (span > last-first+1 || (first & (span-1))) { span >>= 1; ++bits; }
+            append("IP-CIDR," + QHostAddress(quint32(first)).toString() + "/" + QString::number(bits) + ",no-resolve",scope);
+            first += span;
+        }
+    };
+    for (const auto &entry : resources["ip_resources"].toArray()) {
+        const auto resource = entry.toObject();
+        const auto min = ipv4(resource["ip_min"].toString()), max = ipv4(resource["ip_max"].toString());
+        const auto scope = portScope(resource);
+        if (!min || !max || *min > *max || !scope) continue;
+        auto first = *min;
+        for (const auto &[start,end] : excludedIPs) {
+            if (end < first) continue;
+            if (start > *max) break;
+            if (first < start) appendRange(first,start-1,*scope);
+            first = end+1;
+        }
+        appendRange(first,*max,*scope);
+    }
+    return result;
 }
 }
 
-int ClashExtension::invalidTargetLine(const ConnectionOptions &options)
+QString ClashExtension::script(const ConnectionOptions &options, const QString &connectionName, const QJsonObject &resources)
 {
-    return appendRules(options, nullptr);
-}
-
-QString ClashExtension::script(const ConnectionOptions &options, const QString &connectionName)
-{
-    if (options.routingMode != RoutingMode::LocalProxy) return {};
-    const auto endpoint = QUrl::fromEncoded("http://" + options.proxy.socksBind.toLatin1(), QUrl::StrictMode);
+    if (options.routingMode != RoutingMode::LocalProxy || !resources["domain_resources"].isObject()
+        || !resources["ip_resources"].isArray()) return {};
+    const auto bind = resources["listeners"].toObject()["socks"].toString();
+    const auto endpoint = QUrl::fromEncoded("http://" + bind.toLatin1(), QUrl::StrictMode);
     if (endpoint.host() != "127.0.0.1" || endpoint.port() < 1 || !endpoint.userInfo().isEmpty() ||
         !endpoint.path().isEmpty() || endpoint.hasQuery() || endpoint.hasFragment()) return {};
-    QJsonArray rules;
-    if (appendRules(options, &rules)) return {};
+    const auto rules = exportRules(options,resources);
     auto name = connectionName.simplified();
     name.replace(u',', u'，'); // Mihomo uses commas to separate rule fields.
     if (name.isEmpty()) name = QCoreApplication::translate("ClashExtension", "Campus");
     const auto node = QJsonObject{{"name", name}, {"type", "socks5"}, {"server", endpoint.host()},
         {"port", endpoint.port()}, {"udp", true}};
     QStringList routes;
-    for (const auto &rule : rules)
-        routes.append("    " + QString::fromUtf8(QJsonDocument(rule.toArray()).toJson(QJsonDocument::Compact)));
+    for (const auto &rule : rules) {
+        auto encoded = QJsonDocument(QJsonArray{rule}).toJson(QJsonDocument::Compact);
+        routes.append("    " + QString::fromUtf8(encoded.mid(1,encoded.size()-2)));
+    }
     const auto instructions = QCoreApplication::translate("ClashExtension",
         "// New script: paste everything.\n"
         "// Already have a script? Paste only the addJustConnect function below,\n"
         "// then add addJustConnect(config); before your main function returns config.\n"
-        "// Keep only one main function. Replace any older JustConnect block.");
+        "// Keep only one main function.");
     return instructions + QStringLiteral(R"JS(
 
 function main(config) {
@@ -100,7 +150,7 @@ function addJustConnect(config) {
   }
   if (!byName.has(node.name)) config.proxies = proxies.concat(node);
   const existingRules = new Set(originalRules);
-  const added = campusRoutes.map(([target, suffix]) => target + "," + node.name + suffix)
+  const added = campusRoutes.map(rule => rule + "," + node.name)
     .filter(rule => !existingRules.has(rule));
   if (added.length) config.rules = added.concat(originalRules);
   return config;

@@ -8,6 +8,7 @@
 #include <QPlainTextEdit>
 #include <QLabel>
 #include <QFile>
+#include <QJsonDocument>
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QSettings>
@@ -45,33 +46,32 @@ int main(int argc,char **argv) {
     auto *form=editor.findChild<QFormLayout *>();
     auto *mode=editor.findChild<QComboBox *>("routingModeComboBox");
     auto *localPort=editor.findChild<QSpinBox *>("localSocksPortSpinBox");
-    auto *campusTargets=editor.findChild<QPlainTextEdit *>("campusTargetsEdit");
     for(auto *field:QList<QWidget *>{address,port,mode}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
             "server address and port labels are centered beside their styled fields");
     }
     check(mode->currentIndex()==0 && mode->y()>port->y() && mode->y()<verify->y()
-        && localPort->isHidden() && campusTargets->isHidden(),"mode is near the top and only local mode shows proxy fields");
+        && localPort->isHidden(),"mode is near the top and only local mode shows proxy fields");
     mode->setCurrentIndex(1);
     localPort->setValue(32081);
-    campusTargets->setPlainText("Campus.Example.Edu.\n192.0.2.18\ncampus.example.edu");
     auto local=SavedConnectionService::load(editor.settingsValues());
     check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
         "local settings share one port");
-    check(!localPort->isHidden() && !campusTargets->isHidden(),"local settings are visible");
-    check(rules->isVisibleTo(&editor) && dnsHelp && dnsHelp->text().contains("Clash"),
-        "local mode explains that DNS does not add Clash routes");
+    check(!localPort->isHidden(),"local settings are visible");
+    check(rules->isVisibleTo(&editor) && dnsHelp && !dnsHelp->text().contains("Clash"),
+        "domain DNS remains independently editable");
     app.processEvents();
-    auto *campusLabel=editor.findChild<QLabel *>("clashCampusRoutesLabel");
-    check(campusLabel && campusLabel->buddy()==campusTargets && campusLabel->x()==ca->x()
-        && campusTargets->x()==ca->x() && campusTargets->width()==ca->width()
-        && campusTargets->maximumHeight()==ca->maximumHeight() && campusLabel->y()<campusTargets->y(),
-        "Clash routes use the same full-width text section as Server CA");
-    const auto script=ClashExtension::script(local,"复旦大学");
-    check(!script.isEmpty(),"valid exact targets can be exported offline");
-    check(ClashExtension::script(local,"Fudan").contains("\"name\":\"Fudan\""),
-        "an English connection name is exported without substituting a generic name");
+    const auto snapshot=QJsonDocument::fromJson(R"JSON({
+      "listeners":{"socks":"127.0.0.1:32081"},
+      "domain_resources":{".campus.example.edu":[{"protocol":"tcp","port_min":443,"port_max":444}]},
+      "domain_dns_permissions":{"alias.example.edu":[{"protocol":"tcp","port_min":8443,"port_max":8443}]},
+      "ip_resources":[{"ip_min":"192.0.2.18","ip_max":"192.0.2.20","protocol":"udp","port_min":53,"port_max":53},
+                      {"ip_min":"192.0.2.21","ip_max":"192.0.2.21","protocol":"icmp","port_min":1,"port_max":65535}]
+    })JSON").object();
+    const auto script=ClashExtension::script(local,"复旦大学",snapshot);
+    check(ClashExtension::script(local,"Fudan",{}).isEmpty() && !script.isEmpty(),"export requires a live resource snapshot");
+    check(ClashExtension::script(local,"Fudan",snapshot).contains("\"name\":\"Fudan\""),"export uses the current connection name");
     const auto node=QStandardPaths::findExecutable("node");
     if (!node.isEmpty()) {
         QProcess js;
@@ -86,9 +86,16 @@ const rules = ["DOMAIN-SUFFIX,example.edu,DIRECT", "MATCH,DIRECT"];
 const dns = {enable:true};
 const config = main({proxies:[original], "proxy-groups":groups, rules, dns});
 assert.deepEqual(config.proxies,[original,{name:"复旦大学 3",type:"socks5",server:"127.0.0.1",port:32081,udp:true}]);
-assert.deepEqual(config.rules,[
-  "DOMAIN,campus.example.edu,复旦大学 3",
-  "IP-CIDR,192.0.2.18/32,复旦大学 3,no-resolve", ...rules]);
+const exported = config.rules.slice(0, -rules.length);
+assert.equal(exported.length, 4);
+assert.ok(exported.every(rule => rule.endsWith(",复旦大学 3")));
+assert.ok(exported.some(rule => rule.includes("(NETWORK,TCP),(DST-PORT,443-444)") &&
+  rule.includes("(DOMAIN-SUFFIX,campus.example.edu),(NOT,((DOMAIN,campus.example.edu)))")));
+assert.ok(exported.some(rule => rule.includes("(NETWORK,TCP),(DST-PORT,8443),(DOMAIN,alias.example.edu)")));
+for (const cidr of ["192.0.2.18/31","192.0.2.20/32"]) {
+  assert.ok(exported.some(rule => rule.includes("(NETWORK,UDP),(DST-PORT,53),(IP-CIDR," + cidr + ",no-resolve)")));
+}
+assert.deepEqual(config.rules.slice(-rules.length), rules);
 assert.equal(config["proxy-groups"],groups);
 assert.equal(config.dns,dns);
 const once = JSON.stringify(config);
@@ -98,21 +105,12 @@ function existingScript(config) {
   addJustConnect(config);
   return config;
 }
-assert.deepEqual(existingScript({}).rules, [
-  "DOMAIN,campus.example.edu,复旦大学", "IP-CIDR,192.0.2.18/32,复旦大学,no-resolve",
-  "DOMAIN,keep.example,DIRECT", "MATCH,DIRECT"
-]);
+assert.deepEqual(existingScript({}).rules.slice(-2), ["DOMAIN,keep.example,DIRECT", "MATCH,DIRECT"]);
 )JS");
         js.closeWriteChannel();
         check(js.waitForFinished(),"Clash script test finished");
         check(js.exitStatus()==QProcess::NormalExit && js.exitCode()==0,js.readAllStandardError().constData());
     }
-    local.campusTargets="campus.example.edu\n*.example.edu";
-    check(ClashExtension::invalidTargetLine(local)==2 && ClashExtension::script(local,"Fudan").isEmpty(),"wildcards are rejected with their line number");
-    local.campusTargets=local.endpoint.server;
-    check(ClashExtension::invalidTargetLine(local)==1,"the gateway cannot be routed back to the listener");
-    local.campusTargets="2001:db8::18";
-    check(ClashExtension::invalidTargetLine(local)==1,"IPv6 targets are unavailable on the aTrust data path");
     mode->setCurrentIndex(0);
     check(rules->isVisibleTo(&editor) && !dnsHelp->text().contains("Clash"),
         "automatic routing keeps domain DNS editable without Clash guidance");
@@ -133,9 +131,6 @@ assert.deepEqual(existingScript({}).rules, [
     if (!SavedConnectionService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
-    check(SavedConnectionService::load(saved).campusTargets==campusTargets->toPlainText()
-        && campusTargets->toPlainText().contains("192.0.2.18") && campusTargets->isHidden(),
-        "switching modes preserves saved campus targets");
     check(SavedConnectionService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
@@ -158,9 +153,8 @@ assert.deepEqual(existingScript({}).rules, [
     DefaultSettings::applyBuiltInConnection(settings);
     editor.load(settings);
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
-        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn"
-        && campusTargets->toPlainText()=="zb.fudan.edu.cn\nicourse.fudan.edu.cn\nlibrary.fudan.edu.cn",
-        "Fudan displays its fixed endpoint and has distinct defaults for DNS and Clash routes");
+        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
+        "Fudan displays its fixed endpoint and domain DNS default");
     settings.remove("JustConnect/TLSVerify");
     editor.load(settings);
     check(verify->isChecked() && allowNodes->isChecked() && SavedConnectionService::load(settings).tls.allowUnverifiedNodes,

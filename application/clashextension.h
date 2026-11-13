@@ -1,9 +1,8 @@
 #pragma once
 
 #include "core/connectionoptions.h"
+#include <QJsonObject>
 
 namespace ClashExtension {
-// One-based line number, or zero when the saved targets can be exported.
-int invalidTargetLine(const ConnectionOptions &options);
-QString script(const ConnectionOptions &options, const QString &connectionName);
+QString script(const ConnectionOptions &options, const QString &connectionName, const QJsonObject &resources);
 }

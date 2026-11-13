@@ -724,11 +724,11 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <source>// New script: paste everything.
 // Already have a script? Paste only the addJustConnect function below,
 // then add addJustConnect(config); before your main function returns config.
-// Keep only one main function. Replace any older JustConnect block.</source>
+// Keep only one main function.</source>
         <translation>// 新建脚本：粘贴全部内容。
 // 已有脚本：只粘贴下方的 addJustConnect 函数，
 // 然后在原 main 函数返回配置前加入 addJustConnect(config);。
-// 只保留一个 main 函数；如果已有旧版 JustConnect 代码，请替换它。</translation>
+// 只保留一个 main 函数。</translation>
     </message>
 </context>
 <context>
@@ -1966,11 +1966,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>指定 JustConnect 如何解析这些域名。每行一个域名，可在后面填写 DNS 服务器的 IPv4 地址；不填服务器时使用网关 DNS。</translation>
     </message>
     <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="114"/>
-        <source>This does not add Clash routes.</source>
-        <translation>此设置不会添加 Clash 分流规则。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="101"/>
         <source>Skip tunnel verification</source>
         <translation>跳过隧道证书校验</translation>
@@ -2015,16 +2010,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Clash campus routes</source>
-        <translation>交给 Clash 分流的校园地址</translation>
-    </message>
-    <message>
-        <source>One domain or IPv4 address per line</source>
-        <translation>每行一个域名或 IPv4 地址</translation>
-    </message>
-    <message>
-        <source>Save, then copy the script from the connection menu. In Clash Rule mode, only these addresses go through JustConnect. Other proxy apps can use the same local SOCKS5 port with their own rules.</source>
-        <translation>保存后，从连接菜单复制脚本。在 Clash 规则模式下，只有这些地址通过 JustConnect。其他代理软件也可用这个本地 SOCKS5 端口，并自行设置分流规则。</translation>
+        <source>Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules.</source>
+        <translation>连接后，从连接菜单复制 Clash 脚本。脚本使用网关授权及符合条件的域名专用 DNS 条目。其他代理软件也可用这个 SOCKS5 端口并自行分流。</translation>
     </message>
 </context>
 <context>
@@ -2391,14 +2378,6 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>the current connection</source>
         <translation>当前连接</translation>
-    </message>
-    <message>
-        <source>Invalid Clash campus route</source>
-        <translation>Clash 校园分流地址无效</translation>
-    </message>
-    <message>
-        <source>Check line %1. Use a full domain name or a single IPv4 address, excluding the gateway and sign-in addresses.</source>
-        <translation>请检查第 %1 行。请输入完整域名或单个 IPv4 地址，且不要填入网关或登录地址。</translation>
     </message>
     <message>
         <source>Choose a local SOCKS5 port to use Local proxy only.</source>

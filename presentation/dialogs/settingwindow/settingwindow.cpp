@@ -2,7 +2,6 @@
 #include "ui_settingwindow.h"
 #include "presentation/widgets/alignedcheckbox.h"
 #include <QComboBox>
-#include "application/clashextension.h"
 #include <QCoreApplication>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -518,11 +517,6 @@ void SettingWindow::saveSettings() {
         QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
     }
     if (connectionOptions.routingMode==RoutingMode::LocalProxy) {
-        if (const auto line=ClashExtension::invalidTargetLine(connectionOptions); line) {
-            QMessageBox::warning(this,tr("Invalid Clash campus route"),
-                tr("Check line %1. Use a full domain name or a single IPv4 address, excluding the gateway and sign-in addresses.").arg(line));
-            return;
-        }
         if (connectionOptions.proxy.socksBind.isEmpty()) {
             QMessageBox::warning(this,tr("Invalid connection"),tr("Choose a local SOCKS5 port to use Local proxy only."));
             return;

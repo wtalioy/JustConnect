@@ -88,6 +88,7 @@ private:
     void setupConnectionMenu();
 
     void refreshConnectionMenu();
+    void updateClashExport();
 
     bool switchConnection(const QString &connectionId);
 

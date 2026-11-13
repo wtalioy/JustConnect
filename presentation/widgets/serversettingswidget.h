@@ -27,7 +27,7 @@ private:
     void retranslate();
     void updateRoutingFields();
     QFormLayout *form;
-    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel, *campusTargetsLabel, *clashHelp;
+    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel, *clashHelp;
     QLineEdit *address;
     QSpinBox *port, *socksPort;
     QComboBox *routingMode;
@@ -35,6 +35,5 @@ private:
     QCheckBox *allowUnverifiedNodes;
     QPlainTextEdit *caPem;
     QPlainTextEdit *domainDnsRules;
-    QPlainTextEdit *campusTargets;
     bool builtIn = false;
 };

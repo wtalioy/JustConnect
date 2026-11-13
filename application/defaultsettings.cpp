@@ -12,7 +12,8 @@
 #include "core/connectionoptions.h"
 
 namespace {
-constexpr int ConfigVersionBeforeBundledRoutes=9;
+constexpr int PreviousConfigVersion = 9;
+
 const QVariantMap &defaults()
 {
     static const QVariantMap values{
@@ -33,7 +34,6 @@ const QVariantMap &defaults()
         {"JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes},
         {"JustConnect/SecondaryDNS", ""},
         {DefaultSettings::RoutingModeKey, DefaultSettings::AutomaticMode},
-        {DefaultSettings::CampusTargetsKey, ""},
         {"JustConnect/LocalDNSServer", ""},
         {"JustConnect/DNSTTL", DnsOptions{}.ttl},
         {DefaultSettings::SocksPortKey, DefaultSettings::DefaultSocksPort},
@@ -59,13 +59,6 @@ const QVariantMap &defaults()
 }
 void apply(QSettings &settings, bool overwrite)
 {
-    const auto targets=settings.value(DefaultSettings::CampusTargetsKey);
-    // Earlier builds saved an empty field before the bundled routes were available.
-    if (!overwrite && (!targets.isValid() || (targets.toString().isEmpty()
-        && settings.value("Common/ConfigVersion").toInt() <= ConfigVersionBeforeBundledRoutes))
-        && DefaultSettings::isBuiltInConnection(settings))
-        settings.setValue(DefaultSettings::CampusTargetsKey,
-            DefaultSettings::builtInConnection().value(DefaultSettings::CampusTargetsKey));
     for (auto it=defaults().cbegin();it!=defaults().cend();++it)
         if (overwrite || !settings.contains(it.key())) settings.setValue(it.key(),it.value());
     if (overwrite) {
@@ -80,13 +73,12 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 
 bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
 {
-    if (settings.contains("Common/ConfigVersion")
-        && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion
-        && settings.value("Common/ConfigVersion").toInt() != ConfigVersionBeforeBundledRoutes)
+    const int version = settings.value("Common/ConfigVersion", ApplicationConstants::ConfigVersion).toInt();
+    if (version != ApplicationConstants::ConfigVersion && version != PreviousConfigVersion)
         return false;
     for (const auto &key : settings.allKeys()) {
         const auto value = settings.value(key).toString();
-        if (key == "Common/ConfigVersion" || key == ConnectionCredentialVault::ScopeSetting)
+        if (key == "Common/ConfigVersion" || key == ConnectionCredentialVault::ScopeSetting || key == "JustConnect/CampusTargets")
             continue;
         // Earlier builds wrote these fields before a server was ever chosen.
         if ((key == "JustConnect/ProfileKind" && value == "Custom")

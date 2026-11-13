@@ -573,8 +573,12 @@ void MainWindow::setupConnectionMenu()
     copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash extension script"));
     popup->setCopyAction(copyClashScriptAction);
     copyClashScriptAction->setObjectName("copyClashScriptAction");
+    connect(connectionSession,&ConnectionSession::stateChanged,this,&MainWindow::updateClashExport);
+    connect(coordinator->networkPolicy(),&NetworkPolicySession::changed,this,&MainWindow::updateClashExport);
     connect(copyClashScriptAction, &QAction::triggered, this, [this,popup] {
-        const auto script=ClashExtension::script(SavedConnectionService::load(*settings),connectionName());
+        if (connectionSession->state()!=ConnectionState::Running || !connectionSession->usesLocalProxy()) return;
+        const auto script=ClashExtension::script(SavedConnectionService::load(*settings),connectionName(),
+            coordinator->networkPolicy()->localProxyResources());
         if (script.isEmpty()) return;
         auto *clipboard=QApplication::clipboard();
         clipboard->setText(script);
@@ -636,11 +640,16 @@ void MainWindow::refreshConnectionMenu()
     updateMenu(trayConnectionMenu, traySwitchGroup);
     if (rebuild) ui->profileMenuButton->menu()->insertActions(connectionActionsSeparator, switchGroup->actions());
 
-    copyClashScriptAction->setEnabled(
-        settings->value(DefaultSettings::RoutingModeKey).toString()==DefaultSettings::LocalProxyMode);
+    updateClashExport();
     const bool currentProfileIsManaged = !currentConnectionId.isEmpty() && !overrideConfiguration;
     renameConnectionAction->setEnabled(currentProfileIsManaged);
     deleteConnectionAction->setEnabled(currentProfileIsManaged);
+}
+
+void MainWindow::updateClashExport()
+{
+    copyClashScriptAction->setEnabled(connectionSession->state()==ConnectionState::Running
+        && connectionSession->usesLocalProxy() && !coordinator->networkPolicy()->localProxyResources().isEmpty());
 }
 
 bool MainWindow::switchConnection(const QString &connectionId)

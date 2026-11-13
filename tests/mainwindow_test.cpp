@@ -144,7 +144,6 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     namedProfile.setValue("JustConnect/ConnectionKind","Custom");
     namedProfile.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     namedProfile.setValue(DefaultSettings::SocksPortKey,32081);
-    namedProfile.setValue(DefaultSettings::CampusTargetsKey,"campus.other-campus.invalid");
     namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
     const auto homeActions = menu->actions();
@@ -158,23 +157,7 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         choice->trigger();
         check(checked(menu)==name && checked(trayMenu)==name && checked(menuBarProfiles)==name,
             "home, tray and native profile selections stay synchronized");
-        check(copyScript->isEnabled()==(name==profile),"the script action tracks the selected profile's saved mode");
-        if (i==0 && name==profile) {
-            auto *clipboard=QApplication::clipboard();
-            const auto previous=clipboard->text();
-            menu->popup(menuButton->mapToGlobal(QPoint(0,menuButton->height())));
-            menu->setActiveAction(copyScript);
-            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-            QApplication::sendEvent(menu,&enter);
-            const auto script=clipboard->text();
-            clipboard->setText(previous);
-            check(menu->isVisible() && script.contains("\"port\":32081") && script.contains("\"name\":\""+name+"\"")
-                && script.contains("DOMAIN,campus.other-campus.invalid"),
-                "keyboard copy uses the saved profile and keeps the menu open for confirmation");
-            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
-            QApplication::sendEvent(menu,&escape);
-            check(!menu->isVisible(),"the menu still closes normally with Escape");
-        }
+        check(!copyScript->isEnabled(),"script export stays disabled on every disconnected connection");
         check(menuButton->text()==name && menuButton->toolTip().contains(
             name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),
             "home shows the selected connection name and its tooltip shows the server address");

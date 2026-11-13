@@ -58,7 +58,10 @@ JC_API int32_t jc_session_coexistence(uint64_t handle, uint64_t generation, uint
  * A failed preparation releases its sockets and permits retry; success seals it.
  */
 JC_API int32_t jc_session_prepare_original_dns(uint64_t handle, const uint8_t *sources, uint32_t length, uint64_t *generation);
-/* Read parsed campus resources for the requested active generation. */
+/* Read parsed campus resources for the requested active generation.
+ * Local proxy sessions expose the SOCKS listener and exportable grants only.
+ * domain_dns_permissions contains exact names derived from authorized IPv4 DNS answers.
+ */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Borrow a validated, nonblocking macOS utun fd for the ready generation.
  * Success owns a CLOEXEC duplicate until stop; the original fd and its flags remain

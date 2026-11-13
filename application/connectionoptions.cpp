@@ -30,7 +30,6 @@ ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
     p.proxy.httpBind=bind(settings.value("JustConnect/HTTPPort").toInt());
     if (settings.value(DefaultSettings::RoutingModeKey).toString()==DefaultSettings::LocalProxyMode)
         p.routingMode=RoutingMode::LocalProxy;
-    p.campusTargets=settings.value(DefaultSettings::CampusTargetsKey).toString();
     p.keepAlive.mode=settings.value("JustConnect/KeepAliveMode",p.keepAlive.mode).toString();
     p.keepAlive.url=settings.value("JustConnect/KeepAliveURL").toString();
     p.behavior.bindInterface=settings.value("JustConnect/BindInterface").toString();

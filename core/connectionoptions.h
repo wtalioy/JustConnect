@@ -28,7 +28,6 @@ struct ConnectionOptions {
     DnsOptions dns;
     ProxyOptions proxy;
     RoutingMode routingMode = RoutingMode::Automatic;
-    QString campusTargets;
     KeepAliveOptions keepAlive;
     ConnectionBehavior behavior;
     AuthenticationCache authenticationCache;

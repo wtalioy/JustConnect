@@ -28,7 +28,7 @@ public:
     CoreEngine::RequestStatus synchronizeProtection();
     bool setCampusAddress(const QString &address, bool campus);
     bool setCampusName(const QString &name, bool campus);
-    QString currentGeneration() const { return generation; }
+    QString currentGeneration() const { return localProxy ? QString{} : generation; }
     QJsonArray campusAddresses() const { return confirmedPolicy["campus"].toArray(); }
     QJsonArray campusNames() const { return confirmedPolicy["campus_names"].toArray(); }
     bool isPolicyUpdating() const { return !pendingPolicy.isEmpty(); }
@@ -37,12 +37,13 @@ public:
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject confirmedProtection() const { return confirmedPolicy; }
     QJsonObject model() const { return currentStatus == CoreEngine::RequestStatus::Success ? lastModel : QJsonObject{}; }
+    QJsonObject localProxyResources() const { return localProxy && resourceStatus == CoreEngine::RequestStatus::Success ? resources : QJsonObject{}; }
 signals:
     void changed();
 private:
     struct ModelResult { quint64 serial; CoreEngine::RequestStatus status; QJsonObject model; };
     bool submitPolicy(QJsonObject policy);
-    void begin(const QString &generation);
+    void begin(const QString &generation, bool proxyOnly);
     void buildModel();
     void publish();
     QPointer<CoreEngine> engine;
@@ -55,6 +56,7 @@ private:
     quint64 serial = 0;
     quint64 workerSerial = 0;
     bool workerBusy = false, networkPending = false, resourcesPending = false, transportReady = false;
+    bool localProxy = false;
     CoreEngine::RequestStatus networkStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus resourceStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus modelStatus = CoreEngine::RequestStatus::Pending;

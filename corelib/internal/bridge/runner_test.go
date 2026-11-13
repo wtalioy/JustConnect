@@ -31,10 +31,13 @@ type hostLogProbe struct{ written atomic.Bool }
 
 func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	g := newGateway(t)
+	g.probeDNS.Store(true)
+	g.exportDNS.Store(true)
 	e := New(RunProtocol)
 	h := create(t, e)
 	c := g.config(t)
 	c.LocalProxy = true
+	c.Network.DomainDNSRules = "alias.test\nunauthorized.test"
 	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +75,18 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	if ready.State != "ready" {
 		t.Fatal(ready)
 	}
-	if _, status := readResourceBytes(e, h, ready.Generation); status != Unsupported {
-		t.Fatal("local mode published capture resources", status)
+	data, status := readResourceBytes(e, h, ready.Generation)
+	var snapshot resourcesEnvelope
+	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
+		len(snapshot.Resources.Domains["campus.test"]) == 0 || len(snapshot.Resources.IPs) == 0 ||
+		len(snapshot.Resources.DNSRecords) != 0 || len(snapshot.Resources.PrivateIPRanges) != 0 {
+		t.Fatal("local mode must publish its listener and export grants, without system capture data", status)
+	}
+	aliases := snapshot.Resources.DomainDNSPermissions
+	if permissions := aliases["alias.test"]; len(aliases) != 1 || len(permissions) != 2 ||
+		permissions[0] != (resourcePermission{Protocol: "tcp", PortMin: 8443, PortMax: 8450}) ||
+		permissions[1] != (resourcePermission{Protocol: "udp", PortMin: 1053, PortMax: 1053}) {
+		t.Fatal("DNS aliases must inherit only the exact port and protocol grants for their answer", aliases)
 	}
 	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
 	if err != nil {
@@ -95,6 +108,9 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	}
 	if e.Stop(h, 3000) != OK {
 		t.Fatal("local proxy did not stop")
+	}
+	if _, status := readResourceBytes(e, h, ready.Generation); status != StaleRequest {
+		t.Fatal("local export remained accessible after disconnect", status)
 	}
 	awaitClosed(t, connection)
 }

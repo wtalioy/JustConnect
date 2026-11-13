@@ -56,14 +56,14 @@ Choose the built-in Fudan University profile, or add one for your own aTrust gat
 
 ### Use your own proxy app
 
-Choose **Local proxy only** in **Edit connection**. JustConnect listens on `127.0.0.1` at the **Local SOCKS5 port** shown there, leaving your system routes, DNS, and proxy settings alone. Any app that supports a SOCKS5 upstream can use that address. In your proxy app, route the exact campus domains or IPv4 addresses you need to that upstream and keep your usual rules for everything else. **Per-domain DNS** only controls how JustConnect looks up domains.
+Choose **Local proxy only** in **Edit connection**. JustConnect listens on `127.0.0.1` at the **Local SOCKS5 port** shown there, leaving your system routes, DNS, and proxy settings alone. Any app that supports a SOCKS5 upstream can use that address. In your proxy app, route the campus traffic you need to that upstream and keep your usual rules for everything else.
 
-For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), fill in **Clash campus routes** and choose **Copy Clash extension script** from the connection menu. The Fudan profile starts with `zb.fudan.edu.cn`, `icourse.fudan.edu.cn`, and `library.fudan.edu.cn`.
+For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), connect first, then choose **Copy Clash extension script** from the connection menu. The script uses the current gateway’s campus grants, including the allowed TCP or UDP ports. It also includes exact Per-domain DNS names when their campus DNS answer matches an IP grant.
 
 - **No existing script:** Paste the whole script and use Rule mode.
-- **Already have a script:** Paste just the `addJustConnect` function, then add `addJustConnect(config);` just before your existing `main` returns its config. Keep a single `main` and replace any older JustConnect block.
+- **Already have a script:** Paste just the `addJustConnect` function, then add `addJustConnect(config);` just before your existing `main` returns its config.
 
-The SOCKS5 node uses the connection name shown in JustConnect. Copy the script again if you change the connection name, port, or routes.
+The SOCKS5 node uses the connection name shown in JustConnect. A blanket IP grant does not become a catch-all rule. Copy the script again after changing the connection or when its gateway grants change.
 
 ## License and credits
 

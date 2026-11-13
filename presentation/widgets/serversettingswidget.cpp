@@ -55,10 +55,6 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     socksPort->setObjectName("localSocksPortSpinBox");
     socksPort->setRange(0,65535);
     socksPort->setValue(DefaultSettings::DefaultSocksPort);
-    campusTargets=new QPlainTextEdit(this);
-    campusTargets->setObjectName("campusTargetsEdit");
-    campusTargetsLabel=new QLabel(this);
-    campusTargetsLabel->setObjectName("clashCampusRoutesLabel");
     clashHelp=new QLabel(this);
     connect(routingMode,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::updateRoutingFields);
     for(auto *field:QList<QWidget *>{address,port,routingMode,socksPort}) {
@@ -68,7 +64,9 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
         form->addRow(label,field);
     }
     layout->addLayout(form);
-    addTextSection(campusTargetsLabel,campusTargets,clashHelp);
+    clashHelp->setWordWrap(true);
+    clashHelp->setProperty("secondary",true);
+    layout->addWidget(clashHelp);
     layout->addSpacing(8);
 
     verify=new AlignedCheckBox(this);
@@ -107,13 +105,10 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
 void ServerSettingsWidget::updateRoutingFields() {
     const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
     form->setRowVisible(socksPort,local);
-    campusTargetsLabel->setVisible(local);
-    campusTargets->setVisible(local);
     clashHelp->setVisible(local);
     QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.");
-    if (local) help+=" "+tr("This does not add Clash routes.");
 #ifndef Q_OS_WIN
-    else help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
+    if (!local) help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
 #endif
     rulesHelp->setText(help);
 }
@@ -129,9 +124,7 @@ void ServerSettingsWidget::retranslate() {
     routingMode->setItemText(1,tr("Local proxy only"));
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
-    campusTargetsLabel->setText(tr("Clash campus routes"));
-    campusTargets->setPlaceholderText(tr("One domain or IPv4 address per line"));
-    clashHelp->setText(tr("Save, then copy the script from the connection menu. In Clash Rule mode, only these addresses go through JustConnect. Other proxy apps can use the same local SOCKS5 port with their own rules."));
+    clashHelp->setText(tr("Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules."));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
@@ -148,7 +141,6 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     const auto number = settings.value("JustConnect/ServerPort", 443).toInt();
     routingMode->setCurrentIndex(qMax(0,routingMode->findData(settings.value(DefaultSettings::RoutingModeKey))));
     socksPort->setValue(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
-    campusTargets->setPlainText(settings.value(DefaultSettings::CampusTargetsKey).toString());
     builtIn = DefaultSettings::isBuiltInConnection(settings);
     address->setText(host);
     address->setReadOnly(builtIn);
@@ -174,6 +166,5 @@ QVariantMap ServerSettingsWidget::settingsValues() const {
         {"JustConnect/ConnectionKind", builtIn ? DefaultSettings::builtInConnection().value("JustConnect/ConnectionKind") : QVariant("Custom")},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
         {DefaultSettings::RoutingModeKey,routingMode->currentData()},{DefaultSettings::SocksPortKey,socksPort->value()},
-        {DefaultSettings::CampusTargetsKey,campusTargets->toPlainText().trimmed()},
         {"Common/NeedsConfiguration",false}};
 }

@@ -11,7 +11,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
     : QObject(parent), engine(engine), reader(std::move(reader))
 {
     connect(engine, &CoreEngine::sessionStarted, this, [this, required = std::move(captureRequired)](const QString &id) {
-        if (!required || required()) begin(id);
+        begin(id, required && !required());
     });
     connect(engine, &CoreEngine::initialProtectionApplied, this, [this](const QJsonObject &policy) {
         if (generation.isEmpty() || policy["generation"] != generation || !confirmedPolicy.isEmpty() || isPolicyUpdating()
@@ -50,7 +50,8 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
                     if (isNetwork) networkVersion = data["schema_version"];
                 }
             }
-            publish();
+            if (localProxy) emit changed();
+            else publish();
         });
     connect(engine, &CoreEngine::policyUpdated, this,
         [this](const QString &id, const QString &appliedRevision, Status status) {
@@ -72,18 +73,21 @@ NetworkPolicySession::~NetworkPolicySession()
     watcher.waitForFinished();
 }
 
-void NetworkPolicySession::begin(const QString &id)
+void NetworkPolicySession::begin(const QString &id, bool proxyOnly)
 {
     clear();
     if (id.isEmpty()) return;
     generation = id;
-    refresh();
+    localProxy = proxyOnly;
+    if (!localProxy) refresh();
 }
 
 void NetworkPolicySession::clear()
 {
     ++serial;
     generation.clear();
+    localProxy = false;
+    resourceStatus = Status::Pending;
     transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
     originalViewFilter = {};
     policyApplier = {};
@@ -131,7 +135,7 @@ void NetworkPolicySession::completePolicy(const QString &id, const QString &appl
 
 bool NetworkPolicySession::refresh()
 {
-    if (!engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || (isPolicyUpdating() && !waitingForPolicyModel)
+    if (localProxy || !engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || (isPolicyUpdating() && !waitingForPolicyModel)
         || (workerBusy && workerSerial == serial)) return false;
     refreshQueued = false;
     ++serial;
@@ -306,7 +310,7 @@ void NetworkPolicySession::buildModel()
 
 void NetworkPolicySession::publish()
 {
-    if (generation.isEmpty()) { emit changed(); return; }
+    if (generation.isEmpty() || localProxy) { emit changed(); return; }
     if (refreshQueued && !networkBusy && !workerBusy && !networkPending && !resourcesPending && (!isPolicyUpdating() || waitingForPolicyModel)) {
         refreshQueued = false;
         refresh();
