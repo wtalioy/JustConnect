@@ -100,14 +100,13 @@ def device():
 
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_CPP_WINTUN_BROKER=' + env['JC_TEST_CPP_WINTUN_BROKER'] + '\n')
-    source = pathlib.Path('corelib/tests/windows/device/main.go').resolve()
-    tests = pathlib.Path('corelib/tests/windows/device/main_test.go').resolve()
-    if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
+    package = './tests/windows/device'
+    if subprocess.check_output(['gofmt', '-l', 'corelib/tests/windows/device'], env=env).strip():
         raise RuntimeError('Unformatted device probe')
-    subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
     probe, unit = output / 'windows-device-probe.exe', output / 'windows-device-unit.exe'
-    subprocess.run(['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), str(source)], env=env, check=True, timeout=120)
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-c', '-o', str(unit), str(source), str(tests)], env=env, check=True, timeout=120)
+    flags = ['-mod=readonly', '-tags=jc_wintun_probe']
+    subprocess.run(['go', '-C', 'corelib', 'build', *flags, '-o', str(probe), package], env=env, check=True, timeout=120)
+    subprocess.run(['go', '-C', 'corelib', 'test', *flags, '-vet=all', '-c', '-o', str(unit), package], env=env, check=True, timeout=120)
     log_path = output / 'windows-device.log'
     with log_path.open('w', encoding='utf-8') as log:
         try:
