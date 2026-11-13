@@ -19,7 +19,7 @@ public:
     CredentialResult load(const QString &scope,const ConnectionOptions &connectionOptions,ConnectionCredentials &credentials);
     CredentialResult save(const QString &scope,const ConnectionOptions &connectionOptions);
     CredentialResult clear(QSettings &settings,const QString &scope,const ConnectionOptions &connectionOptions);
-    CredentialResult loadAuthenticationCache(const QString &scope,const ConnectionOptions &connectionOptions,AuthenticationCache &cache,bool authorize=false);
+    CredentialResult loadAuthenticationCache(const QString &scope,const ConnectionOptions &connectionOptions,AuthenticationCache &cache);
     CredentialResult saveAuthenticationCache(const QString &scope,const ConnectionOptions &connectionOptions,const AuthenticationCache &cache);
     CredentialResult clearAuthenticationCache(const QString &scope,const ConnectionOptions &connectionOptions);
     // Migrate the loaded source identity before committing any identity edits.

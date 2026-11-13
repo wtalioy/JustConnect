@@ -162,14 +162,17 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         if (i==0 && name==profile) {
             auto *clipboard=QApplication::clipboard();
             const auto previous=clipboard->text();
-            copyScript->trigger();
+            menu->popup(menuButton->mapToGlobal(QPoint(0,menuButton->height())));
+            menu->setActiveAction(copyScript);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(menu,&enter);
             const auto script=clipboard->text();
             clipboard->setText(previous);
-            check(script.contains("\"port\":32081") && script.contains("DOMAIN,campus.other-campus.invalid"),
-                "an offline copy uses the selected profile's port and targets");
-            const auto *feedback=window.findChild<QLabel *>("clashCopyFeedback");
-            check(feedback && !feedback->isHidden() && !feedback->text().isEmpty(),
-                "copy feedback is displayed inside the main window");
+            check(menu->isVisible() && script.contains("\"port\":32081") && script.contains("DOMAIN,campus.other-campus.invalid"),
+                "keyboard copy uses the saved profile and keeps the menu open for confirmation");
+            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+            QApplication::sendEvent(menu,&escape);
+            check(!menu->isVisible(),"the menu still closes normally with Escape");
         }
         check(menuButton->text()==name && menuButton->toolTip().contains(
             name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),

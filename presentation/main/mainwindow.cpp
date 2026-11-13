@@ -9,6 +9,7 @@
 #include <QClipboard>
 #include <QAccessible>
 #include <QActionGroup>
+#include <QMenu>
 #include <QDialog>
 #include <QLineEdit>
 #include <QStyle>
@@ -26,6 +27,7 @@
 #include <QTemporaryDir>
 #include <QVBoxLayout>
 #include "presentation/widgets/applicationpreferenceswidget.h"
+#include "presentation/widgets/connectionmenu.h"
 #include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include <algorithm>
@@ -129,9 +131,6 @@ MainWindow::MainWindow(
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
 #endif
     ui->setupUi(this);
-    ui->clashCopyFeedback->hide();
-    clashCopyFeedbackTimer.setSingleShot(true);
-    connect(&clashCopyFeedbackTimer,&QTimer::timeout,ui->clashCopyFeedback,&QLabel::hide);
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
@@ -692,7 +691,7 @@ void MainWindow::setupTrayIcon()
 void MainWindow::setupConnectionMenu()
 {
     // Cocoa uses separate menu surfaces. Share their actions instead of sharing submenus.
-    auto *popup = new QMenu(ui->profileMenuButton);
+    auto *popup = new ConnectionMenu(ui->profileMenuButton);
     ui->profileMenuButton->setMenu(popup);
     switchGroup = new QActionGroup(ui->profileMenu);
     traySwitchGroup = new QActionGroup(trayConnectionMenu);
@@ -701,16 +700,17 @@ void MainWindow::setupConnectionMenu()
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
     copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash extension script"));
+    popup->setCopyAction(copyClashScriptAction);
     copyClashScriptAction->setObjectName("copyClashScriptAction");
-    connect(copyClashScriptAction, &QAction::triggered, this, [this] {
+    connect(copyClashScriptAction, &QAction::triggered, this, [this,popup] {
         const auto script=ClashExtension::script(SavedConnectionService::load(*settings));
-        if (!script.isEmpty()) QApplication::clipboard()->setText(script);
-        auto *feedback=ui->clashCopyFeedback;
-        const auto message=script.isEmpty() ? tr("Check Clash settings") : tr("Script copied");
-        feedback->setText(message);
-        feedback->show();
-        clashCopyFeedbackTimer.start(2200);
-        QAccessibleAnnouncementEvent announcement(feedback,message);
+        if (script.isEmpty()) return;
+        auto *clipboard=QApplication::clipboard();
+        clipboard->setText(script);
+        if (clipboard->text()!=script) return;
+        popup->showCopyCheck();
+        QAccessibleAnnouncementEvent announcement(ui->profileMenuButton,
+            QCoreApplication::translate("PresentationHelpers","Copied to clipboard"));
         QAccessible::updateAccessibility(&announcement);
     });
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));

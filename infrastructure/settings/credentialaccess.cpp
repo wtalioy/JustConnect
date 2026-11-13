@@ -111,10 +111,10 @@ quint64 CredentialAccess::authenticationCacheRevision(const CredentialSource &so
     QMutexLocker lock(&cacheMutex);
     return cacheRevisions.value(ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions));
 }
-QFuture<AuthenticationCacheLoadResult> CredentialAccess::loadAuthenticationCache(const CredentialSource &source,bool authorize) {
+QFuture<AuthenticationCacheLoadResult> CredentialAccess::loadAuthenticationCache(const CredentialSource &source) {
     const auto revision=authenticationCacheRevision(source);
     begin(source.path,false);
-    return QtConcurrent::run(&pool,[this,source,revision,authorize] {
+    return QtConcurrent::run(&pool,[this,source,revision] {
         QSettings settings(source.path,QSettings::IniFormat);
         AuthenticationCacheLoadResult loaded;loaded.revision=revision;
         loaded.result=checkSource(source,settings,true);
@@ -122,7 +122,7 @@ QFuture<AuthenticationCacheLoadResult> CredentialAccess::loadAuthenticationCache
         if (authenticationCacheRevision(source)!=revision) return AuthenticationCacheLoadResult{{CredentialStatus::Cancelled,{}},{},revision};
         if (ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions).isEmpty()) return AuthenticationCacheLoadResult{{CredentialStatus::NotFound,{}},{},revision};
         ConnectionCredentialVault credentials(*store);
-        loaded.result=credentials.loadAuthenticationCache(source.scope,source.connectionOptions,loaded.cache,authorize);
+        loaded.result=credentials.loadAuthenticationCache(source.scope,source.connectionOptions,loaded.cache);
         const auto current=checkSource(source,settings,true);
         if (!current.succeeded()) return AuthenticationCacheLoadResult{current,{},revision};
         if (authenticationCacheRevision(source)!=revision) return AuthenticationCacheLoadResult{{CredentialStatus::Cancelled,{}},{},revision};

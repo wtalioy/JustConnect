@@ -101,7 +101,6 @@ private:
     void deleteCurrentConnection();
 
     QTimer logFlushTimer;
-    QTimer clashCopyFeedbackTimer;
     QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;

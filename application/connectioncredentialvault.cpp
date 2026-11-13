@@ -112,11 +112,11 @@ CredentialResult ConnectionCredentialVault::save(const QString &scope,const Conn
     if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return {Status::InvalidArgument,{}};
     return writeVerified(key(scope,p),encode(p.credentials));
 }
-CredentialResult ConnectionCredentialVault::loadAuthenticationCache(const QString &scope,const ConnectionOptions &p,AuthenticationCache &cache,bool authorize) {
+CredentialResult ConnectionCredentialVault::loadAuthenticationCache(const QString &scope,const ConnectionOptions &p,AuthenticationCache &cache) {
     cache={};
     const auto id=authenticationCacheKey(scope,p);
     if (id.isEmpty()) return {Status::InvalidArgument,{}};
-    auto result=authorize ? store.readWithAuthorization(id) : store.read(id);
+    auto result=store.read(id);
     if (!result.succeeded()) {result.value.clear();return result;}
     if (result.value.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto document=QJsonDocument::fromJson(result.value);
