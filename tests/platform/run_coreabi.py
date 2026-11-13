@@ -34,8 +34,8 @@ def main():
     race_status = regression_status = 0
     if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
         # Collect independent ABI results even when a race regression fails; the step still fails below.
-        # Serialize packages; retain the platform's CPU and parallel-test budgets.
-        race_status = run(output, 'go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'], required=False)
+        # The serialized race suite can exhaust a package's budget before its parallel cases finish.
+        race_status = run(output, 'go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '120s', './...'], required=False)
         # Repeat observed shutdown/DNS regressions without relaxing their original deadlines.
         regression_status = run(output, 'go-race-tun-regressions', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
             '-timeout', '90s', '-run', '^(TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown|TestTUNDNSUsesOwnedPeerAndCampusACL)$', './service'], required=False)
