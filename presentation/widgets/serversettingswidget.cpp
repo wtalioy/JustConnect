@@ -67,6 +67,10 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     clashHelp->setWordWrap(true);
     clashHelp->setProperty("secondary",true);
     layout->addWidget(clashHelp);
+    extraTcpRoutesLabel=new QLabel(this);
+    extraTcpRoutes=new QPlainTextEdit(this);
+    extraTcpRoutes->setObjectName("extraTcpRoutesEdit");
+    addTextSection(extraTcpRoutesLabel,extraTcpRoutes);
     layout->addSpacing(8);
 
     verify=new AlignedCheckBox(this);
@@ -106,6 +110,8 @@ void ServerSettingsWidget::updateRoutingFields() {
     const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
     form->setRowVisible(socksPort,local);
     clashHelp->setVisible(local);
+    extraTcpRoutesLabel->setVisible(local);
+    extraTcpRoutes->setVisible(local);
     QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.");
 #ifndef Q_OS_WIN
     if (!local) help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
@@ -125,6 +131,11 @@ void ServerSettingsWidget::retranslate() {
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
     clashHelp->setText(tr("Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules."));
+    extraTcpRoutesLabel->setText(tr("Extra TCP routes"));
+    extraTcpRoutes->setPlaceholderText(tr("One IPv4:port per line, e.g. 192.0.2.10:22"));
+    const auto extraRoutesHelp=tr("Only gateway-authorized destinations are added to the Clash script.");
+    extraTcpRoutes->setToolTip(extraRoutesHelp);
+    extraTcpRoutes->setAccessibleDescription(extraRoutesHelp);
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
@@ -154,6 +165,7 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
     allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes).toBool());
     domainDnsRules->setPlainText(settings.value(DefaultSettings::DomainDnsRules).toString());
+    extraTcpRoutes->setPlainText(settings.value(DefaultSettings::ExtraTcpRoutes).toString());
 }
 
 QString ServerSettingsWidget::serverAddress() const { return address->text().trimmed(); }
@@ -165,6 +177,7 @@ QVariantMap ServerSettingsWidget::settingsValues() const {
         {"JustConnect/AllowUnverifiedNodes",allowUnverifiedNodes->isChecked()},
         {"JustConnect/ConnectionKind", builtIn ? DefaultSettings::builtInConnection().value("JustConnect/ConnectionKind") : QVariant("Custom")},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
+        {DefaultSettings::ExtraTcpRoutes,extraTcpRoutes->toPlainText().trimmed()},
         {DefaultSettings::RoutingModeKey,routingMode->currentData()},{DefaultSettings::SocksPortKey,socksPort->value()},
         {"Common/NeedsConfiguration",false}};
 }

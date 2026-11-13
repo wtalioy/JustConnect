@@ -120,6 +120,42 @@ func (p *hostLogProbe) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+func TestLocalProxyExportsOnlyRequestedEndpointsFromBlanketGrant(t *testing.T) {
+	g := newGateway(t)
+	g.fullIPv4Resource.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.HTTP = ""
+	c.Listeners.SOCKS = freeAddress(t)
+	c.ExtraTCPRoutes = "192.0.2.20:80\n192.0.2.20:81\n192.0.2.10:80\n192.0.2.20:80"
+	startProtocol(t, e, h, c)
+	ready := next(t, e, h)
+	if ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	data, status := readResourceBytes(e, h, ready.Generation)
+	var snapshot resourcesEnvelope
+	if status != OK || json.Unmarshal(data, &snapshot) != nil {
+		t.Fatal("export snapshot unavailable", status)
+	}
+	var extra int
+	for _, row := range snapshot.Resources.IPs {
+		switch {
+		case row.IPMin == "192.0.2.20" && row.IPMax == row.IPMin &&
+			row.resourcePermission == (resourcePermission{Protocol: "tcp", PortMin: 80, PortMax: 80}):
+			extra++
+		case row.IPMin != "192.0.2.10" || row.IPMax != row.IPMin ||
+			(row.Protocol == "tcp" && row.PortMin == row.PortMax):
+			t.Fatal("unexpected endpoint, duplicate or blanket rule", row)
+		}
+	}
+	if extra != 1 {
+		t.Fatal("expected exactly one authorized extra route", snapshot.Resources.IPs)
+	}
+}
+
 func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 	// This test runs serially while observing the process-wide logger.
 	const trafficTimeout = 5 * time.Second

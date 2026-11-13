@@ -32,6 +32,7 @@ const QVariantMap &defaults()
         {"JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes},
         {"JustConnect/SecondaryDNS", ""},
         {DefaultSettings::RoutingModeKey, DefaultSettings::AutomaticMode},
+        {DefaultSettings::ExtraTcpRoutes, ""},
         {"JustConnect/LocalDNSServer", ""},
         {"JustConnect/DNSTTL", DnsOptions{}.ttl},
         {DefaultSettings::SocksPortKey, DefaultSettings::DefaultSocksPort},

@@ -73,7 +73,10 @@ QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation oper
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
-    if (localProxy) config["local_proxy"] = true;
+    if (localProxy) {
+        config["local_proxy"] = true;
+        if (!p.proxy.extraTcpRoutes.isEmpty()) config["extra_tcp_routes"] = p.proxy.extraTcpRoutes;
+    }
     if (!p.behavior.controllerAddress.isEmpty()) {
         auto network=config["network"].toObject();
         network["controller_address"]=p.behavior.controllerAddress;

@@ -44,6 +44,7 @@ type Options struct {
 	KeepAliveURL     string
 	QueryAuthMethods bool
 	LocalProxy       bool
+	ExtraTCPRoutes   []netip.AddrPort
 	ProtectionPolicy func() *policy.ProtectionPolicy
 	OriginalDNS      *resolve.OriginalDNS
 }
@@ -294,6 +295,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	defer s.listeners.Store(nil)
 	if observer.Resources != nil && options.LocalProxy {
 		scoped, _ := ipresource.ScopedRanges(ips)
+		scoped = appendExtraTCPRoutes(scoped, dialer, options.ExtraTCPRoutes)
 		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
 	} else if observer.Resources != nil {

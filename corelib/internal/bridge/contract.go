@@ -59,14 +59,16 @@ func (s Status) Message() string {
 }
 
 type Config struct {
-	SchemaVersion int               `json:"schema_version"`
-	Operation     string            `json:"operation"`
-	LocalProxy    bool              `json:"local_proxy,omitempty"`
-	Protection    *ProtectionConfig `json:"protection,omitempty"`
-	initialPolicy *policy.ProtectionPolicy
-	originalDNS   *resolve.OriginalDNS
-	domainDNS     map[string]string
-	Server        struct {
+	SchemaVersion  int    `json:"schema_version"`
+	Operation      string `json:"operation"`
+	LocalProxy     bool   `json:"local_proxy,omitempty"`
+	ExtraTCPRoutes string `json:"extra_tcp_routes,omitempty"`
+	extraTCPRoutes []netip.AddrPort
+	Protection     *ProtectionConfig `json:"protection,omitempty"`
+	initialPolicy  *policy.ProtectionPolicy
+	originalDNS    *resolve.OriginalDNS
+	domainDNS      map[string]string
+	Server         struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
 	} `json:"server"`
@@ -191,6 +193,26 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {
 		return Config{}, InvalidArgument
+	}
+	if c.ExtraTCPRoutes != "" {
+		if !c.LocalProxy {
+			return Config{}, InvalidArgument
+		}
+		seen := make(map[netip.AddrPort]bool)
+		for line := range strings.SplitSeq(c.ExtraTCPRoutes, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			target, err := netip.ParseAddrPort(line)
+			if err != nil || !target.Addr().Is4() || !target.Addr().IsGlobalUnicast() || target.Port() == 0 {
+				return Config{}, InvalidArgument
+			}
+			if !seen[target] {
+				seen[target] = true
+				c.extraTCPRoutes = append(c.extraTCPRoutes, target)
+			}
+		}
 	}
 	if c.LocalProxy {
 		socks, err := netip.ParseAddrPort(c.Listeners.SOCKS)

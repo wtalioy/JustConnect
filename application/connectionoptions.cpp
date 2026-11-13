@@ -28,6 +28,7 @@ ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
     const auto bind=[](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };
     p.proxy.socksBind=bind(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
     p.proxy.httpBind=bind(settings.value("JustConnect/HTTPPort").toInt());
+    p.proxy.extraTcpRoutes=settings.value(DefaultSettings::ExtraTcpRoutes).toString();
     if (settings.value(DefaultSettings::RoutingModeKey).toString()==DefaultSettings::LocalProxyMode)
         p.routingMode=RoutingMode::LocalProxy;
     p.keepAlive.mode=settings.value("JustConnect/KeepAliveMode",p.keepAlive.mode).toString();

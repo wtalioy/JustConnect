@@ -66,7 +66,7 @@ QStringList exportRules(const ConnectionOptions &options, const QJsonObject &res
             if (subdomainsOnly) host.remove(0,1);
             const auto name = canonicalProtectionName(host);
             if (!name || *name == "localhost" || name->endsWith(".localhost") || (exact && excludedNames.contains(*name))) continue;
-            QString target = (exact ? "DOMAIN," : "DOMAIN-SUFFIX,") + *name;
+            QString target = (subdomainsOnly && !exact ? "DOMAIN-SUFFIX," : "DOMAIN,") + *name;
             if (subdomainsOnly) target = "AND,((" + target + "),(NOT,((DOMAIN," + *name + "))))";
             for (const auto &permission : it.value().toArray())
                 if (const auto scope = portScope(permission.toObject())) append(target,*scope);

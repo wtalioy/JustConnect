@@ -16,7 +16,7 @@ struct DnsOptions {
     QString localDnsServer;
     QString domainDnsRules;
 };
-struct ProxyOptions { QString socksBind, httpBind; };
+struct ProxyOptions { QString socksBind, httpBind, extraTcpRoutes; };
 enum class RoutingMode { Automatic, LocalProxy };
 struct KeepAliveOptions { QString mode = "auto", url; };
 struct ConnectionBehavior { QString bindInterface; QString controllerAddress; bool autoDetectInterface = false; bool rememberAuthentication = false; };

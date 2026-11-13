@@ -46,25 +46,29 @@ int main(int argc,char **argv) {
     auto *form=editor.findChild<QFormLayout *>();
     auto *mode=editor.findChild<QComboBox *>("routingModeComboBox");
     auto *localPort=editor.findChild<QSpinBox *>("localSocksPortSpinBox");
+    auto *extraRoutes=editor.findChild<QPlainTextEdit *>("extraTcpRoutesEdit");
     for(auto *field:QList<QWidget *>{address,port,mode}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
             "server address and port labels are centered beside their styled fields");
     }
     check(mode->currentIndex()==0 && mode->y()>port->y() && mode->y()<verify->y()
-        && localPort->isHidden(),"mode is near the top and only local mode shows proxy fields");
+        && localPort->isHidden() && extraRoutes->isHidden(),"mode is near the top and only local mode shows proxy fields");
     mode->setCurrentIndex(1);
     localPort->setValue(32081);
+    extraRoutes->setPlainText("192.0.2.18:22");
     auto local=SavedConnectionService::load(editor.settingsValues());
     check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
         "local settings share one port");
-    check(!localPort->isHidden(),"local settings are visible");
+    check(!localPort->isHidden() && !extraRoutes->isHidden() && extraRoutes->maximumHeight()==ca->maximumHeight()
+        && local.proxy.extraTcpRoutes=="192.0.2.18:22","local settings expose and save extra routes with the same field style");
     check(rules->isVisibleTo(&editor) && dnsHelp && !dnsHelp->text().contains("Clash"),
         "domain DNS remains independently editable");
     app.processEvents();
     const auto snapshot=QJsonDocument::fromJson(R"JSON({
       "listeners":{"socks":"127.0.0.1:32081"},
-      "domain_resources":{".campus.example.edu":[{"protocol":"tcp","port_min":443,"port_max":444}]},
+      "domain_resources":{".campus.example.edu":[{"protocol":"tcp","port_min":443,"port_max":444}],
+                          "library.example.edu":[{"protocol":"tcp","port_min":1,"port_max":65535}]},
       "domain_dns_permissions":{"alias.example.edu":[{"protocol":"tcp","port_min":8443,"port_max":8443}]},
       "ip_resources":[{"ip_min":"192.0.2.18","ip_max":"192.0.2.20","protocol":"udp","port_min":53,"port_max":53},
                       {"ip_min":"192.0.2.21","ip_max":"192.0.2.21","protocol":"icmp","port_min":1,"port_max":65535}]
@@ -87,11 +91,13 @@ const dns = {enable:true};
 const config = main({proxies:[original], "proxy-groups":groups, rules, dns});
 assert.deepEqual(config.proxies,[original,{name:"复旦大学 3",type:"socks5",server:"127.0.0.1",port:32081,udp:true}]);
 const exported = config.rules.slice(0, -rules.length);
-assert.equal(exported.length, 4);
+assert.equal(exported.length, 5);
 assert.ok(exported.every(rule => rule.endsWith(",复旦大学 3")));
 assert.ok(exported.some(rule => rule.includes("(NETWORK,TCP),(DST-PORT,443-444)") &&
   rule.includes("(DOMAIN-SUFFIX,campus.example.edu),(NOT,((DOMAIN,campus.example.edu)))")));
 assert.ok(exported.some(rule => rule.includes("(NETWORK,TCP),(DST-PORT,8443),(DOMAIN,alias.example.edu)")));
+assert.ok(exported.some(rule => rule.includes("(DOMAIN,library.example.edu)")));
+assert.ok(!exported.some(rule => rule.includes("(DOMAIN-SUFFIX,library.example.edu)")));
 for (const cidr of ["192.0.2.18/31","192.0.2.20/32"]) {
   assert.ok(exported.some(rule => rule.includes("(NETWORK,UDP),(DST-PORT,53),(IP-CIDR," + cidr + ",no-resolve)")));
 }

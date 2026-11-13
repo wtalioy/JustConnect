@@ -2,6 +2,7 @@ package corelib
 
 import (
 	"context"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -10,6 +11,25 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
+
+func appendExtraTCPRoutes(scoped []client.IPResource, dialer *dial.Dialer, targets []netip.AddrPort) []client.IPResource {
+	if len(targets) == 0 {
+		return scoped
+	}
+	exported := append([]client.IPResource(nil), scoped...)
+	index := ipresource.New(scoped)
+	for _, target := range targets {
+		address, port := target.Addr(), int(target.Port())
+		ip := address.AsSlice()
+		if address == dialer.OriginalAuthentication.Address || !dialer.HasIPGrant(ip, "tcp", port) {
+			continue
+		}
+		if _, covered := index.Match(ip, "tcp", port); !covered {
+			exported = append(exported, client.IPResource{IPMin: ip, IPMax: ip, Protocol: "tcp", PortMin: port, PortMax: port})
+		}
+	}
+	return exported
+}
 
 // A DNS override identifies an address, but the IP grants still decide which ports can use it.
 func proxyExportDomainDNS(ctx context.Context, dialer *dial.Dialer, ips []client.IPResource, overrides map[string]string) client.DomainResources {

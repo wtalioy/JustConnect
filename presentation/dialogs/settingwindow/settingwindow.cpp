@@ -526,7 +526,7 @@ void SettingWindow::saveSettings() {
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
         QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
-            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
+            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS, extra TCP routes and probe target. Nothing was saved."));return;
     }
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)

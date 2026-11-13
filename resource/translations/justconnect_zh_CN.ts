@@ -2013,6 +2013,18 @@ Some system settings may have changed. Check them before retrying.</source>
         <source>Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules.</source>
         <translation>连接后，从连接菜单复制 Clash 脚本。脚本使用网关授权及符合条件的域名专用 DNS 条目。其他代理软件也可用这个 SOCKS5 端口并自行分流。</translation>
     </message>
+    <message>
+        <source>Extra TCP routes</source>
+        <translation>补充 TCP 路由</translation>
+    </message>
+    <message>
+        <source>One IPv4:port per line, e.g. 192.0.2.10:22</source>
+        <translation>每行一个 IPv4:端口，例如 192.0.2.10:22</translation>
+    </message>
+    <message>
+        <source>Only gateway-authorized destinations are added to the Clash script.</source>
+        <translation>只将网关已授权的目标加入 Clash 脚本。</translation>
+    </message>
 </context>
 <context>
     <name>SettingWindow</name>
@@ -2304,8 +2316,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
-        <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
-        <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
+        <source>Check the server, sign-in method, ports, DNS, extra TCP routes and probe target. Nothing was saved.</source>
+        <translation>请检查服务器、认证方式、端口、DNS、补充 TCP 路由和保活目标。配置未保存。</translation>
     </message>
     <message>
         <source>Import</source>

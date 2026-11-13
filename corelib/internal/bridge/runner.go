@@ -54,6 +54,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		KeepAliveMode: config.KeepAlive.Mode, KeepAliveURL: config.KeepAlive.URL,
 		QueryAuthMethods: config.Operation == "auth_methods",
 		LocalProxy:       config.LocalProxy,
+		ExtraTCPRoutes:   config.extraTCPRoutes,
 		ProtectionPolicy: host.ProtectionPolicy,
 		OriginalDNS:      config.originalDNS,
 		DomainDNS:        config.domainDNS,
