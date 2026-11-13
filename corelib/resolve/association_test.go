@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/miekg/dns"
@@ -58,6 +59,10 @@ func TestCampusAliasKeepsRealBindingAndExpiresWithIt(t *testing.T) {
 }
 
 func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
+	synctest.Test(t, testCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection)
+}
+
+func testCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	r := bindingResolver()
 	defer r.Close()
 	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
@@ -96,7 +101,11 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	if resources := r.CampusResourcesForIP(ctx, ip); len(resources) != 2 || len(resources["alias.campus.test"]) != 1 || len(resources["other.campus.test"]) != 1 {
 		t.Fatal("in-flight request lost a bound name or its captured policy", resources)
 	}
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(time.Second - time.Nanosecond)
+	if len(r.CampusResourcesForIP(ctx, ip)["alias.campus.test"]) != 1 {
+		t.Fatal("CNAME grant expired before its advertised TTL")
+	}
+	time.Sleep(time.Nanosecond)
 	if len(r.CampusResourcesForIP(ctx, ip)) != 0 {
 		t.Fatal("A TTL outlived the shorter CNAME TTL")
 	}
