@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"testing"
 )
 
@@ -76,6 +77,25 @@ func TestCancelledPairDoesNotOpenSockets(t *testing.T) {
 	tcp, udp, err := Listen(ctx, "127.0.0.1:0")
 	if !errors.Is(err, context.Canceled) || tcp != nil || udp != nil {
 		t.Fatal("cancelled DNS allocation returned owned sockets", err)
+	}
+}
+
+func TestEphemeralUDPBindFailureUsesTCPAllocator(t *testing.T) {
+	attemptedTCP := false
+	tcp, udp, err := listenPair(t.Context(), "127.0.0.1:0", func(network string, address *net.UDPAddr) (*net.UDPConn, error) {
+		if !attemptedTCP && address.Port == 0 {
+			return nil, os.ErrPermission
+		}
+		attemptedTCP = true
+		return net.ListenUDP(network, address)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	defer udp.Close()
+	if !attemptedTCP || tcp.Addr().String() != udp.LocalAddr().String() {
+		t.Fatal("UDP allocation failure did not fall back to a matching TCP-selected pair")
 	}
 }
 
