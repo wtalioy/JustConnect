@@ -704,7 +704,7 @@ void MainWindow::setupConnectionMenu()
         const auto script=ClashExtension::script(SavedConnectionService::load(*settings));
         auto *anchor=ui->profileMenuButton;
         if (!script.isEmpty()) QApplication::clipboard()->setText(script);
-        const auto message=script.isEmpty() ? tr("Check the local port and campus targets.") : tr("Clash script copied");
+        const auto message=script.isEmpty() ? tr("Check the local port and Clash campus routes.") : tr("Clash script copied");
         QToolTip::showText(anchor->mapToGlobal(QPoint(0,anchor->height())),message,anchor,{},1800);
         QAccessibleAnnouncementEvent announcement(anchor,message);
         QAccessible::updateAccessibility(&announcement);

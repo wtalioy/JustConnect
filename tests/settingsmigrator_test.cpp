@@ -15,7 +15,7 @@ namespace
 bool seedsOnlyUnconfiguredManagedDefaults()
 {
     QTemporaryDir folder;
-    for (const auto &name : {"fresh", "previous", "custom", "named", "new-named", "edited"}) {
+    for (const auto &name : {"fresh", "previous", "custom", "named", "new-named", "edited", "fudan-missing", "fudan-empty", "fudan-edited"}) {
         QSettings settings(folder.filePath(QString::fromLatin1(name) + ".ini"), QSettings::IniFormat);
         const auto scenario = QLatin1String(name);
         if (scenario == "custom") settings.setValue("JustConnect/ServerAddress", "other.example.invalid");
@@ -25,11 +25,16 @@ bool seedsOnlyUnconfiguredManagedDefaults()
             settings.setValue("Credential/StoreID", "preserved-scope");
         }
         if (scenario == "edited") settings.setValue("Credential/Username", "kept");
+        if (scenario.startsWith(QLatin1String("fudan-"))) {
+            DefaultSettings::applyBuiltInConnection(settings);
+            if (scenario=="fudan-missing") settings.remove(DefaultSettings::CampusTargetsKey);
+            else settings.setValue(DefaultSettings::CampusTargetsKey, scenario=="fudan-edited" ? "custom.example.invalid" : "");
+        }
         settings.sync();
         if (SettingsMigrator::prepare(settings, scenario != "named" && scenario != "new-named") == SettingsMigrationAction::Failed
             || !SettingsMigrator::finish(settings)) return false;
         const auto server = settings.value("JustConnect/ServerAddress").toString();
-        if (scenario == "fresh" || scenario == "previous") {
+        if (scenario == "fresh" || scenario == "previous" || scenario.startsWith(QLatin1String("fudan-"))) {
             if (server != "vpn.fudan.edu.cn" || settings.value("JustConnect/AuthType") != "httpsOauth2"
                 || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn") return false;
         } else if (scenario == "custom") {
@@ -40,6 +45,10 @@ bool seedsOnlyUnconfiguredManagedDefaults()
         if (scenario == "previous" && settings.value("Credential/StoreID") != "preserved-scope") return false;
         if (scenario == "edited" && settings.value("Credential/Username") != "kept") return false;
         if (scenario == "new-named" && !settings.value("JustConnect/AuthType").toString().isEmpty()) return false;
+        const auto expectedRoutes = scenario=="fudan-edited" ? "custom.example.invalid"
+            : (scenario=="fresh" || scenario=="previous" || scenario=="fudan-missing")
+                ? "zb.fudan.edu.cn\nicourse.fudan.edu.cn\nlibrary.fudan.edu.cn" : "";
+        if (settings.value(DefaultSettings::CampusTargetsKey)!=expectedRoutes) return false;
     }
     return true;
 }

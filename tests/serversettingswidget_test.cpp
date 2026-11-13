@@ -59,6 +59,12 @@ int main(int argc,char **argv) {
     check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
         "local settings share one port");
     check(!localPort->isHidden() && !campusTargets->isHidden(),"local settings are visible");
+    app.processEvents();
+    auto *campusLabel=editor.findChild<QLabel *>("clashCampusRoutesLabel");
+    check(campusLabel && campusLabel->buddy()==campusTargets && campusLabel->x()==ca->x()
+        && campusTargets->x()==ca->x() && campusTargets->width()==ca->width()
+        && campusTargets->maximumHeight()==ca->maximumHeight() && campusLabel->y()<campusTargets->y(),
+        "Clash routes use the same full-width text section as Server CA");
     const auto script=ClashExtension::script(local);
     check(!script.isEmpty(),"valid exact targets can be exported offline");
     const auto node=QStandardPaths::findExecutable("node");
@@ -137,8 +143,9 @@ assert.equal(JSON.stringify(main(config)),once);
     DefaultSettings::applyBuiltInConnection(settings);
     editor.load(settings);
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
-        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
-        "Fudan displays its fixed endpoint and retains its default DNS");
+        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn"
+        && campusTargets->toPlainText()=="zb.fudan.edu.cn\nicourse.fudan.edu.cn\nlibrary.fudan.edu.cn",
+        "Fudan displays its fixed endpoint and has distinct defaults for DNS and Clash routes");
     settings.remove("JustConnect/TLSVerify");
     editor.load(settings);
     check(verify->isChecked() && allowNodes->isChecked() && SavedConnectionService::load(settings).tls.allowUnverifiedNodes,

@@ -18,6 +18,22 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0,0,0,0);
     layout->setSpacing(12);
+    const auto addTextSection=[&](QLabel *label,QPlainTextEdit *editor,QLabel *help=nullptr) {
+        auto *section=new QVBoxLayout;
+        section->setContentsMargins(0,0,0,0);
+        section->setSpacing(8);
+        label->setMinimumHeight(28);
+        label->setBuddy(editor);
+        editor->setMaximumHeight(112);
+        section->addWidget(label);
+        section->addWidget(editor);
+        if (help) {
+            help->setWordWrap(true);
+            help->setProperty("secondary",true);
+            section->addWidget(help);
+        }
+        layout->addLayout(section);
+    };
     form = new QFormLayout;
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -41,10 +57,9 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     socksPort->setValue(DefaultSettings::DefaultSocksPort);
     campusTargets=new QPlainTextEdit(this);
     campusTargets->setObjectName("campusTargetsEdit");
-    campusTargets->setMaximumHeight(112);
+    campusTargetsLabel=new QLabel(this);
+    campusTargetsLabel->setObjectName("clashCampusRoutesLabel");
     clashHelp=new QLabel(this);
-    clashHelp->setWordWrap(true);
-    clashHelp->setProperty("secondary",true);
     connect(routingMode,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::updateRoutingFields);
     for(auto *field:QList<QWidget *>{address,port,routingMode,socksPort}) {
         auto *label=new QLabel(this);label->setBuddy(field);
@@ -52,10 +67,8 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
         label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
         form->addRow(label,field);
     }
-    form->addRow(new QLabel(this),campusTargets);
-    qobject_cast<QLabel *>(form->labelForField(campusTargets))->setBuddy(campusTargets);
-    form->addRow(clashHelp);
     layout->addLayout(form);
+    addTextSection(campusTargetsLabel,campusTargets,clashHelp);
     layout->addSpacing(8);
 
     verify=new AlignedCheckBox(this);
@@ -73,24 +86,16 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
     layout->addLayout(tlsOptions);
-    auto *caSection=new QVBoxLayout;caSection->setContentsMargins(0,0,0,0);caSection->setSpacing(8);
-    caLabel=new QLabel(this);caLabel->setObjectName("serverCaLabel");caLabel->setMinimumHeight(28);
-    caPem=new QPlainTextEdit(this);caPem->setObjectName("tlsCaPemEdit");caPem->setMaximumHeight(112);
-    caLabel->setBuddy(caPem);
-    caSection->addWidget(caLabel);caSection->addWidget(caPem);layout->addLayout(caSection);
+    caLabel=new QLabel(this);caLabel->setObjectName("serverCaLabel");
+    caPem=new QPlainTextEdit(this);caPem->setObjectName("tlsCaPemEdit");
+    addTextSection(caLabel,caPem);
     layout->addSpacing(8);
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
-    domainDnsRules->setMaximumHeight(112);
     domainDnsRules->setPlaceholderText("host.example.edu\nother.example.edu 192.0.2.53");
     rulesHelp=new QLabel(this);
-    rulesHelp->setWordWrap(true);rulesHelp->setProperty("secondary",true);
     domainDnsLabel=new QLabel(this);
-    domainDnsLabel->setMinimumHeight(28);
-    domainDnsLabel->setBuddy(domainDnsRules);
-    auto *dnsSection=new QVBoxLayout;dnsSection->setContentsMargins(0,0,0,0);dnsSection->setSpacing(8);
-    dnsSection->addWidget(domainDnsLabel);dnsSection->addWidget(domainDnsRules);dnsSection->addWidget(rulesHelp);
-    layout->addLayout(dnsSection);
+    addTextSection(domainDnsLabel,domainDnsRules,rulesHelp);
     layout->addStretch();
     connect(verify,&QCheckBox::toggled,warning,[this](bool checked){warning->setVisible(!checked);});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
@@ -102,8 +107,9 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
 void ServerSettingsWidget::updateRoutingFields() {
     const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
     form->setRowVisible(socksPort,local);
-    form->setRowVisible(campusTargets,local);
-    form->setRowVisible(clashHelp,local);
+    campusTargetsLabel->setVisible(local);
+    campusTargets->setVisible(local);
+    clashHelp->setVisible(local);
 }
 void ServerSettingsWidget::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
@@ -117,9 +123,9 @@ void ServerSettingsWidget::retranslate() {
     routingMode->setItemText(1,tr("Local proxy only"));
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
-    qobject_cast<QLabel *>(form->labelForField(campusTargets))->setText(tr("Campus targets"));
+    campusTargetsLabel->setText(tr("Clash campus routes"));
     campusTargets->setPlaceholderText(tr("One domain or IPv4 address per line"));
-    clashHelp->setText(tr("Clash routes these targets in Rule mode. After saving, copy the script from the connection menu."));
+    clashHelp->setText(tr("In Clash Rule mode, the script sends only the listed addresses to JustConnect. Other traffic follows your existing rules. Save, then copy the script from the connection menu."));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
@@ -127,10 +133,10 @@ void ServerSettingsWidget::retranslate() {
     caLabel->setText(tr("Server CA"));
     caPem->setAccessibleName(tr("Server CA"));
     caPem->setPlaceholderText(tr("Optional server CA in PEM format. Leave empty to use system trust."));
-    domainDnsLabel->setText(tr("Domain DNS"));
-    QString help=tr("One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.");
+    domainDnsLabel->setText(tr("Per-domain DNS"));
+    QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS. This does not add Clash routes.");
 #ifndef Q_OS_WIN
-    help+=" "+tr("Use the local application proxy for domains not published by the gateway.");
+    help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
 #endif
     rulesHelp->setText(help);
 }

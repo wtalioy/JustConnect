@@ -58,6 +58,10 @@ const QVariantMap &defaults()
 }
 void apply(QSettings &settings, bool overwrite)
 {
+    if (!overwrite && !settings.contains(DefaultSettings::CampusTargetsKey)
+        && DefaultSettings::isBuiltInConnection(settings))
+        settings.setValue(DefaultSettings::CampusTargetsKey,
+            DefaultSettings::builtInConnection().value(DefaultSettings::CampusTargetsKey));
     for (auto it=defaults().cbegin();it!=defaults().cend();++it)
         if (overwrite || !settings.contains(it.key())) settings.setValue(it.key(),it.value());
     if (overwrite) {

@@ -519,7 +519,7 @@ void SettingWindow::saveSettings() {
     }
     if (connectionOptions.routingMode==RoutingMode::LocalProxy) {
         if (const auto line=ClashExtension::invalidTargetLine(connectionOptions); line) {
-            QMessageBox::warning(this,tr("Invalid campus target"),
+            QMessageBox::warning(this,tr("Invalid Clash campus route"),
                 tr("Check line %1. Use a full domain name or a single IPv4 address, excluding the gateway and sign-in addresses.").arg(line));
             return;
         }

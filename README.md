@@ -54,7 +54,9 @@ macOS builds are not notarized. If macOS blocks JustConnect on first launch beca
 
 Choose the built-in Fudan University profile, or add one for your own aTrust gateway. Click **Connect** and follow the sign-in and network permission prompts.
 
-If you already use Clash Verge Rev to route your traffic, choose **Local proxy only** in **Edit connection**. Add the exact campus domains or IPv4 addresses you want Clash to route. From the connection menu, choose **Copy Clash extension script**, then paste it into your Clash profile’s extension script and use Rule mode. Merge it with any script you already use, and copy it again if you change the port or targets. JustConnect runs a local SOCKS5 proxy without changing your system routes, DNS, or proxy settings.
+If you already use Clash Verge Rev, choose **Local proxy only** in **Edit connection**. Under **Clash campus routes**, list the exact domains or IPv4 addresses to send through JustConnect. The Fudan profile starts with `zb.fudan.edu.cn`, `icourse.fudan.edu.cn`, and `library.fudan.edu.cn`. Everything else follows your existing Clash rules.
+
+Choose **Copy Clash extension script** from the connection menu and add it to your Clash profile’s extension script. Use Rule mode, merge with any existing script, and copy it again if you change the port or routes. **Per-domain DNS** controls how JustConnect looks up specific domains; it does not add Clash routes. In this mode, JustConnect runs a local SOCKS5 proxy and leaves your system routes, DNS, and proxy settings alone.
 
 ## License and credits
 

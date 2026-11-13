@@ -1426,8 +1426,8 @@ Configuration: %4
         <translation>已复制 Clash 脚本</translation>
     </message>
     <message>
-        <source>Check the local port and campus targets.</source>
-        <translation>请检查本地端口和校园目标。</translation>
+        <source>Check the local port and Clash campus routes.</source>
+        <translation>请检查本地端口和交给 Clash 分流的校园地址。</translation>
     </message>
     <message>
         <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
@@ -1956,8 +1956,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="107"/>
-        <source>One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.</source>
-        <translation>每行一个域名，可在后方填写 IPv4 DNS；留空则使用网关 DNS。</translation>
+        <source>Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS. This does not add Clash routes.</source>
+        <translation>指定 JustConnect 如何解析这些域名。每行一个域名，可在后面填写 DNS 服务器的 IPv4 地址；不填服务器时使用网关 DNS。此设置不会添加 Clash 分流规则。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="101"/>
@@ -1971,13 +1971,13 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="106"/>
-        <source>Domain DNS</source>
+        <source>Per-domain DNS</source>
         <translation>域名专用 DNS</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="109"/>
-        <source>Use the local application proxy for domains not published by the gateway.</source>
-        <translation>网关未发布的域名请通过应用本地代理访问。</translation>
+        <source>In Automatic routing, use the local proxy for domains the gateway does not publish.</source>
+        <translation>在自动分流模式下，网关未发布的域名请通过本地代理访问。</translation>
     </message>
     <message>
         <source>Address</source>
@@ -2004,16 +2004,16 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Campus targets</source>
-        <translation>校园目标</translation>
+        <source>Clash campus routes</source>
+        <translation>交给 Clash 分流的校园地址</translation>
     </message>
     <message>
         <source>One domain or IPv4 address per line</source>
         <translation>每行一个域名或 IPv4 地址</translation>
     </message>
     <message>
-        <source>Clash routes these targets in Rule mode. After saving, copy the script from the connection menu.</source>
-        <translation>Clash 在规则模式下分流这些目标。保存后，可从连接菜单复制脚本。</translation>
+        <source>In Clash Rule mode, the script sends only the listed addresses to JustConnect. Other traffic follows your existing rules. Save, then copy the script from the connection menu.</source>
+        <translation>在 Clash 规则模式下，脚本只会把列出的地址交给 JustConnect。其他流量仍按 Clash 原有规则处理。保存后，从连接菜单复制脚本。</translation>
     </message>
 </context>
 <context>
@@ -2382,8 +2382,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>当前连接</translation>
     </message>
     <message>
-        <source>Invalid campus target</source>
-        <translation>无效的校园目标</translation>
+        <source>Invalid Clash campus route</source>
+        <translation>Clash 校园分流地址无效</translation>
     </message>
     <message>
         <source>Check line %1. Use a full domain name or a single IPv4 address, excluding the gateway and sign-in addresses.</source>
