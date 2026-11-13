@@ -27,10 +27,8 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
 {
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return std::nullopt;
     QMap<QString, QJsonArray> targets;
-    auto add = [&](const QString &value, const QJsonObject &source, bool route, bool excluded = false) {
-        const auto subnet = QHostAddress::parseSubnet(value);
-        if (subnet.second < 0 || !subnet.first.scopeId().isEmpty()) return false;
-        if (mapped(subnet.first)) return false;
+    auto add = [&](const std::pair<QHostAddress, int> &subnet, const QJsonObject &source, bool route, bool excluded = false) {
+        if (subnet.second < 0 || !subnet.first.scopeId().isEmpty() || mapped(subnet.first)) return false;
         // Host caches and routes bound only to disconnected links do not establish reachable networks.
         if (excluded) return true;
         // Default and split-default routes describe exits, never protected destinations.
@@ -39,8 +37,10 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
         targets[prefix].append(source);
         return true;
     };
-    add("127.0.0.0/8", {{"kind", "loopback"}}, false);
-    add("::1/128", {{"kind", "loopback"}}, false);
+    static const auto loopback4 = QHostAddress::parseSubnet(QStringLiteral("127.0.0.0/8"));
+    static const auto loopback6 = QHostAddress::parseSubnet(QStringLiteral("::1/128"));
+    add(loopback4, {{"kind", "loopback"}}, false);
+    add(loopback6, {{"kind", "loopback"}}, false);
     QSet<qint64> interfacesSeen, disconnected;
     qint64 proxyIndex = 0;
 #if defined(Q_OS_MACOS)
@@ -63,19 +63,18 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
         const auto addresses = item["addresses"].toArray();
         int overlayAddress4 = -1, overlayAddress6 = -1;
         for (int j = 0; j < addresses.size(); ++j) {
-            if (!addresses[j].isString() || !add(addresses[j].toString(),
-                {{"kind", "interface_address"}, {"interface", i}, {"address", j}}, false,index > 0 && index == proxyIndex)) return std::nullopt;
-            const auto address = QHostAddress::parseSubnet(addresses[j].toString()).first;
-            if (address.isInSubnet(overlay4)) overlayAddress4 = j;
-            if (address.isInSubnet(overlay6)) overlayAddress6 = j;
+            if (!addresses[j].isString()) return std::nullopt;
+            const auto subnet = QHostAddress::parseSubnet(addresses[j].toString());
+            if (!add(subnet, {{"kind", "interface_address"}, {"interface", i}, {"address", j}},
+                false, index > 0 && index == proxyIndex)) return std::nullopt;
+            if (subnet.first.isInSubnet(overlay4)) overlayAddress4 = j;
+            if (subnet.first.isInSubnet(overlay6)) overlayAddress6 = j;
         }
         // Both assigned families identify the live overlay without relying on its user-editable name.
         if (index > 0 && index != proxyIndex && item["up"] == true && item["loopback"] == false
             && overlayAddress4 >= 0 && overlayAddress6 >= 0) {
-            add(overlay4.first.toString()+'/'+QString::number(overlay4.second),
-                {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress4}},false);
-            add(overlay6.first.toString()+'/'+QString::number(overlay6.second),
-                {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress6}},false);
+            add(overlay4, {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress4}}, false);
+            add(overlay6, {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress6}}, false);
         }
     }
     const auto routes = network["routes"].toArray();
@@ -83,9 +82,10 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
         if (!routes[i].isObject()) return std::nullopt;
         const auto row = routes[i].toObject();
         const auto destination = row.value("destination");
-        bool inactive = disconnected.contains(row["interface_index"].toInteger(0));
+        const bool inactive = disconnected.contains(row["interface_index"].toInteger(0));
         if ((row.contains("cloned") && !row["cloned"].isBool()) || !destination.isString()
-            || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true,row["cloned"].toBool() || inactive))
+            || !add(QHostAddress::parseSubnet(destination.toString()), {{"kind", "route"}, {"route", i}},
+                true, row["cloned"].toBool() || inactive))
             return std::nullopt;
     }
     QJsonArray result;
