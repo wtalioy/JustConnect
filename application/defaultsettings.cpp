@@ -12,8 +12,6 @@
 #include "core/connectionoptions.h"
 
 namespace {
-constexpr int PreviousConfigVersion = 9;
-
 const QVariantMap &defaults()
 {
     static const QVariantMap values{
@@ -74,7 +72,7 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
 {
     const int version = settings.value("Common/ConfigVersion", ApplicationConstants::ConfigVersion).toInt();
-    if (version != ApplicationConstants::ConfigVersion && version != PreviousConfigVersion)
+    if (version != ApplicationConstants::ConfigVersion)
         return false;
     for (const auto &key : settings.allKeys()) {
         const auto value = settings.value(key).toString();
