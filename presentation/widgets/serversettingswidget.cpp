@@ -64,13 +64,10 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
         form->addRow(label,field);
     }
     layout->addLayout(form);
-    clashHelp->setWordWrap(true);
-    clashHelp->setProperty("secondary",true);
-    layout->addWidget(clashHelp);
     clashTargetsLabel=new QLabel(this);
     clashTargets=new QPlainTextEdit(this);
     clashTargets->setObjectName("clashTargetsEdit");
-    addTextSection(clashTargetsLabel,clashTargets);
+    addTextSection(clashTargetsLabel,clashTargets,clashHelp);
     layout->addSpacing(8);
 
     verify=new AlignedCheckBox(this);
@@ -130,7 +127,7 @@ void ServerSettingsWidget::retranslate() {
     routingMode->setItemText(1,tr("Local proxy only"));
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
-    clashHelp->setText(tr("Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules."));
+    clashHelp->setText(tr("Once connected, copy the Clash script from the connection menu."));
     clashTargetsLabel->setText(tr("Additional Clash destinations"));
     clashTargets->setPlaceholderText(tr("Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22"));
     verify->setText(tr("Verify server certificate"));

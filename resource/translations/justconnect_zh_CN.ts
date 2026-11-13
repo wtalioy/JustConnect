@@ -2010,8 +2010,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Connect, then copy the Clash script from the connection menu. It uses gateway permissions and eligible domain DNS entries. Other proxy apps can use this SOCKS5 port with their own rules.</source>
-        <translation>连接后，从连接菜单复制 Clash 脚本。脚本使用网关授权及符合条件的域名专用 DNS 条目。其他代理软件也可用这个 SOCKS5 端口并自行分流。</translation>
+        <source>Once connected, copy the Clash script from the connection menu.</source>
+        <translation>连接后，从连接菜单复制 Clash 脚本。</translation>
     </message>
     <message>
         <source>Additional Clash destinations</source>
