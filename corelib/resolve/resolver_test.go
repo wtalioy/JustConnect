@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,17 +64,27 @@ func TestCampusDNSUsesOnlyItsTunnelEndpointEvenWhenTheOriginalNetworkOverlaps(t 
 	if _, ip, err := r.Resolve(t.Context(), "www.campus.test"); err == nil || ip != nil || public.Load() != 0 {
 		t.Fatal("campus DNS escaped", ip, err, public.Load())
 	}
-	for _, server := range []string{"0.0.0.53", "127.0.0.53", "224.0.0.53", "255.255.255.255", "::1", "invalid"} {
-		invalid := NewResolver(tunnel, server, "", 60, nil, nil, true)
+	for _, tc := range []struct {
+		server  string
+		enabled bool
+	}{
+		{"0.0.0.53", true}, {"127.0.0.53", true}, {"224.0.0.53", true},
+		{"255.255.255.255", true}, {"::1", true}, {"invalid", true},
+		{"192.0.2.53", false},
+	} {
+		invalid := NewResolver(tunnel, tc.server, "", 60, nil, nil, tc.enabled)
+		if endpoint, valid := invalid.CampusDNSEndpoint(); valid {
+			t.Fatal("unusable campus DNS endpoint was exposed", endpoint)
+		}
 		before := tunnel.calls.Load()
 		for _, resolver := range []*net.Resolver{invalid.remoteUDPResolver, invalid.remoteTCPResolver} {
 			if _, err := resolver.Dial(t.Context(), "udp", "unused"); !errors.Is(err, ErrCampusDNSUnavailable) {
-				t.Fatal(server, err)
+				t.Fatal(tc, err)
 			}
 		}
 		invalid.Close()
 		if tunnel.calls.Load() != before {
-			t.Fatal("invalid campus DNS reached a transport", server)
+			t.Fatal("unusable campus DNS reached a transport", tc)
 		}
 	}
 }
@@ -715,6 +726,18 @@ func BenchmarkDNSCacheHitParallel(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkCampusDNSEndpoint(b *testing.B) {
+	r := NewResolver(nil, "192.0.2.53", "", 60, nil, nil, true)
+	defer r.Close()
+	want := netip.MustParseAddrPort("192.0.2.53:53")
+	b.ReportAllocs()
+	for b.Loop() {
+		if endpoint, valid := r.CampusDNSEndpoint(); !valid || endpoint != want {
+			b.Fatal("wrong campus DNS endpoint", endpoint)
+		}
+	}
 }
 
 func BenchmarkDNSCacheFullMiss(b *testing.B) {

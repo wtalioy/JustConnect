@@ -21,7 +21,7 @@ type Resolver struct {
 	OriginalDNS       *OriginalDNS
 	DomainDNS         map[string]string
 	DomainDNSDial     client.DialContextFunc
-	remoteDNSServer   string
+	campusDNS         netip.AddrPort
 	dnsTTL            uint32
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -415,48 +415,37 @@ func (r *Resolver) Close() {
 
 // CampusDNSEndpoint is the authenticated tunnel DNS endpoint, independent of OS address protection.
 func (r *Resolver) CampusDNSEndpoint() (netip.AddrPort, bool) {
-	address, err := netip.ParseAddr(r.remoteDNSServer)
-	if err != nil || !address.Is4() || !r.useRemoteDNS {
-		return netip.AddrPort{}, false
-	}
-	first := address.As4()[0]
-	if first == 0 || first == 127 || first >= 224 {
-		return netip.AddrPort{}, false
-	}
-	return netip.AddrPortFrom(address, DNSPort), true
+	return r.campusDNS, r.campusDNS.IsValid()
 }
 
 func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
 	lifecycle, cancel := context.WithCancel(context.Background())
-	var resolver *Resolver
-	resolver = &Resolver{
-		remoteDNSServer: remoteDNSServer,
-		dnsTTL:          uint32(min(ttl, uint64(^uint32(0)))),
-		ctx:             lifecycle, cancel: cancel,
+	var campusDNS netip.AddrPort
+	if address, err := netip.ParseAddr(remoteDNSServer); useRemoteDNS && err == nil && address.Is4() {
+		if first := address.As4()[0]; first != 0 && first != 127 && first < 224 {
+			campusDNS = netip.AddrPortFrom(address, DNSPort)
+		}
+	}
+	resolver := &Resolver{
+		campusDNS: campusDNS,
+		dnsTTL:    uint32(min(ttl, uint64(^uint32(0)))),
+		ctx:       lifecycle, cancel: cancel,
 		remoteUDPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				endpoint, valid := resolver.CampusDNSEndpoint()
-				if !valid {
+				if !campusDNS.IsValid() {
 					return nil, ErrCampusDNSUnavailable
 				}
-				return stack.DialUDP(ctx, &net.UDPAddr{
-					IP:   net.IP(endpoint.Addr().AsSlice()),
-					Port: DNSPort,
-				})
+				return stack.DialUDP(ctx, net.UDPAddrFromAddrPort(campusDNS))
 			},
 		},
 		remoteTCPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				endpoint, valid := resolver.CampusDNSEndpoint()
-				if !valid {
+				if !campusDNS.IsValid() {
 					return nil, ErrCampusDNSUnavailable
 				}
-				return stack.DialTCP(ctx, &net.TCPAddr{
-					IP:   net.IP(endpoint.Addr().AsSlice()),
-					Port: DNSPort,
-				})
+				return stack.DialTCP(ctx, net.TCPAddrFromAddrPort(campusDNS))
 			},
 		},
 		domainIndex:  newDomainResourceIndex(domainResources),
