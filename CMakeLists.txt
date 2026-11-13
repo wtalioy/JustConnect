@@ -79,6 +79,7 @@ add_library(justconnect_desktop OBJECT
     presentation/coordinators/connectiondiagnostics.cpp
     presentation/coordinators/connectionuicontroller.cpp
     presentation/coordinators/controllerselectioncoordinator.cpp
+    presentation/dialogs/applicationpreferencesdialog.cpp
     presentation/dialogs/connectiondetailsdialog.cpp
     presentation/dialogs/connectiondetailsdialog.ui
     presentation/dialogs/networkpolicywindow.cpp

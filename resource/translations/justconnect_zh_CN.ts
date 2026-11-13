@@ -2,6 +2,13 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN" sourcelanguage="en">
 <context>
+    <name>ApplicationPreferencesDialog</name>
+    <message>
+        <source>App settings</source>
+        <translation>应用设置</translation>
+    </message>
+</context>
+<context>
     <name>ApplicationPreferencesWidget</name>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="57"/>

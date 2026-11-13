@@ -18,13 +18,9 @@
 #include <QHBoxLayout>
 #include <QHash>
 #include <QDialogButtonBox>
-#include <QScrollArea>
-#include <QScrollBar>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
-#include "presentation/widgets/applicationpreferenceswidget.h"
 #include "presentation/widgets/connectionmenu.h"
-#include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include <algorithm>
 #include <memory>
@@ -35,6 +31,7 @@
 #include "presentation/appearance/applicationappearance.h"
 #include "presentation/dialogs/networkpolicywindow.h"
 #include "presentation/dialogs/connectiondetailsdialog.h"
+#include "presentation/dialogs/applicationpreferencesdialog.h"
 
 #include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
@@ -354,48 +351,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
 }
 
 
-void MainWindow::showApplicationPreferences() {
-    if (!preferencesWindow) {
-        auto *view=new LocalizedDialog<QDialog>(this);preferencesWindow=view;
-        view->setObjectName("applicationSettingsDialog");view->setAttribute(Qt::WA_DeleteOnClose);
-        view->setWindowModality(Qt::WindowModal);
-        constexpr int padding=24,scrollInset=8;
-        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(padding,padding,scrollInset,padding);layout->setSpacing(16);
-        auto *scroll=new QScrollArea(view);scroll->setObjectName("applicationSettingsScroll");
-        scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        layout->addWidget(scroll);
-        auto *contents=new ApplicationPreferencesWidget(scroll);
-        contents->layout()->setContentsMargins(0,0,padding-scrollInset,0);
-        connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
-            view->setAttribute(Qt::WA_DeleteOnClose, false);
-        });
-        connect(contents, &ApplicationPreferencesWidget::startupSaveFinished, view, [this, view] {
-            view->setAttribute(Qt::WA_DeleteOnClose);
-            if (!view->isVisible()) {
-                preferencesWindow = nullptr;
-                view->deleteLater();
-            }
-        });
-        auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
-        buttons->setContentsMargins(0,0,padding-scrollInset,0);
-        connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
-        view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
-        view->setMinimumSize(320,360);view->resize(560,560);
-        scroll->setWidget(contents);
-        view->ensurePolished();
-        layout->activate();
-        contents->layout()->activate();
-        scroll->setFocus(Qt::OtherFocusReason);
-        scroll->verticalScrollBar()->setValue(0);
-        PresentationHelpers::activateWindow(view);
-        // A hidden scroll area can calculate a range before its viewport has its final size.
-        QTimer::singleShot(0, scroll, [scroll] {
-            scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        });
-        return;
-    }
+void MainWindow::showApplicationPreferences()
+{
+    if (!preferencesWindow) preferencesWindow=new ApplicationPreferencesDialog(this);
     PresentationHelpers::activateWindow(preferencesWindow);
 }
 
