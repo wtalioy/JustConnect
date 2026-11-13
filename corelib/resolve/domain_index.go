@@ -40,21 +40,9 @@ func (i domainResourceIndex) Match(host string) (string, []client.DomainResource
 	var local [4]*domainResourceEntry
 	matches := local[:0]
 	total := 0
-	for pos := 0; pos < len(host); {
-		if entry := i[host[pos:]]; entry != nil {
-			matches = append(matches, entry)
-			total += len(entry.resources)
-		}
-		// Include both sides of each label separator for ordinary and wildcard rules.
-		if host[pos] == '.' {
-			pos++
-			continue
-		}
-		dot := strings.IndexByte(host[pos:], '.')
-		if dot < 0 {
-			break
-		}
-		pos += dot
+	for entry := range i.matchingEntries(host) {
+		matches = append(matches, entry)
+		total += len(entry.resources)
 	}
 	if len(matches) == 0 {
 		return "", nil, false
@@ -67,4 +55,32 @@ func (i domainResourceIndex) Match(host string) (string, []client.DomainResource
 		resources = append(resources, entry.resources...)
 	}
 	return matches[0].domain, resources, true
+}
+
+func (i domainResourceIndex) Contains(host string) bool {
+	for range i.matchingEntries(host) {
+		return true
+	}
+	return false
+}
+
+func (i domainResourceIndex) matchingEntries(host string) func(func(*domainResourceEntry) bool) {
+	return func(yield func(*domainResourceEntry) bool) {
+		if len(i) == 0 {
+			return
+		}
+		for host != "" {
+			if entry := i[host]; entry != nil && !yield(entry) {
+				return
+			}
+			// Include both sides of each label separator for ordinary and wildcard rules.
+			if host[0] == '.' {
+				host = host[1:]
+			} else if dot := strings.IndexByte(host, '.'); dot >= 0 {
+				host = host[dot:]
+			} else {
+				return
+			}
+		}
+	}
 }

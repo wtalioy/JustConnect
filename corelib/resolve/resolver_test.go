@@ -291,6 +291,17 @@ func BenchmarkDomainResourceIndexBuild(b *testing.B) {
 	}
 }
 
+func BenchmarkDomainGrantCheck(b *testing.B) {
+	const host = "host.campus.example"
+	index := newDomainResourceIndex(client.DomainResources{
+		host: {{AppID: "exact"}}, ".campus.example": {{AppID: "suffix"}},
+	})
+	b.ReportAllocs()
+	for b.Loop() {
+		domainResourceMatchSink = index.Contains(host)
+	}
+}
+
 func TestDomainResourceMatchKeepsBothRulesAtOneLabelBoundary(t *testing.T) {
 	index := newDomainResourceIndex(client.DomainResources{
 		"example.com":   {{AppID: "ordinary"}},
@@ -308,6 +319,9 @@ func TestDomainResourceMatchKeepsBothRulesAtOneLabelBoundary(t *testing.T) {
 		domain, resources, ok := index.Match(tc.host)
 		if domain != tc.domain || ok != (len(tc.ids) != 0) || len(resources) != len(tc.ids) {
 			t.Fatalf("Match(%q) = (%q, %v, %t)", tc.host, domain, resources, ok)
+		}
+		if index.Contains(tc.host) != ok {
+			t.Fatalf("grant check disagrees with the matching rules for %q", tc.host)
 		}
 		for i, id := range tc.ids {
 			if resources[i].AppID != id {

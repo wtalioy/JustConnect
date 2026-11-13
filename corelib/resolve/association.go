@@ -131,7 +131,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 			return nil, err
 		}
 	}
-	if _, _, granted := r.domainIndex.Match(host); !granted && !original {
+	if !original && !r.domainIndex.Contains(host) {
 		return result, nil
 	}
 	if err := r.storeDNSBindings(host, addresses, original); err != nil {
