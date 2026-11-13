@@ -32,10 +32,7 @@ func (r *Resolver) OriginalDNSRecords() map[string][]string {
 }
 
 func (r *Resolver) dnsRecords(original bool) map[string][]string {
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return nil
 	}
 	r.cacheMu.RLock()
@@ -221,10 +218,7 @@ func (r *Resolver) CampusResourcesExcludingName(ctx context.Context, address net
 }
 
 func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name, excluded string) (client.DomainResources, uint32) {
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return nil, 0
 	}
 	snapshot, captured := ctx.Value(ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)

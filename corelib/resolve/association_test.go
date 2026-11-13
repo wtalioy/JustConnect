@@ -211,6 +211,9 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 	if len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 0 {
 		t.Fatal("closed resolver exposed a live grant")
 	}
+	if _, ip, err := r.Resolve(t.Context(), "h0.campus.test"); ip != nil || !errors.Is(err, net.ErrClosed) {
+		t.Fatal("closed resolver returned a known gateway DNS record", ip, err)
+	}
 }
 
 func TestCampusDNSPublicationPrecedesAuthorizationLifetime(t *testing.T) {

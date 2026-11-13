@@ -701,6 +701,22 @@ func BenchmarkDNSCacheHit(b *testing.B) {
 	}
 }
 
+func BenchmarkDNSCacheHitParallel(b *testing.B) {
+	r := NewResolver(nil, "", "", 60, nil, nil, false)
+	defer r.Close()
+	r.setDNSCache("campus.test", net.IPv4(192, 0, 2, 1), true)
+	ctx := b.Context()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, ip, err := r.Resolve(ctx, "campus.test"); err != nil || ip == nil {
+				b.Error("cached answer was lost", err)
+				return
+			}
+		}
+	})
+}
+
 func BenchmarkDNSCacheFullMiss(b *testing.B) {
 	r := NewResolver(nil, "", "", 60, nil, nil, false)
 	defer r.Close()

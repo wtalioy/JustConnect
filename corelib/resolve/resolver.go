@@ -45,7 +45,7 @@ type Resolver struct {
 	tcpLock           sync.RWMutex
 	resolutionMu      sync.Mutex
 	resolutions       map[string]*sharedResolution
-	resolutionClosed  bool
+	resolutionClosed  atomic.Bool
 	activeResolutions atomic.Int64
 
 	workers   sync.WaitGroup
@@ -106,10 +106,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 	if err := ctx.Err(); err != nil {
 		return ctx, nil, err
 	}
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return ctx, nil, net.ErrClosed
 	}
 	nativeHost := host
@@ -213,7 +210,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 
 func (r *Resolver) resolveCoordinated(ctx context.Context, host string, lookup func(context.Context) (net.IP, error)) (net.IP, error) {
 	r.resolutionMu.Lock()
-	if r.resolutionClosed {
+	if r.resolutionClosed.Load() {
 		r.resolutionMu.Unlock()
 		return nil, net.ErrClosed
 	}
@@ -403,7 +400,7 @@ func (r *Resolver) ResolveWithSecondaryDNS(ctx context.Context, host string) (co
 func (r *Resolver) Close() {
 	r.closeOnce.Do(func() {
 		r.resolutionMu.Lock()
-		r.resolutionClosed = true
+		r.resolutionClosed.Store(true)
 		for host, call := range r.resolutions {
 			delete(r.resolutions, host)
 			call.cancel()

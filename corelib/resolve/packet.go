@@ -66,7 +66,7 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		}
 	}
 	r.resolutionMu.Lock()
-	if r.resolutionClosed {
+	if r.resolutionClosed.Load() {
 		r.resolutionMu.Unlock()
 		return nil, net.ErrClosed
 	}
