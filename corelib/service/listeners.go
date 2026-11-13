@@ -25,6 +25,7 @@ type Listeners struct {
 	cancel      context.CancelFunc
 	dialer      *dial.Dialer
 	resolver    *resolve.Resolver
+	diagnostic  func(string)
 	mu          sync.Mutex
 	closed      atomic.Bool
 	connections map[io.Closer]struct{}
@@ -145,15 +146,15 @@ func ListenLoopback(ctx context.Context, address string) (net.Listener, error) {
 }
 
 func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
-	return startListeners(ctx, socksAddr, httpAddr, nil, dialer, resolver)
+	return startListeners(ctx, socksAddr, httpAddr, nil, dialer, resolver, nil)
 }
 
 // StartLocalSOCKS takes ownership of a reserved loopback socket, even on error.
-func StartLocalSOCKS(ctx context.Context, socket net.Listener, dialer *dial.Dialer) (*Listeners, error) {
-	return startListeners(ctx, "", "", socket, dialer, nil)
+func StartLocalSOCKS(ctx context.Context, socket net.Listener, dialer *dial.Dialer, diagnostic func(string)) (*Listeners, error) {
+	return startListeners(ctx, "", "", socket, dialer, nil, diagnostic)
 }
 
-func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListener net.Listener, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
+func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListener net.Listener, dialer *dial.Dialer, resolver *resolve.Resolver, diagnostic func(string)) (*Listeners, error) {
 	if err := ctx.Err(); err != nil {
 		if socksListener != nil {
 			_ = socksListener.Close()
@@ -161,7 +162,7 @@ func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListen
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	p := &Listeners{ctx: ctx, cancel: cancel, dialer: dialer, resolver: resolver, connections: make(map[io.Closer]struct{}), errors: make(chan error, 1)}
+	p := &Listeners{ctx: ctx, cancel: cancel, dialer: dialer, resolver: resolver, diagnostic: diagnostic, connections: make(map[io.Closer]struct{}), errors: make(chan error, 1)}
 	success := false
 	defer func() {
 		if !success {

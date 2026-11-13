@@ -283,7 +283,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		defer s.upstream.Store(nil)
 	}
 	if reservedSOCKS != nil {
-		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer)
+		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer, clientOptions.Diagnostic)
 		reservedSOCKS = nil
 	} else {
 		listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)

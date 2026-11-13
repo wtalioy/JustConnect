@@ -486,11 +486,11 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	}
 	c.BestNodesRWMutex.RUnlock()
 	if nodeAddr == "" {
-		return nil, fmt.Errorf("no available aTrust node for group %q", nodeGroupID)
+		return nil, fmt.Errorf("no available aTrust node for group %q: %w", nodeGroupID, client.ErrTCPNodeConnect)
 	}
 	conn, err := client.DialTLSContext(ctx, c.underlayDialer.DialContext, "tcp", nodeAddr, tunnelTLSConfig(c.nodeTLSPolicy))
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to aTrust server: %w", err)
+		return nil, fmt.Errorf("%w: %w", client.ErrTCPNodeConnect, err)
 	}
 	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopCancel()

@@ -46,6 +46,7 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
         static const QSet<QString> known{"authentication_started",         "transport_connected",
                                          "local_controller_real_dns",      "local_controller_ambiguous",
                                          "local_controller_unavailable",   "coexistence_refresh_failed",
+                                         "socks_dns_failed", "socks_destination_denied", "socks_tunnel_node_unreachable", "socks_campus_dial_failed",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
                                          "tls_authentication_failed",      "persistence_failed",
                                          "browser_proxy_changed_externally", "browser_proxy_observation_unavailable",
