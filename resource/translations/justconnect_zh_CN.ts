@@ -325,6 +325,22 @@ This connection remains usable. You may need to sign in again later.</source>
 <context>
     <name>ConnectionUiController</name>
     <message>
+        <source>Use saved sign-in?</source>
+        <translation>使用已保存的登录状态？</translation>
+    </message>
+    <message>
+        <source>macOS needs your permission to let this build use your saved campus sign-in.</source>
+        <translation>macOS 需要你的授权，才能让此版本使用已保存的校园登录状态。</translation>
+    </message>
+    <message>
+        <source>Allow in Keychain</source>
+        <translation>在钥匙串中授权</translation>
+    </message>
+    <message>
+        <source>Sign in again</source>
+        <translation>重新登录</translation>
+    </message>
+    <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="144"/>
         <source>Connect</source>
         <translation>连接</translation>
@@ -1422,12 +1438,12 @@ Configuration: %4
         <translation>复制 Clash 扩展脚本</translation>
     </message>
     <message>
-        <source>Clash script copied</source>
-        <translation>已复制 Clash 脚本</translation>
+        <source>Script copied</source>
+        <translation>脚本已复制</translation>
     </message>
     <message>
-        <source>Check the local port and Clash campus routes.</source>
-        <translation>请检查本地端口和交给 Clash 分流的校园地址。</translation>
+        <source>Check Clash settings</source>
+        <translation>请检查 Clash 分流设置</translation>
     </message>
     <message>
         <source>Local proxy is ready. Clash routes the selected campus traffic.</source>

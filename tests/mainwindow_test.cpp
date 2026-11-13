@@ -167,6 +167,9 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
             clipboard->setText(previous);
             check(script.contains("\"port\":32081") && script.contains("DOMAIN,campus.other-campus.invalid"),
                 "an offline copy uses the selected profile's port and targets");
+            const auto *feedback=window.findChild<QLabel *>("clashCopyFeedback");
+            check(feedback && !feedback->isHidden() && !feedback->text().isEmpty(),
+                "copy feedback is displayed inside the main window");
         }
         check(menuButton->text()==name && menuButton->toolTip().contains(
             name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),

@@ -38,7 +38,7 @@ public:
     QFuture<CredentialResult> clear(const CredentialSource &source);
     QFuture<CredentialResult> clearLegacyCache(const CredentialSource &source);
     quint64 authenticationCacheRevision(const CredentialSource &source) const;
-    QFuture<AuthenticationCacheLoadResult> loadAuthenticationCache(const CredentialSource &source);
+    QFuture<AuthenticationCacheLoadResult> loadAuthenticationCache(const CredentialSource &source,bool authorize=false);
     QFuture<CredentialResult> saveAuthenticationCache(const CredentialSource &source,const AuthenticationCache &cache,quint64 revision);
     QFuture<CredentialResult> clearAuthenticationCache(const CredentialSource &source);
 signals:

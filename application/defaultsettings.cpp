@@ -12,6 +12,7 @@
 #include "core/connectionoptions.h"
 
 namespace {
+constexpr int ConfigVersionBeforeBundledRoutes=9;
 const QVariantMap &defaults()
 {
     static const QVariantMap values{
@@ -58,7 +59,10 @@ const QVariantMap &defaults()
 }
 void apply(QSettings &settings, bool overwrite)
 {
-    if (!overwrite && !settings.contains(DefaultSettings::CampusTargetsKey)
+    const auto targets=settings.value(DefaultSettings::CampusTargetsKey);
+    // Earlier builds saved an empty field before the bundled routes were available.
+    if (!overwrite && (!targets.isValid() || (targets.toString().isEmpty()
+        && settings.value("Common/ConfigVersion").toInt() <= ConfigVersionBeforeBundledRoutes))
         && DefaultSettings::isBuiltInConnection(settings))
         settings.setValue(DefaultSettings::CampusTargetsKey,
             DefaultSettings::builtInConnection().value(DefaultSettings::CampusTargetsKey));
@@ -77,7 +81,8 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
 {
     if (settings.contains("Common/ConfigVersion")
-        && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion)
+        && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion
+        && settings.value("Common/ConfigVersion").toInt() != ConfigVersionBeforeBundledRoutes)
         return false;
     for (const auto &key : settings.allKeys()) {
         const auto value = settings.value(key).toString();

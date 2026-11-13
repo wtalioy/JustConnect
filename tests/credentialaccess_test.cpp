@@ -20,6 +20,8 @@ public:
     CredentialStatus failure=CredentialStatus::Success;
     QSemaphore entered,resume;
     bool blockNextRead=false;
+    QString protectedKey;
+    int authorizations=0;
     std::atomic_int active{0},peak{0};
     QThread *lastThread=nullptr;
     CredentialResult read(const QString &key) override {
@@ -27,8 +29,14 @@ public:
         const auto count=++active;peak.store(qMax(peak.load(),count));
         if (blockNextRead) {blockNextRead=false;entered.release();require(resume.tryAcquire(1,5000),"release blocked native boundary");}
         --active;
+        if (key==protectedKey) return {CredentialStatus::PermissionDenied,{}};
         if (failure!=CredentialStatus::Success) return {failure,{}};
         return values.contains(key) ? CredentialResult{CredentialStatus::Success,values.value(key)} : CredentialResult{CredentialStatus::NotFound,{}};
+    }
+    CredentialResult readWithAuthorization(const QString &key) override {
+        ++authorizations;
+        if (key==protectedKey) protectedKey.clear();
+        return read(key);
     }
     CredentialResult write(const QString &key,const QByteArray &value) override {
         lastThread=QThread::currentThread();
@@ -157,6 +165,22 @@ void authenticationCacheOperations() {
     store->failure=CredentialStatus::Success;
     require(finish(access.loadAuthenticationCache(source)).cache.data==cache.data,"failed removal retains native cache");
     require(finish(access.saveAuthenticationCache(source,cache,absent.revision)).status==CredentialStatus::Cancelled,"failed clear still invalidates callbacks already holding material");
+}
+
+void authorizationReusesTheSameCache() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    const AuthenticationCache cache{"canonical-account","saved session"};
+    require(finish(access.saveAuthenticationCache(source,cache,0)).succeeded(),"save the original cache");
+    store->protectedKey=ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions);
+    require(finish(access.loadAuthenticationCache(source)).result.status==CredentialStatus::PermissionDenied
+        && store->authorizations==0,"a normal connection never authorizes interactively");
+    const auto original=store->values;
+    require(finish(access.loadAuthenticationCache(source,true)).cache.data==cache.data && store->values==original,
+        "explicit authorization returns the existing account cache without rewriting it");
+    require(finish(access.loadAuthenticationCache(source)).cache.data==cache.data && store->authorizations==1,
+        "later connections reuse the authorized entry silently");
 }
 
 void cacheClearRejectsInFlightReadsAndWrites() {
@@ -289,6 +313,6 @@ void rejectsChangedIdentity() {
 }
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
-    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();authenticationCacheOperations();cacheClearRejectsInFlightReadsAndWrites();cacheRejectsStaleSources();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();clearsLegacyCacheOutsideGui();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
+    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();authenticationCacheOperations();authorizationReusesTheSameCache();cacheClearRejectsInFlightReadsAndWrites();cacheRejectsStaleSources();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();clearsLegacyCacheOutsideGui();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
     catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
 }

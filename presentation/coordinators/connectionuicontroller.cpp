@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #if defined(Q_OS_MACOS)
 #include "infrastructure/networkhelper/macos/helperregistration.h"
+#include <Security/Security.h>
 #endif
 #include <QPushButton>
 #include <QSettings>
@@ -228,13 +229,29 @@ void ConnectionUiController::enableCampusAccess()
         }
     });
 }
-void ConnectionUiController::loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation)
+void ConnectionUiController::loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation,bool authorize)
 {
-    credentials->loadAuthenticationCache(source).then(this,[this,source,connectionOptions,generation](const AuthenticationCacheLoadResult &loaded) mutable {
+    credentials->loadAuthenticationCache(source,authorize).then(this,[this,source,connectionOptions,generation,authorize](const AuthenticationCacheLoadResult &loaded) mutable {
         if (generation!=credentialGeneration) return;
         if (!sourceStillCurrent(source) || !CredentialAccess::matches(source,*settings())
             || source.publicValues!=DefaultSettings::publicValues(*settings())
             || loaded.revision!=credentials->authenticationCacheRevision(source)) {cancelPendingCredentials();return;}
+#if defined(Q_OS_MACOS)
+        if (!authorize && loaded.result.nativeCode==errSecAuthFailed) {
+            QMessageBox prompt(QMessageBox::Question,tr("Use saved sign-in?"),
+                tr("macOS needs your permission to let this build use your saved campus sign-in."),
+                QMessageBox::NoButton,parentWidget);
+            auto *reuse=prompt.addButton(tr("Allow in Keychain"),QMessageBox::AcceptRole);
+            auto *signIn=prompt.addButton(tr("Sign in again"),QMessageBox::RejectRole);
+            prompt.setEscapeButton(signIn);
+            prompt.exec();
+            if (generation!=credentialGeneration) return;
+            if (prompt.clickedButton()==reuse) {
+                loadAuthenticationCache(source,std::move(connectionOptions),generation,true);
+                return;
+            }
+        }
+#endif
         credentialsPending=false;
         if (loaded.result.succeeded()) connectionOptions.authenticationCache=loaded.cache;
         else if (loaded.result.status!=CredentialStatus::NotFound)

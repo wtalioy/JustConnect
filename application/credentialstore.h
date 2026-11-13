@@ -14,6 +14,7 @@ class CredentialStore {
 public:
     virtual ~CredentialStore() = default;
     virtual CredentialResult read(const QString &key) = 0;
+    virtual CredentialResult readWithAuthorization(const QString &key) { return read(key); }
     virtual CredentialResult write(const QString &key,const QByteArray &value) = 0;
     virtual CredentialResult remove(const QString &key) = 0;
     static constexpr qsizetype MaxBytes = 65536;

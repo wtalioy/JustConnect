@@ -66,6 +66,13 @@
           </spacer>
          </item>
          <item>
+          <widget class="QLabel" name="clashCopyFeedback">
+           <property name="secondary" stdset="0"><bool>true</bool></property>
+           <property name="wordWrap"><bool>true</bool></property>
+           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
           <widget class="QToolButton" name="preferencesButton">
            <property name="toolTip">
             <string>App settings</string>

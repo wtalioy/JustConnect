@@ -1,7 +1,9 @@
 #include "infrastructure/credentialstore/macos/credentialstore.h"
+#include <QMutex>
 #include <QScopeGuard>
 
 namespace {
+QMutex keychainOperations;
 CredentialResult result(OSStatus code) {
     CredentialStatus status=CredentialStatus::Failed;
     switch(code) {
@@ -49,11 +51,25 @@ class Store final : public CredentialStore {
 public:
     explicit Store(SecKeychainRef keychain):keychain(keychain) {if(keychain)CFRetain(keychain);}
     ~Store() override {if(keychain)CFRelease(keychain);}
-    CredentialResult read(const QString &key) override {
+    CredentialResult read(const QString &key) override { return readItem(key,false); }
+    CredentialResult readWithAuthorization(const QString &key) override { return readItem(key,true); }
+private:
+    CredentialResult readItem(const QString &key,bool authorize) {
         if (!validKey(key)) return {CredentialStatus::InvalidArgument,{}};
+        // The file-based Keychain interaction switch applies to this process.
+        const QMutexLocker lock(&keychainOperations);
         const auto availability=unlocked(); if (!availability.succeeded()) return availability;
         auto dict=query(key);const auto release=qScopeGuard([&]{CFRelease(dict);});
         CFDictionarySetValue(dict,kSecReturnData,kCFBooleanTrue);CFDictionarySetValue(dict,kSecMatchLimit,kSecMatchLimitOne);
+        Boolean previous=false;
+        if (authorize) {
+            auto code=SecKeychainGetUserInteractionAllowed(&previous);
+            if (code!=errSecSuccess) return result(code);
+            code=SecKeychainSetUserInteractionAllowed(true);
+            if (code!=errSecSuccess) return result(code);
+            CFDictionarySetValue(dict,kSecUseAuthenticationUI,kSecUseAuthenticationUIAllow);
+        }
+        const auto restore=qScopeGuard([&]{if(authorize) SecKeychainSetUserInteractionAllowed(previous);});
         CFTypeRef data=nullptr;const auto code=SecItemCopyMatching(dict,&data);
         if (code!=errSecSuccess) return result(code);
         const auto releaseData=qScopeGuard([&]{if(data)CFRelease(data);});
@@ -62,9 +78,11 @@ public:
         if(length>MaxBytes)return {CredentialStatus::Limit,{}};
         return {CredentialStatus::Success,QByteArray(reinterpret_cast<const char *>(CFDataGetBytePtr(bytes)),length)};
     }
+public:
     CredentialResult write(const QString &key,const QByteArray &value) override {
         if (!validKey(key)) return {CredentialStatus::InvalidArgument,{}};
         if (value.size()>MaxBytes) return {CredentialStatus::Limit,{}};
+        const QMutexLocker lock(&keychainOperations);
         const auto availability=unlocked(); if (!availability.succeeded()) return availability;
         auto data=CFDataCreate(nullptr,reinterpret_cast<const UInt8 *>(value.constData()),value.size());
         const auto releaseData=qScopeGuard([&]{CFRelease(data);});
@@ -82,6 +100,7 @@ public:
     }
     CredentialResult remove(const QString &key) override {
         if (!validKey(key)) return {CredentialStatus::InvalidArgument,{}};
+        const QMutexLocker lock(&keychainOperations);
         const auto availability=unlocked(); if (!availability.succeeded()) return availability;
         auto dict=query(key);const auto release=qScopeGuard([&]{CFRelease(dict);});
         return result(SecItemDelete(dict));

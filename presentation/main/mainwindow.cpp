@@ -8,7 +8,6 @@
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QAccessible>
-#include <QToolTip>
 #include <QActionGroup>
 #include <QDialog>
 #include <QLineEdit>
@@ -130,6 +129,9 @@ MainWindow::MainWindow(
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
 #endif
     ui->setupUi(this);
+    ui->clashCopyFeedback->hide();
+    clashCopyFeedbackTimer.setSingleShot(true);
+    connect(&clashCopyFeedbackTimer,&QTimer::timeout,ui->clashCopyFeedback,&QLabel::hide);
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
@@ -702,11 +704,13 @@ void MainWindow::setupConnectionMenu()
     copyClashScriptAction->setObjectName("copyClashScriptAction");
     connect(copyClashScriptAction, &QAction::triggered, this, [this] {
         const auto script=ClashExtension::script(SavedConnectionService::load(*settings));
-        auto *anchor=ui->profileMenuButton;
         if (!script.isEmpty()) QApplication::clipboard()->setText(script);
-        const auto message=script.isEmpty() ? tr("Check the local port and Clash campus routes.") : tr("Clash script copied");
-        QToolTip::showText(anchor->mapToGlobal(QPoint(0,anchor->height())),message,anchor,{},1800);
-        QAccessibleAnnouncementEvent announcement(anchor,message);
+        auto *feedback=ui->clashCopyFeedback;
+        const auto message=script.isEmpty() ? tr("Check Clash settings") : tr("Script copied");
+        feedback->setText(message);
+        feedback->show();
+        clashCopyFeedbackTimer.start(2200);
+        QAccessibleAnnouncementEvent announcement(feedback,message);
         QAccessible::updateAccessibility(&announcement);
     });
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));

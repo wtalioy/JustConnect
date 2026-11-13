@@ -69,7 +69,7 @@ signals:
 private:
     void startConnection(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 cacheRevision);
     void requestConnection(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 cacheRevision);
-    void loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation);
+    void loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation,bool authorize=false);
     void submitLogin(const QString &username,const QString &password,bool save);
     void submitPhone(const QString &country,const QString &phone,bool save);
     void submitManual(const CredentialSource &source,const ConnectionOptions &connectionOptions,bool save,const QVariantMap &changes,bool updateCredentials);
