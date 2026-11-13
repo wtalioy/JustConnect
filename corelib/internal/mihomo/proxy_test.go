@@ -88,13 +88,16 @@ func proxyEchoTargets(t *testing.T, host string) (tcp, udp string) {
 	return stream.Addr().String(), packet.LocalAddr().String()
 }
 
-func patchOwnedProxy(t *testing.T, c *Client, fixture *testmihomo.Fixture, fields map[string]any) {
+func updateOwnedProxy(t *testing.T, c *Client, fixture *testmihomo.Fixture, method, path string, fields map[string]any) {
 	t.Helper()
 	payload, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+fixture.Address+"/configs", bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(t.Context(), method, "http://"+fixture.Address+path, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.Header.Set("Authorization", "Bearer "+fixture.Secret)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(request)
@@ -155,7 +158,10 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 			}
 			fixture.WaitReady(t, func() error { return probeTCP(upstream) })
 			for _, mode := range []string{"rule", "global", "direct", "rule"} {
-				patchOwnedProxy(t, c, fixture, map[string]any{"mode": mode})
+				if mode == "global" {
+					updateOwnedProxy(t, c, fixture, http.MethodPut, "/proxies/GLOBAL", map[string]any{"name": "REJECT"})
+				}
+				updateOwnedProxy(t, c, fixture, http.MethodPatch, "/configs", map[string]any{"mode": mode})
 				state, err := c.ReadState(t.Context())
 				if err != nil || state.Mode != mode || state.TunEnabled || len(state.RouteExcludes) != 2 ||
 					!slices.Contains(state.RouteExcludes, netip.MustParsePrefix("192.0.2.128/25")) ||
@@ -226,7 +232,7 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 				}
 			}
 			newPort := testmihomo.ProxyPort(t)
-			patchOwnedProxy(t, c, fixture, map[string]any{kind: newPort})
+			updateOwnedProxy(t, c, fixture, http.MethodPatch, "/configs", map[string]any{kind: newPort})
 			var changed *Proxy
 			fixture.WaitReady(t, func() error {
 				var err error
