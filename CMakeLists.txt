@@ -68,38 +68,23 @@ include(cmake/UiResources.cmake)
 add_library(justconnect_desktop OBJECT
     infrastructure/process/applicationinstancelock.cpp
     infrastructure/process/terminationrequests.cpp
-    presentation/i18n/applicationlanguage.cpp
-    presentation/widgets/applicationpreferenceswidget.cpp
     presentation/appearance/applicationappearance.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindow.ui
     presentation/main/mainwindowcoordinator.cpp
-    presentation/coordinators/authdialogcoordinator.cpp
-    presentation/coordinators/authenticationcachecoordinator.cpp
     presentation/coordinators/connectiondiagnostics.cpp
-    presentation/coordinators/connectionuicontroller.cpp
-    presentation/coordinators/controllerselectioncoordinator.cpp
     presentation/dialogs/applicationpreferencesdialog.cpp
     presentation/dialogs/connectiondetailsdialog.cpp
     presentation/dialogs/connectiondetailsdialog.ui
-    presentation/dialogs/networkpolicywindow.cpp
     infrastructure/logging/applicationlogfile.cpp
-    infrastructure/settings/credentialaccess.cpp
-    infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
-    presentation/presentationhelpers.cpp
-    presentation/widgets/serversettingswidget.cpp
-    presentation/dialogs/settingwindow/settingwindow.cpp
     presentation/dialogs/settingwindow/settingwindow.ui
-    presentation/dialogs/loginwindow/loginwindow.cpp
     presentation/dialogs/loginwindow/loginwindow.ui
-    presentation/dialogs/ssologinwebview/ssologinwebview.cpp
     presentation/dialogs/ssologinwebview/ssologinwebview.ui
-    presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui
-    presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
-    infrastructure/settings/savedconnectionstore.cpp
 )
+include(cmake/ConnectionUi.cmake)
+justconnect_add_connection_ui(justconnect_desktop)
 target_sources(justconnect_desktop INTERFACE "$<TARGET_OBJECTS:justconnect_ui_resources>")
 if(APPLE)
     target_sources(justconnect_desktop PRIVATE presentation/main/macos/mainwindow.mm)
