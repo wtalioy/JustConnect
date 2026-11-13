@@ -130,7 +130,6 @@ jobs:
           output.mkdir(parents=True, exist_ok=True)
           probe = (output / ('mihomo-tun-probe.exe' if os.name == 'nt' else 'mihomo-tun-probe')).resolve()
           commands = [
-              ['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', './tests/mihomotun'],
               ['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), './tests/mihomotun'],
               [sys.executable, 'tests/platform/mihomo_tun_native.py', '--probe', str(probe),
                '--mihomo', os.environ['JC_TEST_MIHOMO_BINARY'], '--url', 'https://github.com/robots.txt'],

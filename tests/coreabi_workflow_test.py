@@ -135,7 +135,7 @@ class CoreAbiWorkflowTest(unittest.TestCase):
         body = workflow_body('https://github.com/robots.txt')
         script = compile(body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec')
         previous = Path.cwd()
-        for failure in (None, 0, 1, 2):
+        for failure in (None, 0, 1):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, \
                     io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
                 calls = []
@@ -158,7 +158,7 @@ class CoreAbiWorkflowTest(unittest.TestCase):
                             with self.assertRaises(subprocess.CalledProcessError) as error:
                                 exec(script, {})
                             self.assertEqual(error.exception.returncode, 17)
-                    self.assertEqual(len(calls), 3 if failure is None else failure + 1)
+                    self.assertEqual(len(calls), 2 if failure is None else failure + 1)
                     self.assertEqual((Path('build/controller-checks') / 'live-tun.log').read_bytes(),
                                      b'owned live TUN evidence\n' * len(calls))
                 finally:
