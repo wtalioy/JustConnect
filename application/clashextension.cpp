@@ -1,6 +1,7 @@
 #include "clashextension.h"
 #include "networkprotection.h"
 
+#include <QCoreApplication>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -52,7 +53,7 @@ int ClashExtension::invalidTargetLine(const ConnectionOptions &options)
     return appendRules(options, nullptr);
 }
 
-QString ClashExtension::script(const ConnectionOptions &options)
+QString ClashExtension::script(const ConnectionOptions &options, const QString &connectionName)
 {
     if (options.routingMode != RoutingMode::LocalProxy) return {};
     const auto endpoint = QUrl::fromEncoded("http://" + options.proxy.socksBind.toLatin1(), QUrl::StrictMode);
@@ -60,28 +61,48 @@ QString ClashExtension::script(const ConnectionOptions &options)
         !endpoint.path().isEmpty() || endpoint.hasQuery() || endpoint.hasFragment()) return {};
     QJsonArray rules;
     if (appendRules(options, &rules)) return {};
-    const QJsonObject settings{{"port", endpoint.port()}, {"rules", rules}};
-    return "const campus = " + QString::fromUtf8(QJsonDocument(settings).toJson(QJsonDocument::Compact)) + QStringLiteral(R"JS(;
+    auto name = connectionName.simplified();
+    name.replace(u',', u'，'); // Mihomo uses commas to separate rule fields.
+    if (name.isEmpty()) name = QCoreApplication::translate("ClashExtension", "Campus");
+    const auto node = QJsonObject{{"name", name}, {"type", "socks5"}, {"server", endpoint.host()},
+        {"port", endpoint.port()}, {"udp", true}};
+    QStringList routes;
+    for (const auto &rule : rules)
+        routes.append("    " + QString::fromUtf8(QJsonDocument(rule.toArray()).toJson(QJsonDocument::Compact)));
+    const auto instructions = QCoreApplication::translate("ClashExtension",
+        "// New script: paste everything.\n"
+        "// Already have a script? Paste only the addJustConnect function below,\n"
+        "// then add addJustConnect(config); before your main function returns config.\n"
+        "// Keep only one main function. Replace any older JustConnect block.");
+    return instructions + QStringLiteral(R"JS(
 
 function main(config) {
+  return addJustConnect(config);
+}
+
+function addJustConnect(config) {
+  const node = )JS") + QString::fromUtf8(QJsonDocument(node).toJson(QJsonDocument::Compact))
+    + QStringLiteral(";\n  const campusRoutes = [\n") + routes.join(",\n") + QStringLiteral(R"JS(
+  ];
+
   const proxies = config.proxies || [];
-  const groups = config["proxy-groups"] || [];
-  const rules = config.rules || [];
-  const node = {name: "校园网", type: "socks5", server: "127.0.0.1", port: campus.port, udp: true};
+  const originalRules = config.rules || [];
+  const baseName = node.name;
   const byName = new Map(proxies.map(proxy => [proxy.name, proxy]));
-  const groupNames = new Set(groups.map(group => group.name));
+  const occupied = new Set(["DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE", "PASS", "PASS-RULE", "GLOBAL"]);
+  for (const group of config["proxy-groups"] || []) occupied.add(group.name);
   const fields = Object.keys(node);
-  for (let n = 2; byName.has(node.name) || groupNames.has(node.name); n++) {
+  for (let n = 2; byName.has(node.name) || occupied.has(node.name); n++) {
     const existing = byName.get(node.name);
-    if (!groupNames.has(node.name) && existing && Object.keys(existing).length === fields.length &&
+    if (!occupied.has(node.name) && existing && Object.keys(existing).length === fields.length &&
         fields.every(key => existing[key] === node[key])) break;
-    node.name = "校园网 " + n;
+    node.name = baseName + " " + n;
   }
   if (!byName.has(node.name)) config.proxies = proxies.concat(node);
-  const existingRules = new Set(rules);
-  const added = campus.rules.map(([target, suffix]) => target + "," + node.name + suffix)
+  const existingRules = new Set(originalRules);
+  const added = campusRoutes.map(([target, suffix]) => target + "," + node.name + suffix)
     .filter(rule => !existingRules.has(rule));
-  if (added.length) config.rules = added.concat(rules);
+  if (added.length) config.rules = added.concat(originalRules);
   return config;
 }
 )JS");

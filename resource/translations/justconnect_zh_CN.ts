@@ -715,6 +715,23 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     </message>
 </context>
 <context>
+    <name>ClashExtension</name>
+    <message>
+        <source>Campus</source>
+        <translation>校园网</translation>
+    </message>
+    <message>
+        <source>// New script: paste everything.
+// Already have a script? Paste only the addJustConnect function below,
+// then add addJustConnect(config); before your main function returns config.
+// Keep only one main function. Replace any older JustConnect block.</source>
+        <translation>// 新建脚本：粘贴全部内容。
+// 已有脚本：只粘贴下方的 addJustConnect 函数，
+// 然后在原 main 函数返回配置前加入 addJustConnect(config);。
+// 只保留一个 main 函数；如果已有旧版 JustConnect 代码，请替换它。</translation>
+    </message>
+</context>
+<context>
     <name>ConnectionDetailsDialog</name>
     <message>
         <source>Log file</source>
@@ -2006,8 +2023,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>每行一个域名或 IPv4 地址</translation>
     </message>
     <message>
-        <source>In Clash Rule mode, the script sends only the listed addresses to JustConnect. Other traffic follows your existing rules. Save, then copy the script from the connection menu.</source>
-        <translation>在 Clash 规则模式下，脚本只会把列出的地址交给 JustConnect。其他流量仍按 Clash 原有规则处理。保存后，从连接菜单复制脚本。</translation>
+        <source>Save, then copy the script from the connection menu. In Clash Rule mode, only these addresses go through JustConnect. Other proxy apps can use the same local SOCKS5 port with their own rules.</source>
+        <translation>保存后，从连接菜单复制脚本。在 Clash 规则模式下，只有这些地址通过 JustConnect。其他代理软件也可用这个本地 SOCKS5 端口，并自行设置分流规则。</translation>
     </message>
 </context>
 <context>

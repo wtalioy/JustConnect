@@ -574,7 +574,7 @@ void MainWindow::setupConnectionMenu()
     popup->setCopyAction(copyClashScriptAction);
     copyClashScriptAction->setObjectName("copyClashScriptAction");
     connect(copyClashScriptAction, &QAction::triggered, this, [this,popup] {
-        const auto script=ClashExtension::script(SavedConnectionService::load(*settings));
+        const auto script=ClashExtension::script(SavedConnectionService::load(*settings),connectionName());
         if (script.isEmpty()) return;
         auto *clipboard=QApplication::clipboard();
         clipboard->setText(script);

@@ -131,7 +131,7 @@ void ServerSettingsWidget::retranslate() {
     socksPort->setSpecialValueText(tr("Off"));
     campusTargetsLabel->setText(tr("Clash campus routes"));
     campusTargets->setPlaceholderText(tr("One domain or IPv4 address per line"));
-    clashHelp->setText(tr("In Clash Rule mode, the script sends only the listed addresses to JustConnect. Other traffic follows your existing rules. Save, then copy the script from the connection menu."));
+    clashHelp->setText(tr("Save, then copy the script from the connection menu. In Clash Rule mode, only these addresses go through JustConnect. Other proxy apps can use the same local SOCKS5 port with their own rules."));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));

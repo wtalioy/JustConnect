@@ -54,9 +54,16 @@ macOS builds are not notarized. If macOS blocks JustConnect on first launch beca
 
 Choose the built-in Fudan University profile, or add one for your own aTrust gateway. Click **Connect** and follow the sign-in and network permission prompts.
 
-If you already use Clash Verge Rev, choose **Local proxy only** in **Edit connection**. Under **Clash campus routes**, list the exact domains or IPv4 addresses to send through JustConnect. The Fudan profile starts with `zb.fudan.edu.cn`, `icourse.fudan.edu.cn`, and `library.fudan.edu.cn`. Everything else follows your existing Clash rules.
+### Use your own proxy app
 
-Choose **Copy Clash extension script** from the connection menu and add it to your Clash profile’s extension script. Use Rule mode, merge with any existing script, and copy it again if you change the port or routes. **Per-domain DNS** controls how JustConnect looks up specific domains; it does not add Clash routes. In this mode, JustConnect runs a local SOCKS5 proxy and leaves your system routes, DNS, and proxy settings alone.
+Choose **Local proxy only** in **Edit connection**. JustConnect listens on `127.0.0.1` at the **Local SOCKS5 port** shown there, leaving your system routes, DNS, and proxy settings alone. Any app that supports a SOCKS5 upstream can use that address. In your proxy app, route the exact campus domains or IPv4 addresses you need to that upstream and keep your usual rules for everything else. **Per-domain DNS** only controls how JustConnect looks up domains.
+
+For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), fill in **Clash campus routes** and choose **Copy Clash extension script** from the connection menu. The Fudan profile starts with `zb.fudan.edu.cn`, `icourse.fudan.edu.cn`, and `library.fudan.edu.cn`.
+
+- **No existing script:** Paste the whole script and use Rule mode.
+- **Already have a script:** Paste just the `addJustConnect` function, then add `addJustConnect(config);` just before your existing `main` returns its config. Keep a single `main` and replace any older JustConnect block.
+
+The SOCKS5 node uses the connection name shown in JustConnect. Copy the script again if you change the connection name, port, or routes.
 
 ## License and credits
 

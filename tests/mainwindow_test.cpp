@@ -168,7 +168,8 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
             QApplication::sendEvent(menu,&enter);
             const auto script=clipboard->text();
             clipboard->setText(previous);
-            check(menu->isVisible() && script.contains("\"port\":32081") && script.contains("DOMAIN,campus.other-campus.invalid"),
+            check(menu->isVisible() && script.contains("\"port\":32081") && script.contains("\"name\":\""+name+"\"")
+                && script.contains("DOMAIN,campus.other-campus.invalid"),
                 "keyboard copy uses the saved profile and keeps the menu open for confirmation");
             QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
             QApplication::sendEvent(menu,&escape);

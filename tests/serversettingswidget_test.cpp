@@ -68,8 +68,10 @@ int main(int argc,char **argv) {
         && campusTargets->x()==ca->x() && campusTargets->width()==ca->width()
         && campusTargets->maximumHeight()==ca->maximumHeight() && campusLabel->y()<campusTargets->y(),
         "Clash routes use the same full-width text section as Server CA");
-    const auto script=ClashExtension::script(local);
+    const auto script=ClashExtension::script(local,"复旦大学");
     check(!script.isEmpty(),"valid exact targets can be exported offline");
+    check(ClashExtension::script(local,"Fudan").contains("\"name\":\"Fudan\""),
+        "an English connection name is exported without substituting a generic name");
     const auto node=QStandardPaths::findExecutable("node");
     if (!node.isEmpty()) {
         QProcess js;
@@ -78,26 +80,35 @@ int main(int argc,char **argv) {
         js.write(script.toUtf8());
         js.write(R"JS(
 const assert = require("node:assert/strict");
-const original = {name:"校园网", type:"http", server:"example.net", port:80};
-const groups = [{name:"校园网 2", type:"select", proxies:["DIRECT"]}];
+const original = {name:"复旦大学", type:"http", server:"example.net", port:80};
+const groups = [{name:"复旦大学 2", type:"select", proxies:["DIRECT"]}];
 const rules = ["DOMAIN-SUFFIX,example.edu,DIRECT", "MATCH,DIRECT"];
 const dns = {enable:true};
 const config = main({proxies:[original], "proxy-groups":groups, rules, dns});
-assert.deepEqual(config.proxies,[original,{name:"校园网 3",type:"socks5",server:"127.0.0.1",port:32081,udp:true}]);
+assert.deepEqual(config.proxies,[original,{name:"复旦大学 3",type:"socks5",server:"127.0.0.1",port:32081,udp:true}]);
 assert.deepEqual(config.rules,[
-  "DOMAIN,campus.example.edu,校园网 3",
-  "IP-CIDR,192.0.2.18/32,校园网 3,no-resolve", ...rules]);
+  "DOMAIN,campus.example.edu,复旦大学 3",
+  "IP-CIDR,192.0.2.18/32,复旦大学 3,no-resolve", ...rules]);
 assert.equal(config["proxy-groups"],groups);
 assert.equal(config.dns,dns);
 const once = JSON.stringify(config);
 assert.equal(JSON.stringify(main(config)),once);
+function existingScript(config) {
+  config.rules = ["DOMAIN,keep.example,DIRECT", "MATCH,DIRECT"];
+  addJustConnect(config);
+  return config;
+}
+assert.deepEqual(existingScript({}).rules, [
+  "DOMAIN,campus.example.edu,复旦大学", "IP-CIDR,192.0.2.18/32,复旦大学,no-resolve",
+  "DOMAIN,keep.example,DIRECT", "MATCH,DIRECT"
+]);
 )JS");
         js.closeWriteChannel();
         check(js.waitForFinished(),"Clash script test finished");
         check(js.exitStatus()==QProcess::NormalExit && js.exitCode()==0,js.readAllStandardError().constData());
     }
     local.campusTargets="campus.example.edu\n*.example.edu";
-    check(ClashExtension::invalidTargetLine(local)==2 && ClashExtension::script(local).isEmpty(),"wildcards are rejected with their line number");
+    check(ClashExtension::invalidTargetLine(local)==2 && ClashExtension::script(local,"Fudan").isEmpty(),"wildcards are rejected with their line number");
     local.campusTargets=local.endpoint.server;
     check(ClashExtension::invalidTargetLine(local)==1,"the gateway cannot be routed back to the listener");
     local.campusTargets="2001:db8::18";
