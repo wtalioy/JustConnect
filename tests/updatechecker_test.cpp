@@ -1,20 +1,39 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QNetworkReply>
 
 #include "infrastructure/update/updatechecker.h"
 
 namespace
 {
-bool normalizesTags()
+bool coalescesChecksAndAllowsRetry()
 {
-    const bool passed =
-        UpdateChecker::normalizeVersionTag("v1.2.3") == "1.2.3"
-        && UpdateChecker::normalizeVersionTag("1.2.3") == "1.2.3";
-    if (!passed)
+    UpdateChecker checker;
+    using State = VersionInfo::UpdateState;
+    if (checker.versionInfo().updateState != State::Disabled)
+        return false;
+
+    int checks = 0;
+    QObject::connect(&checker, &UpdateChecker::versionInfoChanged, &checker, [&](const VersionInfo &info) {
+        if (info.updateState == State::Checking && ++checks == 1)
+            checker.check();
+    });
+    for (int attempt = 1; attempt <= 2; ++attempt)
     {
-        qCritical() << "normalizesTags failed";
+        checker.check();
+        checker.check();
+        if (checks != attempt)
+            return false;
+        // Abort immediately; no server response is required.
+        auto *reply = checker.findChild<QNetworkReply *>();
+        if (!reply)
+            return false;
+        reply->abort();
+        if (checker.versionInfo().updateState != State::Failed)
+            return false;
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
-    return passed;
+    return true;
 }
 
 bool validatesReleaseResponses()
@@ -23,6 +42,7 @@ bool validatesReleaseResponses()
         UpdateChecker::parseReleaseVersion(R"({"tag_name":"v1.2.3"})");
     const bool passed =
         version == std::optional<QString>("1.2.3")
+        && UpdateChecker::parseReleaseVersion(R"({"tag_name":"1.2.3"})") == version
         && !UpdateChecker::parseReleaseVersion("not json").has_value()
         && !UpdateChecker::parseReleaseVersion("{}").has_value()
         && !UpdateChecker::parseReleaseVersion(
@@ -82,7 +102,10 @@ bool comparesVersions()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return normalizesTags()
-        && validatesReleaseResponses()
-        && comparesVersions() ? 0 : 1;
+    if (!coalescesChecksAndAllowsRetry())
+    {
+        qCritical() << "Update checks did not coalesce or could not be retried after failure";
+        return 1;
+    }
+    return validatesReleaseResponses() && comparesVersions() ? 0 : 1;
 }

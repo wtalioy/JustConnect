@@ -300,13 +300,9 @@ MainWindow::MainWindow(
         connectionUiController->enableCampusAccess();
     }
 
-    if (settings->value("Common/CheckUpdateAfterStart", true).toBool())
+    if (settings->value("Common/CheckUpdateAfterStart").toBool())
     {
         updateChecker->check();
-    }
-    else
-    {
-        updateChecker->markDisabled();
     }
 
     if (!savedConnections->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
