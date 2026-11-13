@@ -2312,8 +2312,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
-        <source>Check the server, sign-in method, ports, DNS, additional Clash destinations and probe target. Nothing was saved.</source>
-        <translation>请检查服务器、认证方式、端口、DNS、补充 Clash 目标和保活目标。配置未保存。</translation>
+        <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
+        <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
     </message>
     <message>
         <source>Import</source>
