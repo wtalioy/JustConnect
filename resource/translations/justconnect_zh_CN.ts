@@ -2014,16 +2014,12 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>连接后，从连接菜单复制 Clash 脚本。脚本使用网关授权及符合条件的域名专用 DNS 条目。其他代理软件也可用这个 SOCKS5 端口并自行分流。</translation>
     </message>
     <message>
-        <source>Extra TCP routes</source>
-        <translation>补充 TCP 路由</translation>
+        <source>Additional Clash destinations</source>
+        <translation>补充 Clash 目标</translation>
     </message>
     <message>
-        <source>One IPv4:port per line, e.g. 192.0.2.10:22</source>
-        <translation>每行一个 IPv4:端口，例如 192.0.2.10:22</translation>
-    </message>
-    <message>
-        <source>Only gateway-authorized destinations are added to the Clash script.</source>
-        <translation>只将网关已授权的目标加入 Clash 脚本。</translation>
+        <source>Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22</source>
+        <translation>可选。每行一个 IPv4 地址和 TCP 端口，例如 192.0.2.10:22</translation>
     </message>
 </context>
 <context>
@@ -2316,8 +2312,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
-        <source>Check the server, sign-in method, ports, DNS, extra TCP routes and probe target. Nothing was saved.</source>
-        <translation>请检查服务器、认证方式、端口、DNS、补充 TCP 路由和保活目标。配置未保存。</translation>
+        <source>Check the server, sign-in method, ports, DNS, additional Clash destinations and probe target. Nothing was saved.</source>
+        <translation>请检查服务器、认证方式、端口、DNS、补充 Clash 目标和保活目标。配置未保存。</translation>
     </message>
     <message>
         <source>Import</source>

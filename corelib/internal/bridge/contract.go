@@ -59,16 +59,16 @@ func (s Status) Message() string {
 }
 
 type Config struct {
-	SchemaVersion  int    `json:"schema_version"`
-	Operation      string `json:"operation"`
-	LocalProxy     bool   `json:"local_proxy,omitempty"`
-	ExtraTCPRoutes string `json:"extra_tcp_routes,omitempty"`
-	extraTCPRoutes []netip.AddrPort
-	Protection     *ProtectionConfig `json:"protection,omitempty"`
-	initialPolicy  *policy.ProtectionPolicy
-	originalDNS    *resolve.OriginalDNS
-	domainDNS      map[string]string
-	Server         struct {
+	SchemaVersion          int    `json:"schema_version"`
+	Operation              string `json:"operation"`
+	LocalProxy             bool   `json:"local_proxy,omitempty"`
+	AdditionalProxyTargets string `json:"additional_proxy_targets,omitempty"`
+	proxyTargets           []netip.AddrPort
+	Protection             *ProtectionConfig `json:"protection,omitempty"`
+	initialPolicy          *policy.ProtectionPolicy
+	originalDNS            *resolve.OriginalDNS
+	domainDNS              map[string]string
+	Server                 struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
 	} `json:"server"`
@@ -194,12 +194,12 @@ func ParseConfig(data []byte) (Config, Status) {
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {
 		return Config{}, InvalidArgument
 	}
-	if c.ExtraTCPRoutes != "" {
+	if c.AdditionalProxyTargets != "" {
 		if !c.LocalProxy {
 			return Config{}, InvalidArgument
 		}
 		seen := make(map[netip.AddrPort]bool)
-		for line := range strings.SplitSeq(c.ExtraTCPRoutes, "\n") {
+		for line := range strings.SplitSeq(c.AdditionalProxyTargets, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -210,7 +210,7 @@ func ParseConfig(data []byte) (Config, Status) {
 			}
 			if !seen[target] {
 				seen[target] = true
-				c.extraTCPRoutes = append(c.extraTCPRoutes, target)
+				c.proxyTargets = append(c.proxyTargets, target)
 			}
 		}
 	}

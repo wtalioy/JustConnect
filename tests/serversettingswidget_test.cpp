@@ -46,7 +46,7 @@ int main(int argc,char **argv) {
     auto *form=editor.findChild<QFormLayout *>();
     auto *mode=editor.findChild<QComboBox *>("routingModeComboBox");
     auto *localPort=editor.findChild<QSpinBox *>("localSocksPortSpinBox");
-    auto *extraRoutes=editor.findChild<QPlainTextEdit *>("extraTcpRoutesEdit");
+    auto *extraRoutes=editor.findChild<QPlainTextEdit *>("clashTargetsEdit");
     for(auto *field:QList<QWidget *>{address,port,mode}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
@@ -61,7 +61,7 @@ int main(int argc,char **argv) {
     check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
         "local settings share one port");
     check(!localPort->isHidden() && !extraRoutes->isHidden() && extraRoutes->maximumHeight()==ca->maximumHeight()
-        && local.proxy.extraTcpRoutes=="192.0.2.18:22","local settings expose and save extra routes with the same field style");
+        && local.proxy.additionalClashTargets=="192.0.2.18:22","local settings expose and save extra routes with the same field style");
     check(rules->isVisibleTo(&editor) && dnsHelp && !dnsHelp->text().contains("Clash"),
         "domain DNS remains independently editable");
     app.processEvents();

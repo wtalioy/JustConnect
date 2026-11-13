@@ -69,10 +69,10 @@ func TestLocalProxyRequiresFixedLoopbackSOCKS(t *testing.T) {
 		func(c *Config) { c.Listeners.SOCKS = "127.0.0.1:0" },
 		func(c *Config) { c.Listeners.HTTP = "127.0.0.1:1081" },
 		func(c *Config) { c.Operation = "auth_methods" },
-		func(c *Config) { c.ExtraTCPRoutes = "192.0.2.10" },
-		func(c *Config) { c.ExtraTCPRoutes = "192.0.2.10:0" },
-		func(c *Config) { c.ExtraTCPRoutes = "127.0.0.1:22" },
-		func(c *Config) { c.LocalProxy, c.ExtraTCPRoutes = false, "192.0.2.10:22" },
+		func(c *Config) { c.AdditionalProxyTargets = "192.0.2.10" },
+		func(c *Config) { c.AdditionalProxyTargets = "192.0.2.10:0" },
+		func(c *Config) { c.AdditionalProxyTargets = "127.0.0.1:22" },
+		func(c *Config) { c.LocalProxy, c.AdditionalProxyTargets = false, "192.0.2.10:22" },
 	} {
 		bad := c
 		mutate(&bad)

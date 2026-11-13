@@ -75,7 +75,7 @@ QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation oper
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
     if (localProxy) {
         config["local_proxy"] = true;
-        if (!p.proxy.extraTcpRoutes.isEmpty()) config["extra_tcp_routes"] = p.proxy.extraTcpRoutes;
+        if (!p.proxy.additionalClashTargets.isEmpty()) config["additional_proxy_targets"] = p.proxy.additionalClashTargets;
     }
     if (!p.behavior.controllerAddress.isEmpty()) {
         auto network=config["network"].toObject();

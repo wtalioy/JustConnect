@@ -129,7 +129,7 @@ func TestLocalProxyExportsOnlyRequestedEndpointsFromBlanketGrant(t *testing.T) {
 	c.LocalProxy = true
 	c.Listeners.HTTP = ""
 	c.Listeners.SOCKS = freeAddress(t)
-	c.ExtraTCPRoutes = "192.0.2.20:80\n192.0.2.20:81\n192.0.2.10:80\n192.0.2.20:80"
+	c.AdditionalProxyTargets = "192.0.2.20:80\n192.0.2.20:81\n192.0.2.10:80\n192.0.2.20:80"
 	startProtocol(t, e, h, c)
 	ready := next(t, e, h)
 	if ready.State != "ready" {

@@ -31,22 +31,22 @@ const DefaultNodeRefreshInterval = 5 * time.Minute
 var ErrLocalProxyListen = errors.New("local SOCKS5 listener unavailable")
 
 type Options struct {
-	Client           atrust.ClientOptions
-	Setup            atrust.SetupOptions
-	Underlay         underlay.Options
-	SOCKS            string
-	HTTP             string
-	SecondaryDNS     string
-	DNSCacheTTL      uint64
-	DisableRemoteDNS bool
-	DomainDNS        map[string]string
-	KeepAliveMode    string
-	KeepAliveURL     string
-	QueryAuthMethods bool
-	LocalProxy       bool
-	ExtraTCPRoutes   []netip.AddrPort
-	ProtectionPolicy func() *policy.ProtectionPolicy
-	OriginalDNS      *resolve.OriginalDNS
+	Client             atrust.ClientOptions
+	Setup              atrust.SetupOptions
+	Underlay           underlay.Options
+	SOCKS              string
+	HTTP               string
+	SecondaryDNS       string
+	DNSCacheTTL        uint64
+	DisableRemoteDNS   bool
+	DomainDNS          map[string]string
+	KeepAliveMode      string
+	KeepAliveURL       string
+	QueryAuthMethods   bool
+	LocalProxy         bool
+	ProxyExportTargets []netip.AddrPort
+	ProtectionPolicy   func() *policy.ProtectionPolicy
+	OriginalDNS        *resolve.OriginalDNS
 }
 
 type Observer struct {
@@ -295,7 +295,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	defer s.listeners.Store(nil)
 	if observer.Resources != nil && options.LocalProxy {
 		scoped, _ := ipresource.ScopedRanges(ips)
-		scoped = appendExtraTCPRoutes(scoped, dialer, options.ExtraTCPRoutes)
+		scoped = appendProxyExportTargets(scoped, dialer, options.ProxyExportTargets)
 		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
 	} else if observer.Resources != nil {

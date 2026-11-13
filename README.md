@@ -65,7 +65,7 @@ For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), connect fir
 
 The SOCKS5 node uses the connection name shown in JustConnect. A blanket IP grant does not become a catch-all rule. Copy the script again after changing the connection or when its gateway grants change.
 
-If a numeric SSH destination is missing from the exported rules, add its IPv4 address and TCP port under **Extra TCP routes**, for example `192.0.2.10:22`. Reconnect and copy the script again. JustConnect adds that exact endpoint only if the gateway allows it.
+If a numeric SSH destination is missing from the exported rules, add its IPv4 address and TCP port under **Additional Clash destinations**, for example `192.0.2.10:22`. Reconnect and copy the script again. JustConnect adds that exact endpoint only if the gateway allows it.
 
 ## License and credits
 

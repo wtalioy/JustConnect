@@ -12,7 +12,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
-func appendExtraTCPRoutes(scoped []client.IPResource, dialer *dial.Dialer, targets []netip.AddrPort) []client.IPResource {
+func appendProxyExportTargets(scoped []client.IPResource, dialer *dial.Dialer, targets []netip.AddrPort) []client.IPResource {
 	if len(targets) == 0 {
 		return scoped
 	}
