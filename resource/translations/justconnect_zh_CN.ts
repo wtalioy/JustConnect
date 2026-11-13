@@ -708,6 +708,77 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     </message>
 </context>
 <context>
+    <name>ConnectionDetailsDialog</name>
+    <message>
+        <source>Log file</source>
+        <translation>日志文件</translation>
+    </message>
+    <message>
+        <source>The log file could not be created.</source>
+        <translation>日志文件创建失败。</translation>
+    </message>
+    <message>
+        <source>Copy log</source>
+        <translation>复制日志</translation>
+    </message>
+    <message>
+        <source>Clear displayed log</source>
+        <translation>清空显示的日志</translation>
+    </message>
+    <message>
+        <source>Overview</source>
+        <translation>概览</translation>
+    </message>
+    <message>
+        <source>Connection diagnostics</source>
+        <translation>连接诊断</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <source>Network protection</source>
+        <translation>网络保护</translation>
+    </message>
+    <message>
+        <source>Copy diagnostics</source>
+        <translation>复制诊断</translation>
+    </message>
+    <message>
+        <source>Logs</source>
+        <translation>日志</translation>
+    </message>
+    <message>
+        <source>Activity log</source>
+        <translation>运行日志</translation>
+    </message>
+    <message>
+        <source>Open log file</source>
+        <translation>打开日志文件</translation>
+    </message>
+    <message>
+        <source>Connection logs appear here</source>
+        <translation>连接日志将在这里显示</translation>
+    </message>
+    <message>
+        <source>Connection details</source>
+        <translation>连接详情</translation>
+    </message>
+    <message>
+        <source>Welcome to %1
+System: %2
+Connection: %3
+Configuration: %4
+</source>
+        <translation>欢迎使用 %1
+系统：%2
+连接：%3
+配置文件：%4
+</translation>
+    </message>
+</context>
+<context>
     <name>MainWindow</name>
     <message>
         <source>Fudan</source>
@@ -726,16 +797,6 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
         <source>Wait for the save to finish.</source>
         <translation>请等待保存完成。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
-        <source>Log file</source>
-        <translation>日志文件</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
-        <source>The log file could not be created.</source>
-        <translation>日志文件创建失败。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="195"/>
@@ -781,18 +842,6 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <location filename="../../presentation/main/mainwindow.cpp" line="422"/>
         <source>Not connected</source>
         <translation>尚未连接</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="477"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="494"/>
-        <source>Copy log</source>
-        <translation>复制日志</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="510"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="527"/>
-        <source>Clear displayed log</source>
-        <translation>清空显示的日志</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="573"/>
@@ -1085,36 +1134,9 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>未能保存升级后的连接设置，已保留原设置以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="232"/>
-        <source>Overview</source>
-        <translation>概览</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="238"/>
-        <source>aTrust · Not connected</source>
-        <translation>aTrust · 等待连接</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="248"/>
-        <source>Connection diagnostics</source>
-        <translation>连接诊断</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="301"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="304"/>
-        <source>Refresh</source>
-        <translation>刷新</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="360"/>
         <source>Network protection</source>
         <translation>网络保护</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="323"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="326"/>
-        <source>Copy diagnostics</source>
-        <translation>复制诊断</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="65"/>
@@ -1125,26 +1147,11 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>应用设置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="385"/>
-        <source>Logs</source>
-        <translation>日志</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="422"/>
-        <source>Activity log</source>
-        <translation>运行日志</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="444"/>
         <location filename="../../presentation/main/mainwindow.ui" line="461"/>
         <location filename="../../presentation/main/mainwindow.ui" line="756"/>
         <source>Open log file</source>
         <translation>打开日志文件</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="563"/>
-        <source>Connection logs appear here</source>
-        <translation>连接日志将在这里显示</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="678"/>
@@ -1205,11 +1212,6 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <location filename="../../presentation/main/mainwindow.ui" line="194"/>
         <source>Details</source>
         <translation>详情</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="222"/>
-        <source>Connection details</source>
-        <translation>连接详情</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="331"/>
@@ -1404,18 +1406,6 @@ Complete the legacy credential migration first, or add a new connection.</source
     <message>
         <source>Wait for the save before switching connections.</source>
         <translation>请等待保存完成，再切换连接。</translation>
-    </message>
-    <message>
-        <source>Welcome to %1
-System: %2
-Connection: %3
-Configuration: %4
-</source>
-        <translation>欢迎使用 %1
-系统：%2
-连接：%3
-配置文件：%4
-</translation>
     </message>
     <message>
         <source>Copy Clash extension script</source>

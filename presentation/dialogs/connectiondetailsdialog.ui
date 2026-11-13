@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui version="4.0">
+ <class>ConnectionDetailsDialog</class>
+ <widget class="QDialog" name="ConnectionDetailsDialog">
+  <property name="windowTitle">
+   <string>Connection details</string>
+  </property>
+  <layout class="QVBoxLayout" name="detailsLayout">
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <item>
+    <widget class="QTabWidget" name="detailsTabs">
+     <widget class="QWidget" name="overviewTab">
+      <attribute name="title">
+       <string>Overview</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="overviewTabLayout">
+       <item>
+        <widget class="QLabel" name="profileDetailLabel">
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTreeWidget" name="diagnosticReport">
+         <property name="accessibleName">
+          <string>Connection diagnostics</string>
+         </property>
+         <property name="rootIsDecorated">
+          <bool>false</bool>
+         </property>
+         <property name="headerHidden">
+          <bool>true</bool>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+         <property name="columnCount">
+          <number>2</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="diagnosticActions">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="refreshDiagnosticsButton">
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+           <property name="icon">
+            <iconset>
+             <normaloff>:/resource/refresh.svg</normaloff>
+            </iconset>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>18</width>
+             <height>18</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Refresh</string>
+           </property>
+           <property name="accessibleName">
+            <string>Refresh</string>
+           </property>
+           <property name="iconOnly" stdset="0">
+            <bool>true</bool>
+           </property>
+           <property name="flat">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="copyDiagnosticsButton">
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+           <property name="toolTip">
+            <string>Copy diagnostics</string>
+           </property>
+           <property name="accessibleName">
+            <string>Copy diagnostics</string>
+           </property>
+           <property name="icon">
+            <iconset>
+             <normaloff>:/resource/copy.svg</normaloff>
+            </iconset>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>18</width>
+             <height>18</height>
+            </size>
+           </property>
+           <property name="iconOnly" stdset="0">
+            <bool>true</bool>
+           </property>
+           <property name="flat">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="diagnosticActionsSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="diagnosticRulesButton">
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Network protection</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>16</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>16</number>
+       </property>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="logsTab">
+      <attribute name="title">
+       <string>Logs</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="logsTabLayout">
+       <item>
+        <widget class="QFrame" name="logPanel">
+         <property name="frameShape">
+          <enum>QFrame::Shape::StyledPanel</enum>
+         </property>
+         <layout class="QVBoxLayout" name="logPanelLayout">
+          <property name="spacing">
+           <number>12</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <layout class="QHBoxLayout" name="logHeaderLayout">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <layout class="QVBoxLayout" name="logTitleLayout">
+              <property name="spacing">
+               <number>2</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="logTitleLabel">
+                <property name="text">
+                 <string>Activity log</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <spacer name="logHeaderSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="openLogPushButton">
+              <property name="toolTip">
+               <string>Open log file</string>
+              </property>
+              <property name="text">
+               <string />
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>:/resource/folder.svg</normaloff>
+               </iconset>
+              </property>
+              <property name="iconSize">
+               <size>
+                <width>18</width>
+                <height>18</height>
+               </size>
+              </property>
+              <property name="accessibleName">
+               <string>Open log file</string>
+              </property>
+              <property name="iconOnly" stdset="0">
+               <bool>true</bool>
+              </property>
+              <property name="autoDefault">
+               <bool>false</bool>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="copyLogPushButton">
+              <property name="toolTip">
+               <string>Copy log</string>
+              </property>
+              <property name="text">
+               <string />
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>:/resource/copy.svg</normaloff>
+               </iconset>
+              </property>
+              <property name="iconSize">
+               <size>
+                <width>18</width>
+                <height>18</height>
+               </size>
+              </property>
+              <property name="accessibleName">
+               <string>Copy log</string>
+              </property>
+              <property name="iconOnly" stdset="0">
+               <bool>true</bool>
+              </property>
+              <property name="autoDefault">
+               <bool>false</bool>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="clearLogPushButton">
+              <property name="toolTip">
+               <string>Clear displayed log</string>
+              </property>
+              <property name="text">
+               <string />
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>:/resource/clear.svg</normaloff>
+               </iconset>
+              </property>
+              <property name="iconSize">
+               <size>
+                <width>18</width>
+                <height>18</height>
+               </size>
+              </property>
+              <property name="accessibleName">
+               <string>Clear displayed log</string>
+              </property>
+              <property name="iconOnly" stdset="0">
+               <bool>true</bool>
+              </property>
+              <property name="autoDefault">
+               <bool>false</bool>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+           </layout>
+          </item>
+          <item>
+           <widget class="QPlainTextEdit" name="logPlainTextEdit">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="maximumBlockCount">
+             <number>1000</number>
+            </property>
+            <property name="placeholderText">
+             <string>Connection logs appear here</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="statusDetailLabel">
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>16</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>12</number>
+       </property>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <property name="leftMargin">
+    <number>24</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>24</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
+  </layout>
+ </widget>
+ <resources>
+  <include location="../../resource.qrc" />
+ </resources>
+ <connections />
+</ui>

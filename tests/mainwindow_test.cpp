@@ -379,7 +379,7 @@ static void languagePreferences(MainWindow &window) {
             for (int y=0;y<glyph.height();++y)
                 check(glyph.pixelColor(x,y).alpha()==0,"text buttons reserve a consistent gap after the vector icon");
     }
-    check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("MainWindow","Copy diagnostics")
+    check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("ConnectionDetailsDialog","Copy diagnostics")
         && copy->accessibleName()==copy->toolTip() && !copy->icon().pixmap(18,18).isNull(),
         "icon actions retain translated hover text, accessibility and a rendered glyph");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
@@ -704,7 +704,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     check(window.isVisible() && !details->isVisible() && session->state()==state,"closing details preserves the accessible home and connection");
     for (int i=0;i<2;++i) {
         window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
-        check(details->isVisible() && session->state()==state,"reopening details preserves the session");
+        check(details->isVisible() && detailTabs->currentIndex()==0 && log->toPlainText().endsWith("\n1002")
+            && session->state()==state,"reopening details resets its tab and preserves its log and session");
         details->reject();QCoreApplication::processEvents();
     }
     ScrollPaints editorPaints("loginTab");

@@ -1,5 +1,4 @@
 #include <QMessageBox>
-#include <QSysInfo>
 #include <QDesktopServices>
 #include <QDebug>
 #include <QFile>
@@ -16,11 +15,8 @@
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
-#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHash>
-#include <QTabBar>
-#include <QFontDatabase>
 #include <QDialogButtonBox>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -38,20 +34,18 @@
 #include "mainwindow.h"
 #include "presentation/appearance/applicationappearance.h"
 #include "presentation/dialogs/networkpolicywindow.h"
+#include "presentation/dialogs/connectiondetailsdialog.h"
 
-#include "application/applicationlogger.h"
 #include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
 #include "application/clashextension.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
-#include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/presentationhelpers.h"
-#include "presentation/coordinators/connectiondiagnostics.h"
 #include "ui_mainwindow.h"
 
 namespace {
@@ -111,9 +105,7 @@ MainWindow::MainWindow(
     MainWindowCoordinator::NetworkFactory networkFactory
 ) :
     QMainWindow(parent),
-    ui(new Ui::MainWindow),
-    applicationLogger(logger),
-    applicationLogFile(logFile)
+    ui(new Ui::MainWindow)
 {
     ApplicationAppearance::install();
     ApplicationLanguage::instance();
@@ -132,32 +124,10 @@ MainWindow::MainWindow(
 #endif
     ui->setupUi(this);
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
-    ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    ui->detailsDialog->resize(640,568);
-    PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
-    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
-        if (!ui->detailsDialog->isVisible()) {
-            ui->detailsTabs->setCurrentIndex(0);
-            ui->detailsTabs->tabBar()->setFocus();
-        }
-        updateDiagnostics();
-        PresentationHelpers::activateWindow(ui->detailsDialog);
-    });
-    ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
-    ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
-    ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
-    ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
-    connect(coordinator->diagnostics(), &ConnectionDiagnostics::changed, this, [this] {
-        if (ui->overviewTab->isVisible()) updateDiagnostics();
-    });
-    connect(ui->detailsTabs, &QTabWidget::currentChanged, this, [this] {
-        if (ui->overviewTab->isVisible()) updateDiagnostics();
-    });
-    connect(ui->refreshDiagnosticsButton, &QPushButton::clicked,
-        coordinator->networkPolicy(), &NetworkPolicySession::refresh);
-    PresentationHelpers::connectCopyButton(ui->copyDiagnosticsButton, [this] {
-        return QApplication::applicationVersion() + "\n" + coordinator->diagnostics()->report();
-    });
+    details = new ConnectionDetailsDialog(coordinator->diagnostics(),coordinator->networkPolicy(),logger,logFile,this);
+    connect(ui->detailsButton,&QPushButton::clicked,details,&ConnectionDetailsDialog::openDetails);
+    connect(details,&ConnectionDetailsDialog::networkProtectionRequested,ui->inspectNetworkAction,&QAction::trigger);
+    connect(ui->openLogAction,&QAction::triggered,details,&ConnectionDetailsDialog::openLogFile);
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();
@@ -192,15 +162,6 @@ MainWindow::MainWindow(
                     );
                 }
             });
-    logFlushTimer.setSingleShot(true);
-    connect(&logFlushTimer, &QTimer::timeout, this, &MainWindow::flushLog);
-    connect(applicationLogger, &ApplicationLogger::entryAdded, this, [this](const QString &entry) {
-        pendingLogEntries.append(entry);
-        if (pendingLogEntries.size() >= ui->logPlainTextEdit->maximumBlockCount())
-            flushLog();
-        else if (!logFlushTimer.isActive())
-            logFlushTimer.start();
-    });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
         updateConnectionSummary();updateConnectionState(connectionSession->state());
     });
@@ -239,9 +200,6 @@ MainWindow::MainWindow(
     // 文件-设置
     connect(ui->settingAction,&QAction::triggered,this,[this]{showConnectionSettings();});
 
-    connect(ui->openLogPushButton, &QPushButton::clicked,
-            ui->openLogAction, &QAction::trigger);
-
     connect(ui->inspectNetworkAction, &QAction::triggered, this, [this] {
         if (!networkPolicyWindow) {
             networkPolicyWindow = new NetworkPolicyWindow(coordinator->networkPolicy(), this);
@@ -251,25 +209,6 @@ MainWindow::MainWindow(
         networkPolicyWindow->raise();
         networkPolicyWindow->activateWindow();
     });
-
-    connect(ui->diagnosticRulesButton, &QPushButton::clicked, ui->inspectNetworkAction, &QAction::trigger);
-
-    // 文件-打开日志文件
-    connect(ui->openLogAction, &QAction::triggered, this,
-            [this]()
-            {
-                const QString logFilePath = applicationLogFile->filePath();
-                QFileInfo logFileInfo(logFilePath);
-
-                if (logFileInfo.exists())
-                {
-                    QDesktopServices::openUrl(QUrl::fromLocalFile(logFilePath));
-                }
-                else
-                {
-                    QMessageBox::warning(this, tr("Log file"), tr("The log file could not be created."));
-                }
-            });
 
     connect(ui->clearAuthenticationCacheAction,&QAction::triggered,this,[this] {
         connectionUiController->clearAuthenticationCache();
@@ -303,12 +242,6 @@ MainWindow::MainWindow(
 
     connect(ui->aboutAction, &QAction::triggered, this, [this] { PresentationHelpers::showAboutDialog(this); });
 
-    PresentationHelpers::connectCopyButton(ui->copyLogPushButton, [this] {
-        flushLog();
-        return ui->logPlainTextEdit->toPlainText();
-    });
-    connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
-
     resetConnectionLog();
     connectionUiController = new ConnectionUiController(
         this,
@@ -318,7 +251,7 @@ MainWindow::MainWindow(
         systemProxySession,
         coordinator->networkPolicy(),
         authenticationDialogs,
-        applicationLogger,
+        logger,
         coordinator->credentials(),
         [this]() { return savedConnections->settings(); },
         [this]() { return coordinator->credentialSource(); },
@@ -396,7 +329,6 @@ void MainWindow::changeEvent(QEvent *event)
     trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
     connectionUiController->refreshActions();refreshConnectionMenu();updateConnectionSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
-    if (ui->overviewTab->isVisible()) updateDiagnostics();
 }
 
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
@@ -484,28 +416,9 @@ void MainWindow::showConnectionSettings() {
     PresentationHelpers::activateWindow(settingWindow);
 }
 
-void MainWindow::flushLog()
-{
-    logFlushTimer.stop();
-    if (pendingLogEntries.isEmpty()) return;
-    const auto text = pendingLogEntries.join(u'\n');
-    pendingLogEntries.clear();
-    ui->logPlainTextEdit->appendPlainText(text);
-}
-
-void MainWindow::clearLog()
-{
-    logFlushTimer.stop();
-    pendingLogEntries.clear();
-    ui->logPlainTextEdit->clear();
-}
-
 void MainWindow::resetConnectionLog()
 {
-    clearLog();
-    ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nConnection: %3\nConfiguration: %4\n")
-        .arg(QApplication::applicationDisplayName(),QSysInfo::prettyProductName(),
-            connectionName(),settings->fileName()));
+    details->resetLog(connectionName(),settings->fileName());
 }
 
 void MainWindow::resetConnectionUi()
@@ -626,7 +539,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
         if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
             trayIcon->setIcon(trayArtwork);
     }
-    ui->statusDetailLabel->setText(detail);
+    details->setConnectionStatus(detail);
 
     const bool primary = state == ConnectionState::Disconnected || state == ConnectionState::Failed
         || state == ConnectionState::Interrupted || (state == ConnectionState::Stopping && recoveryFailed);
@@ -654,7 +567,7 @@ void MainWindow::updateConnectionSummary()
     ui->profileMenuButton->setText(name);
     ui->profileMenuButton->setAccessibleName(tr("Current connection: %1").arg(name));
     ui->profileMenuButton->setToolTip(server.isEmpty() || server == name ? name : name + "\n" + server);
-    ui->profileDetailLabel->setText(QStringLiteral("aTrust · ") + name + (server.isEmpty()
+    details->setConnectionSummary(QStringLiteral("aTrust · ") + name + (server.isEmpty()
         ? QStringLiteral(" · ") + tr("No server configured")
         : server == name ? QString() : QStringLiteral(" · ") + server));
 }
@@ -1017,10 +930,10 @@ void MainWindow::gracefullyQuit()
 
 MainWindow::~MainWindow()
 {
+    delete details;
     delete coordinator;
     coordinator = nullptr;
 
-    QObject::disconnect(applicationLogger, nullptr, this, nullptr);
     delete ui;
     ui = nullptr;
 }
@@ -1039,14 +952,4 @@ void MainWindow::endSystemSession()
     if (!settled) {deadline.start();cleanup.exec();}
     setProperty("systemShutdown",false);
     disconnect(finished);
-}
-
-void MainWindow::updateDiagnostics()
-{
-    const auto fields=coordinator->diagnostics()->fields();
-    QList<QStringList> rows;
-    for(const auto &[label,value]:fields) rows.append(QStringList{label,value});
-    PresentationHelpers::setTreeRows(ui->diagnosticReport,rows);
-    auto *policy = coordinator->networkPolicy();
-    ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }

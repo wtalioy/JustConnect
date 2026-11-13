@@ -6,7 +6,6 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QPointer>
-#include <QTimer>
 
 #include "application/connectionsession.h"
 #include "application/savedconnectionservice.h"
@@ -24,6 +23,7 @@ class QActionGroup;
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
+class ConnectionDetailsDialog;
 class NetworkPolicyWindow;
 class UpdateChecker;
 
@@ -66,8 +66,6 @@ private:
     void showApplicationPreferences();
     void showConnectionSettings();
 
-    void flushLog();
-    void clearLog();
     void resetConnectionLog();
 
     void resetConnectionUi();
@@ -84,7 +82,6 @@ private:
     );
 
     void updateVersionInfo();
-    void updateDiagnostics();
 
     void setupTrayIcon();
 
@@ -100,8 +97,6 @@ private:
 
     void deleteCurrentConnection();
 
-    QTimer logFlushTimer;
-    QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
     QMenu *trayConnectionMenu;
@@ -120,8 +115,7 @@ private:
     AuthDialogCoordinator *authenticationDialogs = nullptr;
     ConnectionUiController *connectionUiController=nullptr;
     MainWindowCoordinator *coordinator;
-    ApplicationLogger *applicationLogger;
-    ApplicationLogFile *applicationLogFile;
+    ConnectionDetailsDialog *details;
     UpdateChecker *updateChecker;
     QSettings *settings;
     SavedConnectionService *savedConnections;
