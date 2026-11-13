@@ -39,7 +39,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
             GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
             "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 60s -run "^TestNativeProtocolHost$" -v ./internal/bridge)
     set_tests_properties(${TARGET}_protocol PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}"
-        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
+        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_LOGGING_RULES=justconnect.signin.debug=true")
 endfunction()
 
 function(justconnect_network_policy_tests)
