@@ -35,6 +35,7 @@ int main(int argc,char **argv) {
     auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
     auto *ca=editor.findChild<QPlainTextEdit *>("tlsCaPemEdit");
     auto *rules=editor.findChild<QPlainTextEdit *>("domainDnsRulesEdit");
+    auto *dnsHelp=editor.findChild<QLabel *>("domainDnsHelp");
     auto *warning=editor.findChild<QLabel *>("tlsWarningLabel");
     auto *allowNodes=editor.findChild<QCheckBox *>("allowUnverifiedNodesCheckBox");
     auto *nodeWarning=editor.findChild<QLabel *>("nodeTlsWarningLabel");
@@ -59,6 +60,8 @@ int main(int argc,char **argv) {
     check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
         "local settings share one port");
     check(!localPort->isHidden() && !campusTargets->isHidden(),"local settings are visible");
+    check(rules->isVisibleTo(&editor) && dnsHelp && dnsHelp->text().contains("Clash"),
+        "local mode explains that DNS does not add Clash routes");
     app.processEvents();
     auto *campusLabel=editor.findChild<QLabel *>("clashCampusRoutesLabel");
     check(campusLabel && campusLabel->buddy()==campusTargets && campusLabel->x()==ca->x()
@@ -100,7 +103,8 @@ assert.equal(JSON.stringify(main(config)),once);
     local.campusTargets="2001:db8::18";
     check(ClashExtension::invalidTargetLine(local)==1,"IPv6 targets are unavailable on the aTrust data path");
     mode->setCurrentIndex(0);
-    check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
+    check(rules->isVisibleTo(&editor) && !dnsHelp->text().contains("Clash"),
+        "automatic routing keeps domain DNS editable without Clash guidance");
     allowNodes->setChecked(true);
     const auto nodePolicy=SavedConnectionService::load(editor.settingsValues());
     check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");

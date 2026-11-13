@@ -1955,9 +1955,14 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>服务器 CA</translation>
     </message>
     <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="107"/>
-        <source>Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS. This does not add Clash routes.</source>
-        <translation>指定 JustConnect 如何解析这些域名。每行一个域名，可在后面填写 DNS 服务器的 IPv4 地址；不填服务器时使用网关 DNS。此设置不会添加 Clash 分流规则。</translation>
+        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="113"/>
+        <source>Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.</source>
+        <translation>指定 JustConnect 如何解析这些域名。每行一个域名，可在后面填写 DNS 服务器的 IPv4 地址；不填服务器时使用网关 DNS。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="114"/>
+        <source>This does not add Clash routes.</source>
+        <translation>此设置不会添加 Clash 分流规则。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="101"/>

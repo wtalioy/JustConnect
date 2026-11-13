@@ -94,6 +94,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     domainDnsRules->setObjectName("domainDnsRulesEdit");
     domainDnsRules->setPlaceholderText("host.example.edu\nother.example.edu 192.0.2.53");
     rulesHelp=new QLabel(this);
+    rulesHelp->setObjectName("domainDnsHelp");
     domainDnsLabel=new QLabel(this);
     addTextSection(domainDnsLabel,domainDnsRules,rulesHelp);
     layout->addStretch();
@@ -102,7 +103,6 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
     retranslate();
-    updateRoutingFields();
 }
 void ServerSettingsWidget::updateRoutingFields() {
     const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
@@ -110,6 +110,12 @@ void ServerSettingsWidget::updateRoutingFields() {
     campusTargetsLabel->setVisible(local);
     campusTargets->setVisible(local);
     clashHelp->setVisible(local);
+    QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.");
+    if (local) help+=" "+tr("This does not add Clash routes.");
+#ifndef Q_OS_WIN
+    else help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
+#endif
+    rulesHelp->setText(help);
 }
 void ServerSettingsWidget::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
@@ -134,11 +140,7 @@ void ServerSettingsWidget::retranslate() {
     caPem->setAccessibleName(tr("Server CA"));
     caPem->setPlaceholderText(tr("Optional server CA in PEM format. Leave empty to use system trust."));
     domainDnsLabel->setText(tr("Per-domain DNS"));
-    QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS. This does not add Clash routes.");
-#ifndef Q_OS_WIN
-    help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
-#endif
-    rulesHelp->setText(help);
+    updateRoutingFields();
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
     const QSignalBlocker blocker(this);
@@ -147,7 +149,6 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     routingMode->setCurrentIndex(qMax(0,routingMode->findData(settings.value(DefaultSettings::RoutingModeKey))));
     socksPort->setValue(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
     campusTargets->setPlainText(settings.value(DefaultSettings::CampusTargetsKey).toString());
-    updateRoutingFields();
     builtIn = DefaultSettings::isBuiltInConnection(settings);
     address->setText(host);
     address->setReadOnly(builtIn);
