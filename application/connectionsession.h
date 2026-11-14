@@ -62,6 +62,7 @@ signals:
     void stateChanged(ConnectionState state);
     void diagnostic(const QString &code);
     void progressChanged();
+    void observationsChanged();
     void authenticationCacheUpdated(const AuthenticationCache &cache);
     void authenticationCacheInvalidated();
     void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls);

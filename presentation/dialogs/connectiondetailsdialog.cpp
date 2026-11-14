@@ -30,7 +30,10 @@ ConnectionDetailsDialog::ConnectionDetailsDialog(ConnectionDiagnostics *diagnost
     ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
     const auto refreshVisible=[this] { if (ui->overviewTab->isVisible()) updateDiagnostics(); };
     connect(diagnostics,&ConnectionDiagnostics::changed,this,refreshVisible);
-    connect(ui->detailsTabs,&QTabWidget::currentChanged,this,refreshVisible);
+    connect(ui->detailsTabs,&QTabWidget::currentChanged,this,[this,refreshVisible] {
+        refreshVisible();
+        if (ui->logPlainTextEdit->isVisible()) flushLog();
+    });
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,policy,&NetworkPolicySession::refresh);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
     connect(ui->diagnosticRulesButton,&QPushButton::clicked,this,&ConnectionDetailsDialog::networkProtectionRequested);
@@ -39,11 +42,17 @@ ConnectionDetailsDialog::ConnectionDetailsDialog(ConnectionDiagnostics *diagnost
     });
 
     logFlushTimer.setSingleShot(true);
-    connect(&logFlushTimer,&QTimer::timeout,this,&ConnectionDetailsDialog::flushLog);
+    connect(&logFlushTimer,&QTimer::timeout,this,[this] {
+        if (ui->logPlainTextEdit->isVisible()) flushLog();
+    });
     connect(logger,&ApplicationLogger::entryAdded,this,[this](const QString &entry) {
-        pendingLogEntries.append(entry);
-        if (pendingLogEntries.size()>=ui->logPlainTextEdit->maximumBlockCount()) flushLog();
-        else if (!logFlushTimer.isActive()) logFlushTimer.start();
+        if (entry.contains(u'\n')) pendingLogEntries.append(entry.split(u'\n'));
+        else pendingLogEntries.append(entry);
+        const auto limit = ui->logPlainTextEdit->maximumBlockCount();
+        if (limit > 0 && pendingLogEntries.size() > limit)
+            pendingLogEntries.remove(0, pendingLogEntries.size() - limit);
+        if (ui->logPlainTextEdit->isVisible() && !logFlushTimer.isActive())
+            logFlushTimer.start();
     });
     connect(ui->openLogPushButton,&QPushButton::clicked,this,&ConnectionDetailsDialog::openLogFile);
     connect(ui->clearLogPushButton,&QPushButton::clicked,this,&ConnectionDetailsDialog::clearLog);
@@ -61,7 +70,7 @@ void ConnectionDetailsDialog::openDetails()
         ui->detailsTabs->setCurrentIndex(0);
         ui->detailsTabs->tabBar()->setFocus();
     }
-    updateDiagnostics();
+    if (ui->overviewTab->isVisibleTo(this)) updateDiagnostics();
     PresentationHelpers::activateWindow(this);
 }
 

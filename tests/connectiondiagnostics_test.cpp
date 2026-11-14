@@ -145,6 +145,12 @@ try
                                CoreEngine::RequestStatus::Success);
     check(diagnostics.report().contains("Clash rule · TUN On"),
           "a confirmed coexistence observation must explain the ordinary exit");
+    int changes = 0;
+    const auto counted = QObject::connect(&diagnostics, &ConnectionDiagnostics::changed, [&] { ++changes; });
+    emit engine->snapshotReady(CoreEngine::Snapshot::Coexistence, "1", observation("rule"),
+                               CoreEngine::RequestStatus::Success);
+    QObject::disconnect(counted);
+    check(changes == 0, "an identical coexistence snapshot does not schedule another diagnostics render");
     emit engine->snapshotReady(CoreEngine::Snapshot::Coexistence, "old", observation("global"),
                                CoreEngine::RequestStatus::Success);
     check(diagnostics.report().contains("Clash rule"), "a late observation cannot overwrite the current generation");

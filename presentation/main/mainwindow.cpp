@@ -160,7 +160,7 @@ MainWindow::MainWindow(
                 }
             });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
-        updateConnectionSummary();updateConnectionState(connectionSession->state());
+        updateConnectionState(connectionSession->state());
     });
     setupTrayIcon();
     setupConnectionMenu();
@@ -187,6 +187,7 @@ MainWindow::MainWindow(
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
     connect(connectionSession, &ConnectionSession::progressChanged, this, [this] { updateConnectionState(connectionSession->state()); });
+    connect(connectionSession, &ConnectionSession::observationsChanged, this, &MainWindow::updateMaintenanceDetails);
 
 
     // 文件-退出
@@ -452,25 +453,11 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     }
 
+    statusTitle = title;
+    statusDetail = detail;
     const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || recoveryFailed;
     ui->statusHintLabel->setText(needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(needsAttention);
-    static const QHash<QString, const char *> results{
-        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
-        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
-        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
-    };
-    const auto traffic=connectionSession->observation("traffic");
-    const auto mode=connectionSession->keepAliveOptions().mode;
-    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
-        {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
-        {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
-    for (const auto &[stage,label]:maintenance) {
-        const auto observed=connectionSession->observation(stage);
-        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
-        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
-    }
-    if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
     ui->statusTitleLabel->setText(title);
     static const QIcon idleArtwork(":/resource/connection.svg");
     static const QIcon connectedArtwork(":/resource/connection-ready.svg");
@@ -478,7 +465,6 @@ void MainWindow::updateConnectionState(ConnectionState state)
     ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
-        trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
 #ifdef Q_OS_MACOS
         static const QIcon idleTrayArtwork = [] {
             QIcon icon(":/resource/tray-link.svg");icon.setIsMask(true);return icon;
@@ -493,7 +479,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
         if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
             trayIcon->setIcon(trayArtwork);
     }
-    details->setConnectionStatus(detail);
+    updateMaintenanceDetails();
 
     const bool primary = state == ConnectionState::Disconnected || state == ConnectionState::Failed
         || state == ConnectionState::Interrupted || (state == ConnectionState::Stopping && recoveryFailed);
@@ -505,6 +491,30 @@ void MainWindow::updateConnectionState(ConnectionState state)
         button->style()->polish(button);
         button->update();
     }
+}
+
+void MainWindow::updateMaintenanceDetails()
+{
+    static const QHash<QString, const char *> results{
+        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
+        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
+        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
+    };
+    auto detail = statusDetail;
+    const auto mode = connectionSession->keepAliveOptions().mode;
+    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
+        {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
+        {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
+    bool trafficUnavailable = false;
+    for (const auto &[stage,label]:maintenance) {
+        const auto observed=connectionSession->observation(stage);
+        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
+        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
+        if (stage=="traffic") trafficUnavailable = observed.result=="unavailable";
+    }
+    if (trafficUnavailable) detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
+    if (trayIcon) trayIcon->setToolTip(QApplication::applicationName()+" · "+statusTitle+"\n"+detail);
+    details->setConnectionStatus(detail);
 }
 
 QString MainWindow::connectionName() const

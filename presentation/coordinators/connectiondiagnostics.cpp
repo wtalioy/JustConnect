@@ -32,14 +32,20 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                     return;
                 const auto state = snapshot["coexistence"].toObject();
                 const auto observed = state["mode"].toString();
-                exitKnown = status == CoreEngine::RequestStatus::Success &&
+                const bool known = status == CoreEngine::RequestStatus::Success &&
                             snapshot["schema_version"].toInteger() > 0 && state["active"].isBool() &&
                             state["tun"].isBool() &&
                             (!state["active"].toBool() || (state["available"].toBool() && !observed.isEmpty())) &&
                             (observed.isEmpty() || observed == "rule" || observed == "global" || observed == "direct");
-                mode = exitKnown ? observed : QString();
-                clashActive = exitKnown && state["active"].toBool();
-                tun = exitKnown && state["tun"].toBool();
+                const auto nextMode = known ? observed : QString();
+                const bool active = known && state["active"].toBool();
+                const bool nextTun = known && state["tun"].toBool();
+                if (exitKnown == known && mode == nextMode && clashActive == active && tun == nextTun)
+                    return;
+                exitKnown = known;
+                mode = nextMode;
+                clashActive = active;
+                tun = nextTun;
                 emit changed();
             });
     connect(connection, &ConnectionSession::diagnostic, this, [this](const QString &value) {
@@ -90,9 +96,9 @@ QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
     const bool confirmed = !generation.isEmpty() && policy->currentGeneration() == generation &&
                            model["schema_version"].toInteger() > 0;
     const auto resources = confirmed ? model["resources"].toObject() : QJsonObject();
+    const auto listeners = resources["listeners"].toObject();
     const auto endpoint = [&](const QString &key) {
-        const auto listeners = resources["listeners"].toObject();
-        if (!confirmed || !listeners.contains(key))
+        if (!listeners.contains(key))
             return unknown;
         const auto value = listeners[key].toString();
         if (value.isEmpty())
@@ -102,7 +108,7 @@ QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
         if (!address.isLoopback() || !url.userInfo().isEmpty() || !url.path().isEmpty() || !url.query().isEmpty() ||
             !url.fragment().isEmpty() || url.port() < 1 || url.port() > 65535)
             return unknown;
-        return url.port() > 0 ? QString::number(url.port()) : unknown;
+        return QString::number(url.port());
     };
     const bool ready =
         connection->state() == ConnectionState::Running && connection->phase() == ConnectionPhase::CampusReady;

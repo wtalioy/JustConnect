@@ -71,6 +71,7 @@ private:
     void resetConnectionUi();
 
     void updateConnectionState(ConnectionState state);
+    void updateMaintenanceDetails();
 
     QString connectionName() const;
     void updateConnectionSummary();
@@ -121,6 +122,7 @@ private:
     QSettings *settings;
     SavedConnectionService *savedConnections;
     QString currentConnectionId;
+    QString statusTitle, statusDetail;
 
     QPointer<SettingWindow> settingWindow;
     QPointer<QDialog> preferencesWindow;
