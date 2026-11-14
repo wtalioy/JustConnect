@@ -29,9 +29,131 @@ import (
 
 type hostLogProbe struct{ written atomic.Bool }
 
+func TestLocalProxyOnlyLifecycle(t *testing.T) {
+	g := newGateway(t)
+	g.probeDNS.Store(true)
+	g.exportDNS.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Network.DomainDNSRules = "alias.test\nunauthorized.test"
+	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	c.Listeners.SOCKS = occupied.Addr().String()
+	c.Listeners.HTTP = ""
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	if event := next(t, e, h); event.State != "starting" {
+		t.Fatal(event)
+	}
+	if event := next(t, e, h); event.Type != "terminal" || event.Status != LocalProxyListen {
+		t.Fatal("port conflict should end before sign-in", event)
+	}
+	occupied.Close()
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	if event := next(t, e, h); event.State != "starting" {
+		t.Fatal(event)
+	}
+	if event := next(t, e, h); event.Type != "authentication" {
+		t.Fatal(event)
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("cancel during authentication")
+	}
+	if event := next(t, e, h); event.Type != "terminal" || event.Status != Cancelled {
+		t.Fatal(event)
+	}
+	startProtocol(t, e, h, c)
+	ready := next(t, e, h)
+	if ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	data, status := readResourceBytes(e, h, ready.Generation)
+	var snapshot resourcesEnvelope
+	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
+		len(snapshot.Resources.Domains["campus.test"]) == 0 || len(snapshot.Resources.IPs) == 0 ||
+		len(snapshot.Resources.DNSRecords) != 0 || len(snapshot.Resources.PrivateIPRanges) != 0 {
+		t.Fatal("local mode must publish its listener and export grants, without system capture data", status)
+	}
+	aliases := snapshot.Resources.DomainDNSPermissions
+	if permissions := aliases["alias.test"]; len(aliases) != 1 || len(permissions) != 2 ||
+		permissions[0] != (resourcePermission{Protocol: "tcp", PortMin: 8443, PortMax: 8450}) ||
+		permissions[1] != (resourcePermission{Protocol: "udp", PortMin: 1053, PortMax: 1053}) {
+		t.Fatal("DNS aliases must inherit only the exact port and protocol grants for their answer", aliases)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	echo(t, connection)
+	for _, denied := range []string{c.Listeners.SOCKS, "192.0.2.99:80"} {
+		if rejected, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", denied); err == nil {
+			rejected.Close()
+			t.Fatal("local mode opened a non-campus connection")
+		}
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("local proxy did not stop")
+	}
+	if _, status := readResourceBytes(e, h, ready.Generation); status != StaleRequest {
+		t.Fatal("local export remained accessible after disconnect", status)
+	}
+	awaitClosed(t, connection)
+}
+
 func (p *hostLogProbe) Write(data []byte) (int, error) {
 	p.written.Store(true)
 	return len(data), nil
+}
+
+func TestLocalProxyExportsOnlyRequestedEndpointsFromBlanketGrant(t *testing.T) {
+	g := newGateway(t)
+	g.fullIPv4Resource.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.HTTP = ""
+	c.Listeners.SOCKS = freeAddress(t)
+	c.AdditionalProxyTargets = "192.0.2.20:80\n192.0.2.20:81\n192.0.2.10:80\n192.0.2.20:80"
+	startProtocol(t, e, h, c)
+	ready := next(t, e, h)
+	if ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	data, status := readResourceBytes(e, h, ready.Generation)
+	var snapshot resourcesEnvelope
+	if status != OK || json.Unmarshal(data, &snapshot) != nil {
+		t.Fatal("export snapshot unavailable", status)
+	}
+	var extra int
+	for _, row := range snapshot.Resources.IPs {
+		switch {
+		case row.IPMin == "192.0.2.20" && row.IPMax == row.IPMin &&
+			row.resourcePermission == (resourcePermission{Protocol: "tcp", PortMin: 80, PortMax: 80}):
+			extra++
+		case row.IPMin != "192.0.2.10" || row.IPMax != row.IPMin ||
+			(row.Protocol == "tcp" && row.PortMin == row.PortMax):
+			t.Fatal("unexpected endpoint, duplicate or blanket rule", row)
+		}
+	}
+	if extra != 1 {
+		t.Fatal("expected exactly one authorized extra route", snapshot.Resources.IPs)
+	}
 }
 
 func TestProtocolQueryProxyStopAndRestart(t *testing.T) {

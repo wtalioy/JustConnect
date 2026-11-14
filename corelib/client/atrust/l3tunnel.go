@@ -2,7 +2,6 @@ package atrust
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -74,10 +73,7 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 			connectionID: aTrustClient.ConnectionID,
 			username:     aTrustClient.Username,
 		}
-		dialTLS := func(ctx context.Context, network, address string) (*tls.Conn, error) {
-			return client.DialTLSContext(ctx, aTrustClient.underlayDialer.DialContext, network, address, tunnelTLSConfig(aTrustClient.nodeTLSPolicy))
-		}
-		return newL3TunnelConn(ctx, dialTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
+		return newL3TunnelConn(ctx, aTrustClient.dialTunnelTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
 	}
 
 	ipResources, err := aTrustClient.IPResources()

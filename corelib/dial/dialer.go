@@ -48,6 +48,9 @@ func dialDirect(ctx context.Context, network, address string) (net.Conn, error) 
 
 // CampusOnly shares the resource indexes and live policy without an ordinary fallback.
 func (d *Dialer) CampusOnly() *Dialer {
+	if d.alwaysUseVPN {
+		return d
+	}
 	campus := *d
 	campus.alwaysUseVPN = true
 	return &campus
@@ -357,20 +360,25 @@ func (d *Dialer) CaptureIPResources() ([]client.IPResource, [][2]netip.Addr) {
 	return d.scopedRanges, d.privateRanges
 }
 
+// HasIPGrant checks the server resource table, before applying local protection.
+func (d *Dialer) HasIPGrant(ip net.IP, protocol string, port int) bool {
+	_, ok := d.resourceIndex.Match(ip, protocol, port)
+	return ok
+}
+
 func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []client.IPResource, alwaysUseVPN bool) *Dialer {
-	scopedRanges, privateRanges := ipresource.ScopedRanges(ipResources)
-	resourceIndex := ipresource.New(ipResources)
-	scopedIndex := resourceIndex
-	if len(scopedRanges) != len(ipResources) {
-		scopedIndex = ipresource.New(scopedRanges)
-	}
-	return &Dialer{
+	d := &Dialer{
 		stack:         stack,
 		resolver:      resolver,
-		scopedRanges:  scopedRanges,
-		privateRanges: privateRanges,
-		scopedIndex:   scopedIndex,
-		resourceIndex: resourceIndex,
+		resourceIndex: ipresource.New(ipResources),
 		alwaysUseVPN:  alwaysUseVPN,
 	}
+	if !alwaysUseVPN {
+		d.scopedRanges, d.privateRanges = ipresource.ScopedRanges(ipResources)
+		d.scopedIndex = d.resourceIndex
+		if len(d.scopedRanges) != len(ipResources) {
+			d.scopedIndex = ipresource.New(d.scopedRanges)
+		}
+	}
+	return d
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
 )
 
 // A bound SOCKS port can reply before Mihomo's tunnel accepts traffic.
@@ -56,23 +57,18 @@ func StartConfiguredBinary(t testing.TB, upstream string, ipc bool, overrides ma
 	if source == "" {
 		t.Skip("set JC_TEST_MIHOMO_BINARY to run the official Mihomo integration")
 	}
+	binary, err := filepath.Abs(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !model.Recognized(binary) {
+		t.Fatal("stage the pinned Mihomo runtime under its native executable name")
+	}
 	directory, err := os.MkdirTemp("", "jcr-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(directory) })
-	name := "mihomo"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	binary := filepath.Join(directory, name)
-	data, err := os.ReadFile(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(binary, data, 0700); err != nil {
-		t.Fatal(err)
-	}
 	reserve := func(network string) string {
 		listener, err := net.Listen(network, "127.0.0.1:0")
 		if err != nil {
@@ -115,7 +111,7 @@ func StartConfiguredBinary(t testing.TB, upstream string, ipc bool, overrides ma
 		}
 		config[key] = f.IPC
 	}
-	data, _ = json.Marshal(config)
+	data, _ := json.Marshal(config)
 	if err = os.WriteFile(f.Configuration, data, 0600); err != nil {
 		t.Fatal(err)
 	}

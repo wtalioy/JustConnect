@@ -16,7 +16,8 @@ struct DnsOptions {
     QString localDnsServer;
     QString domainDnsRules;
 };
-struct ProxyOptions { QString socksBind, httpBind; };
+struct ProxyOptions { QString socksBind, httpBind, additionalClashTargets; };
+enum class RoutingMode { Automatic, LocalProxy };
 struct KeepAliveOptions { QString mode = "auto", url; };
 struct ConnectionBehavior { QString bindInterface; QString controllerAddress; bool autoDetectInterface = false; bool rememberAuthentication = false; };
 struct TlsOptions { bool verify = true; QString caPem; bool allowUnverifiedNodes = false; };
@@ -26,6 +27,7 @@ struct ConnectionOptions {
     ConnectionEndpoint endpoint;
     DnsOptions dns;
     ProxyOptions proxy;
+    RoutingMode routingMode = RoutingMode::Automatic;
     KeepAliveOptions keepAlive;
     ConnectionBehavior behavior;
     AuthenticationCache authenticationCache;

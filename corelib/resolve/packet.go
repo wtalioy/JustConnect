@@ -66,7 +66,7 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		}
 	}
 	r.resolutionMu.Lock()
-	if r.resolutionClosed {
+	if r.resolutionClosed.Load() {
 		r.resolutionMu.Unlock()
 		return nil, net.ErrClosed
 	}
@@ -106,7 +106,7 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 	}
 	ips, known := r.dnsResource[host]
 	server, override := r.DomainDNS[host]
-	_, _, granted := r.domainIndex.Match(host)
+	granted := r.domainIndex.Contains(host)
 	if override {
 		if !campusOnly && question.Qtype == dns.TypeAAAA {
 			return nil, ErrCampusIPv6Unsupported

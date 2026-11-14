@@ -31,9 +31,11 @@ const QVariantMap &defaults()
         {"JustConnect/TLSCAPEM", ""},
         {"JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes},
         {"JustConnect/SecondaryDNS", ""},
+        {DefaultSettings::RoutingModeKey, DefaultSettings::AutomaticMode},
+        {DefaultSettings::AdditionalClashTargets, ""},
         {"JustConnect/LocalDNSServer", ""},
         {"JustConnect/DNSTTL", DnsOptions{}.ttl},
-        {"JustConnect/SOCKS5Port", 11080},
+        {DefaultSettings::SocksPortKey, DefaultSettings::DefaultSocksPort},
         {"JustConnect/HTTPPort", 11081},
         {"JustConnect/KeepAliveMode", KeepAliveOptions{}.mode},
         {"JustConnect/KeepAliveURL", ""},
@@ -70,12 +72,12 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 
 bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
 {
-    if (settings.contains("Common/ConfigVersion")
-        && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion)
+    const int version = settings.value("Common/ConfigVersion", ApplicationConstants::ConfigVersion).toInt();
+    if (version != ApplicationConstants::ConfigVersion)
         return false;
     for (const auto &key : settings.allKeys()) {
         const auto value = settings.value(key).toString();
-        if (key == "Common/ConfigVersion" || key == ConnectionCredentialVault::ScopeSetting)
+        if (key == "Common/ConfigVersion" || key == ConnectionCredentialVault::ScopeSetting || key == "JustConnect/CampusTargets")
             continue;
         // Earlier builds wrote these fields before a server was ever chosen.
         if ((key == "JustConnect/ProfileKind" && value == "Custom")

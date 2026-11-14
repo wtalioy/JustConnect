@@ -125,11 +125,8 @@ int compareSuffixes(const QString &currentSuffix, const QString &latestSuffix)
 
 UpdateChecker::UpdateChecker(QObject *parent)
     : QObject(parent),
-      versions{QCoreApplication::applicationVersion(), {}},
-      uiNetworkManager(new QNetworkAccessManager(this))
+      versions{QCoreApplication::applicationVersion(), {}}
 {
-    connect(uiNetworkManager, &QNetworkAccessManager::finished,
-            this, &UpdateChecker::handleUiReply);
 }
 
 const VersionInfo &UpdateChecker::versionInfo() const
@@ -137,30 +134,23 @@ const VersionInfo &UpdateChecker::versionInfo() const
     return versions;
 }
 
-void UpdateChecker::markDisabled()
-{
-    versions.uiLatest.clear();
-    versions.updateState=VersionInfo::UpdateState::Disabled;
-    emit versionInfoChanged(versions);
-}
-
 void UpdateChecker::check()
 {
-    versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Checking;
+    if (versions.updateState == VersionInfo::UpdateState::Checking)
+        return;
+    if (!uiNetworkManager)
+    {
+        uiNetworkManager = new QNetworkAccessManager(this);
+        connect(uiNetworkManager, &QNetworkAccessManager::finished,
+                this, &UpdateChecker::handleUiReply);
+    }
+    versions.uiLatest.clear();
+    versions.updateState = VersionInfo::UpdateState::Checking;
     emit versionInfoChanged(versions);
-    uiNetworkManager->get(QNetworkRequest(
-        QUrl(
-            "https://api.github.com/repos/" +
-            ApplicationConstants::RepositoryName +
-            "/releases/latest"
-        )
-    ));
-
-}
-
-QString UpdateChecker::normalizeVersionTag(const QString &tag)
-{
-    return tag.startsWith('v') ? tag.mid(1) : tag;
+    QNetworkRequest request(QUrl("https://api.github.com/repos/" +
+                                ApplicationConstants::RepositoryName + "/releases/latest"));
+    request.setTransferTimeout();
+    uiNetworkManager->get(request);
 }
 
 std::optional<QString> UpdateChecker::parseReleaseVersion(
@@ -181,8 +171,9 @@ std::optional<QString> UpdateChecker::parseReleaseVersion(
         return std::nullopt;
     }
 
-    const QString version =
-        normalizeVersionTag(tagValue.toString().trimmed());
+    QString version = tagValue.toString().trimmed();
+    if (version.startsWith('v'))
+        version.removeFirst();
     return version.isEmpty()
         ? std::nullopt
         : std::optional<QString>(version);

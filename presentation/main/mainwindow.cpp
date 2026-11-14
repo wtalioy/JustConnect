@@ -1,30 +1,26 @@
 #include <QMessageBox>
-#include <QSysInfo>
 #include <QDesktopServices>
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QAccessible>
 #include <QActionGroup>
+#include <QMenu>
 #include <QDialog>
 #include <QLineEdit>
 #include <QStyle>
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
-#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHash>
-#include <QTabBar>
-#include <QFontDatabase>
 #include <QDialogButtonBox>
-#include <QScrollArea>
-#include <QScrollBar>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
-#include "presentation/widgets/applicationpreferenceswidget.h"
-#include "presentation/widgets/localizeddialog.h"
+#include "presentation/widgets/connectionmenu.h"
 #include <QtAlgorithms>
 #include <algorithm>
 #include <memory>
@@ -34,19 +30,19 @@
 #include "mainwindow.h"
 #include "presentation/appearance/applicationappearance.h"
 #include "presentation/dialogs/networkpolicywindow.h"
+#include "presentation/dialogs/connectiondetailsdialog.h"
+#include "presentation/dialogs/applicationpreferencesdialog.h"
 
-#include "application/applicationlogger.h"
 #include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
+#include "application/clashextension.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
-#include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/presentationhelpers.h"
-#include "presentation/coordinators/connectiondiagnostics.h"
 #include "ui_mainwindow.h"
 
 namespace {
@@ -106,9 +102,7 @@ MainWindow::MainWindow(
     MainWindowCoordinator::NetworkFactory networkFactory
 ) :
     QMainWindow(parent),
-    ui(new Ui::MainWindow),
-    applicationLogger(logger),
-    applicationLogFile(logFile)
+    ui(new Ui::MainWindow)
 {
     ApplicationAppearance::install();
     ApplicationLanguage::instance();
@@ -127,32 +121,10 @@ MainWindow::MainWindow(
 #endif
     ui->setupUi(this);
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
-    ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    ui->detailsDialog->resize(640,568);
-    PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
-    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
-        if (!ui->detailsDialog->isVisible()) {
-            ui->detailsTabs->setCurrentIndex(0);
-            ui->detailsTabs->tabBar()->setFocus();
-        }
-        updateDiagnostics();
-        PresentationHelpers::activateWindow(ui->detailsDialog);
-    });
-    ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
-    ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
-    ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
-    ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
-    connect(coordinator->diagnostics(), &ConnectionDiagnostics::changed, this, [this] {
-        if (ui->overviewTab->isVisible()) updateDiagnostics();
-    });
-    connect(ui->detailsTabs, &QTabWidget::currentChanged, this, [this] {
-        if (ui->overviewTab->isVisible()) updateDiagnostics();
-    });
-    connect(ui->refreshDiagnosticsButton, &QPushButton::clicked,
-        coordinator->networkPolicy(), &NetworkPolicySession::refresh);
-    PresentationHelpers::connectCopyButton(ui->copyDiagnosticsButton, [this] {
-        return QApplication::applicationVersion() + "\n" + coordinator->diagnostics()->report();
-    });
+    details = new ConnectionDetailsDialog(coordinator->diagnostics(),coordinator->networkPolicy(),logger,logFile,this);
+    connect(ui->detailsButton,&QPushButton::clicked,details,&ConnectionDetailsDialog::openDetails);
+    connect(details,&ConnectionDetailsDialog::networkProtectionRequested,ui->inspectNetworkAction,&QAction::trigger);
+    connect(ui->openLogAction,&QAction::triggered,details,&ConnectionDetailsDialog::openLogFile);
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();
@@ -160,7 +132,7 @@ MainWindow::MainWindow(
     connect(coordinator->credentials(),&CredentialAccess::configurationSaved,this,[this](const QString &path) {
         if (settings && settings->fileName()==path) {
             updateConnectionSummary();
-            if (currentConnectionId.isEmpty()) refreshConnectionMenu();
+            refreshConnectionMenu();
         }
     });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
@@ -187,17 +159,8 @@ MainWindow::MainWindow(
                     );
                 }
             });
-    logFlushTimer.setSingleShot(true);
-    connect(&logFlushTimer, &QTimer::timeout, this, &MainWindow::flushLog);
-    connect(applicationLogger, &ApplicationLogger::entryAdded, this, [this](const QString &entry) {
-        pendingLogEntries.append(entry);
-        if (pendingLogEntries.size() >= ui->logPlainTextEdit->maximumBlockCount())
-            flushLog();
-        else if (!logFlushTimer.isActive())
-            logFlushTimer.start();
-    });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
-        updateConnectionSummary();updateConnectionState(connectionSession->state());
+        updateConnectionState(connectionSession->state());
     });
     setupTrayIcon();
     setupConnectionMenu();
@@ -224,6 +187,7 @@ MainWindow::MainWindow(
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
     connect(connectionSession, &ConnectionSession::progressChanged, this, [this] { updateConnectionState(connectionSession->state()); });
+    connect(connectionSession, &ConnectionSession::observationsChanged, this, &MainWindow::updateMaintenanceDetails);
 
 
     // 文件-退出
@@ -234,9 +198,6 @@ MainWindow::MainWindow(
     // 文件-设置
     connect(ui->settingAction,&QAction::triggered,this,[this]{showConnectionSettings();});
 
-    connect(ui->openLogPushButton, &QPushButton::clicked,
-            ui->openLogAction, &QAction::trigger);
-
     connect(ui->inspectNetworkAction, &QAction::triggered, this, [this] {
         if (!networkPolicyWindow) {
             networkPolicyWindow = new NetworkPolicyWindow(coordinator->networkPolicy(), this);
@@ -246,25 +207,6 @@ MainWindow::MainWindow(
         networkPolicyWindow->raise();
         networkPolicyWindow->activateWindow();
     });
-
-    connect(ui->diagnosticRulesButton, &QPushButton::clicked, ui->inspectNetworkAction, &QAction::trigger);
-
-    // 文件-打开日志文件
-    connect(ui->openLogAction, &QAction::triggered, this,
-            [this]()
-            {
-                const QString logFilePath = applicationLogFile->filePath();
-                QFileInfo logFileInfo(logFilePath);
-
-                if (logFileInfo.exists())
-                {
-                    QDesktopServices::openUrl(QUrl::fromLocalFile(logFilePath));
-                }
-                else
-                {
-                    QMessageBox::warning(this, tr("Log file"), tr("The log file could not be created."));
-                }
-            });
 
     connect(ui->clearAuthenticationCacheAction,&QAction::triggered,this,[this] {
         connectionUiController->clearAuthenticationCache();
@@ -298,12 +240,6 @@ MainWindow::MainWindow(
 
     connect(ui->aboutAction, &QAction::triggered, this, [this] { PresentationHelpers::showAboutDialog(this); });
 
-    PresentationHelpers::connectCopyButton(ui->copyLogPushButton, [this] {
-        flushLog();
-        return ui->logPlainTextEdit->toPlainText();
-    });
-    connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
-
     resetConnectionLog();
     connectionUiController = new ConnectionUiController(
         this,
@@ -313,7 +249,7 @@ MainWindow::MainWindow(
         systemProxySession,
         coordinator->networkPolicy(),
         authenticationDialogs,
-        applicationLogger,
+        logger,
         coordinator->credentials(),
         [this]() { return savedConnections->settings(); },
         [this]() { return coordinator->credentialSource(); },
@@ -365,13 +301,9 @@ MainWindow::MainWindow(
         connectionUiController->enableCampusAccess();
     }
 
-    if (settings->value("Common/CheckUpdateAfterStart", true).toBool())
+    if (settings->value("Common/CheckUpdateAfterStart").toBool())
     {
         updateChecker->check();
-    }
-    else
-    {
-        updateChecker->markDisabled();
     }
 
     if (!savedConnections->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
@@ -386,11 +318,11 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
+    copyClashScriptAction->setText(tr("Copy Clash Extend Script"));
     addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
     trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
     connectionUiController->refreshActions();refreshConnectionMenu();updateConnectionSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
-    if (ui->overviewTab->isVisible()) updateDiagnostics();
 }
 
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
@@ -416,48 +348,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
 }
 
 
-void MainWindow::showApplicationPreferences() {
-    if (!preferencesWindow) {
-        auto *view=new LocalizedDialog<QDialog>(this);preferencesWindow=view;
-        view->setObjectName("applicationSettingsDialog");view->setAttribute(Qt::WA_DeleteOnClose);
-        view->setWindowModality(Qt::WindowModal);
-        constexpr int padding=24,scrollInset=8;
-        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(padding,padding,scrollInset,padding);layout->setSpacing(16);
-        auto *scroll=new QScrollArea(view);scroll->setObjectName("applicationSettingsScroll");
-        scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        layout->addWidget(scroll);
-        auto *contents=new ApplicationPreferencesWidget(scroll);
-        contents->layout()->setContentsMargins(0,0,padding-scrollInset,0);
-        connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
-            view->setAttribute(Qt::WA_DeleteOnClose, false);
-        });
-        connect(contents, &ApplicationPreferencesWidget::startupSaveFinished, view, [this, view] {
-            view->setAttribute(Qt::WA_DeleteOnClose);
-            if (!view->isVisible()) {
-                preferencesWindow = nullptr;
-                view->deleteLater();
-            }
-        });
-        auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
-        buttons->setContentsMargins(0,0,padding-scrollInset,0);
-        connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
-        view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
-        view->setMinimumSize(320,360);view->resize(560,560);
-        scroll->setWidget(contents);
-        view->ensurePolished();
-        layout->activate();
-        contents->layout()->activate();
-        scroll->setFocus(Qt::OtherFocusReason);
-        scroll->verticalScrollBar()->setValue(0);
-        PresentationHelpers::activateWindow(view);
-        // A hidden scroll area can calculate a range before its viewport has its final size.
-        QTimer::singleShot(0, scroll, [scroll] {
-            scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        });
-        return;
-    }
+void MainWindow::showApplicationPreferences()
+{
+    if (!preferencesWindow) preferencesWindow=new ApplicationPreferencesDialog(this);
     PresentationHelpers::activateWindow(preferencesWindow);
 }
 
@@ -478,28 +371,9 @@ void MainWindow::showConnectionSettings() {
     PresentationHelpers::activateWindow(settingWindow);
 }
 
-void MainWindow::flushLog()
-{
-    logFlushTimer.stop();
-    if (pendingLogEntries.isEmpty()) return;
-    const auto text = pendingLogEntries.join(u'\n');
-    pendingLogEntries.clear();
-    ui->logPlainTextEdit->appendPlainText(text);
-}
-
-void MainWindow::clearLog()
-{
-    logFlushTimer.stop();
-    pendingLogEntries.clear();
-    ui->logPlainTextEdit->clear();
-}
-
 void MainWindow::resetConnectionLog()
 {
-    clearLog();
-    ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nConnection: %3\nConfiguration: %4\n")
-        .arg(QApplication::applicationDisplayName(),QSysInfo::prettyProductName(),
-            connectionName(),settings->fileName()));
+    details->resetLog(connectionName(),settings->fileName());
 }
 
 void MainWindow::resetConnectionUi()
@@ -514,6 +388,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     if (settingWindow) settingWindow->setProfileEditable(!connectionSession->isActive());
     const auto phase = connectionSession->phase();
     const bool recoveryFailed = connectionSession->networkRecoveryFailed();
+    const bool localProxyReady = connectionSession->usesLocalProxy() && phase == ConnectionPhase::TransportReady;
     QString title;
     QString detail;
 
@@ -540,6 +415,11 @@ void MainWindow::updateConnectionState(ConnectionState state)
         detail = tr("Campus access is not ready yet.");
         break;
     case ConnectionState::Running:
+        if (localProxyReady) {
+            title = tr("Connected");
+            detail = tr("Local proxy is ready. Clash routes the selected campus traffic.");
+            break;
+        }
         title = phase == ConnectionPhase::CampusReady ? tr("Connected")
             : phase == ConnectionPhase::NetworkRestoring ? tr("Restoring network") : tr("Tunnel ready");
         detail = phase == ConnectionPhase::CampusReady ? tr("Campus IPv4 access is ready.")
@@ -573,33 +453,18 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     }
 
+    statusTitle = title;
+    statusDetail = detail;
     const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || recoveryFailed;
     ui->statusHintLabel->setText(needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(needsAttention);
-    static const QHash<QString, const char *> results{
-        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
-        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
-        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
-    };
-    const auto traffic=connectionSession->observation("traffic");
-    const auto mode=connectionSession->keepAliveOptions().mode;
-    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
-        {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
-        {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
-    for (const auto &[stage,label]:maintenance) {
-        const auto observed=connectionSession->observation(stage);
-        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
-        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
-    }
-    if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
     ui->statusTitleLabel->setText(title);
     static const QIcon idleArtwork(":/resource/connection.svg");
     static const QIcon connectedArtwork(":/resource/connection-ready.svg");
-    const bool connected = state == ConnectionState::Running && phase == ConnectionPhase::CampusReady;
+    const bool connected = state == ConnectionState::Running && (phase == ConnectionPhase::CampusReady || localProxyReady);
     ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
-        trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
 #ifdef Q_OS_MACOS
         static const QIcon idleTrayArtwork = [] {
             QIcon icon(":/resource/tray-link.svg");icon.setIsMask(true);return icon;
@@ -614,7 +479,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
         if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
             trayIcon->setIcon(trayArtwork);
     }
-    ui->statusDetailLabel->setText(detail);
+    updateMaintenanceDetails();
 
     const bool primary = state == ConnectionState::Disconnected || state == ConnectionState::Failed
         || state == ConnectionState::Interrupted || (state == ConnectionState::Stopping && recoveryFailed);
@@ -626,6 +491,30 @@ void MainWindow::updateConnectionState(ConnectionState state)
         button->style()->polish(button);
         button->update();
     }
+}
+
+void MainWindow::updateMaintenanceDetails()
+{
+    static const QHash<QString, const char *> results{
+        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
+        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
+        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
+    };
+    auto detail = statusDetail;
+    const auto mode = connectionSession->keepAliveOptions().mode;
+    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
+        {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
+        {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
+    bool trafficUnavailable = false;
+    for (const auto &[stage,label]:maintenance) {
+        const auto observed=connectionSession->observation(stage);
+        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
+        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
+        if (stage=="traffic") trafficUnavailable = observed.result=="unavailable";
+    }
+    if (trafficUnavailable) detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
+    if (trayIcon) trayIcon->setToolTip(QApplication::applicationName()+" · "+statusTitle+"\n"+detail);
+    details->setConnectionStatus(detail);
 }
 
 QString MainWindow::connectionName() const
@@ -642,7 +531,7 @@ void MainWindow::updateConnectionSummary()
     ui->profileMenuButton->setText(name);
     ui->profileMenuButton->setAccessibleName(tr("Current connection: %1").arg(name));
     ui->profileMenuButton->setToolTip(server.isEmpty() || server == name ? name : name + "\n" + server);
-    ui->profileDetailLabel->setText(QStringLiteral("aTrust · ") + name + (server.isEmpty()
+    details->setConnectionSummary(QStringLiteral("aTrust · ") + name + (server.isEmpty()
         ? QStringLiteral(" · ") + tr("No server configured")
         : server == name ? QString() : QStringLiteral(" · ") + server));
 }
@@ -679,7 +568,7 @@ void MainWindow::setupTrayIcon()
 void MainWindow::setupConnectionMenu()
 {
     // Cocoa uses separate menu surfaces. Share their actions instead of sharing submenus.
-    auto *popup = new QMenu(ui->profileMenuButton);
+    auto *popup = new ConnectionMenu(ui->profileMenuButton);
     ui->profileMenuButton->setMenu(popup);
     switchGroup = new QActionGroup(ui->profileMenu);
     traySwitchGroup = new QActionGroup(trayConnectionMenu);
@@ -687,6 +576,24 @@ void MainWindow::setupConnectionMenu()
     traySwitchGroup->setExclusive(true);
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
+    copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash Extend Script"));
+    popup->setCopyAction(copyClashScriptAction);
+    copyClashScriptAction->setObjectName("copyClashScriptAction");
+    connect(connectionSession,&ConnectionSession::stateChanged,this,&MainWindow::updateClashExport);
+    connect(coordinator->networkPolicy(),&NetworkPolicySession::changed,this,&MainWindow::updateClashExport);
+    connect(copyClashScriptAction, &QAction::triggered, this, [this,popup] {
+        if (connectionSession->state()!=ConnectionState::Running || !connectionSession->usesLocalProxy()) return;
+        const auto script=ClashExtension::script(SavedConnectionService::load(*settings),connectionName(),
+            coordinator->networkPolicy()->localProxyResources());
+        if (script.isEmpty()) return;
+        auto *clipboard=QApplication::clipboard();
+        clipboard->setText(script);
+        if (clipboard->text()!=script) return;
+        popup->showCopyCheck();
+        QAccessibleAnnouncementEvent announcement(ui->profileMenuButton,
+            QCoreApplication::translate("PresentationHelpers","Copied to clipboard"));
+        QAccessible::updateAccessibility(&announcement);
+    });
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
     renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
     renameConnectionAction->setObjectName("renameConnectionAction");
@@ -739,9 +646,16 @@ void MainWindow::refreshConnectionMenu()
     updateMenu(trayConnectionMenu, traySwitchGroup);
     if (rebuild) ui->profileMenuButton->menu()->insertActions(connectionActionsSeparator, switchGroup->actions());
 
+    updateClashExport();
     const bool currentProfileIsManaged = !currentConnectionId.isEmpty() && !overrideConfiguration;
     renameConnectionAction->setEnabled(currentProfileIsManaged);
     deleteConnectionAction->setEnabled(currentProfileIsManaged);
+}
+
+void MainWindow::updateClashExport()
+{
+    copyClashScriptAction->setEnabled(connectionSession->state()==ConnectionState::Running
+        && connectionSession->usesLocalProxy() && !coordinator->networkPolicy()->localProxyResources().isEmpty());
 }
 
 bool MainWindow::switchConnection(const QString &connectionId)
@@ -989,10 +903,10 @@ void MainWindow::gracefullyQuit()
 
 MainWindow::~MainWindow()
 {
+    delete details;
     delete coordinator;
     coordinator = nullptr;
 
-    QObject::disconnect(applicationLogger, nullptr, this, nullptr);
     delete ui;
     ui = nullptr;
 }
@@ -1011,14 +925,4 @@ void MainWindow::endSystemSession()
     if (!settled) {deadline.start();cleanup.exec();}
     setProperty("systemShutdown",false);
     disconnect(finished);
-}
-
-void MainWindow::updateDiagnostics()
-{
-    const auto fields=coordinator->diagnostics()->fields();
-    QList<QStringList> rows;
-    for(const auto &[label,value]:fields) rows.append(QStringList{label,value});
-    PresentationHelpers::setTreeRows(ui->diagnosticReport,rows);
-    auto *policy = coordinator->networkPolicy();
-    ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }

@@ -10,7 +10,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 )
 
@@ -91,7 +90,7 @@ func (c *Client) getIP(parent context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	conn, err := client.DialTLSContext(ctx, c.underlayDialer.DialContext, "tcp", addr, tunnelTLSConfig(c.nodeTLSPolicy))
+	conn, err := c.dialTunnelTLS(ctx, "tcp", addr)
 	if err != nil {
 		return err
 	}

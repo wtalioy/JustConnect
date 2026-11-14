@@ -74,32 +74,33 @@ type pending struct {
 }
 
 type Session struct {
-	mu               sync.Mutex
-	dnsRoutes        *pendingDNSRoutes
-	dnsRouteGate     chan struct{}
-	protocol         *corelib.Session
-	generation       uint64
-	sequence         uint64
-	nextRequest      uint64
-	running          bool
-	ctx              context.Context
-	unreadAuth       bool
-	ready            bool
-	stopping         bool
-	destroying       bool
-	destroyed        bool
-	cancel           context.CancelFunc
-	done             chan struct{}
-	changed          chan struct{}
-	queue            []queued
-	diagnostics      int
-	auth             *pending
-	policy           *policy.ProtectionPolicy
-	policyRevision   uint64
-	connectOperation bool
-	coexistence      []byte
-	resources        *publishedResources
-	resourcesStatus  Status
+	mu                sync.Mutex
+	dnsRoutes         *pendingDNSRoutes
+	dnsRouteGate      chan struct{}
+	protocol          *corelib.Session
+	generation        uint64
+	sequence          uint64
+	nextRequest       uint64
+	running           bool
+	ctx               context.Context
+	unreadAuth        bool
+	ready             bool
+	stopping          bool
+	destroying        bool
+	destroyed         bool
+	cancel            context.CancelFunc
+	done              chan struct{}
+	changed           chan struct{}
+	queue             []queued
+	diagnostics       int
+	auth              *pending
+	policy            *policy.ProtectionPolicy
+	policyRevision    uint64
+	captureOperation  bool
+	resourceOperation bool
+	coexistence       []byte
+	resources         *publishedResources
+	resourcesStatus   Status
 }
 
 func (s *Session) notify() {
@@ -166,7 +167,8 @@ func (e *Engine) Start(handle uint64, input []byte) (uint64, Status) {
 	s.running, s.ready, s.stopping = true, false, false
 	s.ctx, s.cancel, s.done = ctx, cancel, make(chan struct{})
 	s.auth = nil
-	s.policy, s.policyRevision, s.connectOperation = config.initialPolicy, 0, config.Operation != "auth_methods"
+	s.resourceOperation = config.Operation != "auth_methods"
+	s.policy, s.policyRevision, s.captureOperation = config.initialPolicy, 0, s.resourceOperation && !config.LocalProxy
 	s.resources, s.resourcesStatus = nil, Busy
 	s.coexistence = nil
 	s.push(event{Type: "state", State: "starting"})
@@ -190,7 +192,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid, PermissionDenied:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid, PermissionDenied, LocalProxyListen:
 		default:
 			status = Internal
 		}
@@ -289,6 +291,7 @@ func (s *Session) Observe(stage, result string) Status {
 func (s *Session) Diagnostic(code string) Status {
 	switch code {
 	case "local_controller_real_dns", "local_controller_unavailable", "local_controller_ambiguous",
+		"socks_dns_failed", "socks_destination_denied", "socks_tunnel_node_unreachable", "socks_campus_dial_failed",
 		"transport_connected", "authentication_started", "keepalive_retry", "anti_mitm_failed", "persistence_failed", "manifest_cached", "auth_detail_unavailable",
 		"tls_authentication_failed", "tls_resources_failed", "tls_node_probe_failed", "tls_ip_tunnel_failed",
 		"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "tls_certificate_invalid",

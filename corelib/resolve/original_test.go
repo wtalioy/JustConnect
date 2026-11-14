@@ -167,11 +167,15 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	var udpQueries, tcpQueries atomic.Int32
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		reply := new(dns.Msg).SetReply(request)
+		defer func() {
+			if err := w.WriteMsg(reply); err != nil {
+				t.Errorf("original DNS fixture write: type=%d peer=%v: %v", request.Question[0].Qtype, w.RemoteAddr(), err)
+			}
+		}()
 		if _, isUDP := w.RemoteAddr().(*net.UDPAddr); isUDP {
 			udpQueries.Add(1)
 			if request.Question[0].Qtype == dns.TypeA {
 				reply.Truncated = true
-				_ = w.WriteMsg(reply)
 				return
 			}
 		} else {
@@ -184,7 +188,6 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		} else {
 			reply.Answer = append(reply.Answer, &dns.AAAA{Hdr: header, AAAA: net.ParseIP("2001:db8::9")})
 		}
-		_ = w.WriteMsg(reply)
 	})
 	for _, server := range []*dns.Server{{Listener: tcp, Net: "tcp", Handler: handler}, {PacketConn: udp, Handler: handler}} {
 		ready := make(chan struct{})
@@ -223,13 +226,22 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		return nil
 	}
 	for _, kind := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		udpBefore, tcpBefore := udpQueries.Load(), tcpQueries.Load()
 		reply, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(host+".", kind), "udp", nil, publish)
 		if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Ttl != 3 || reply.Answer[1].Header().Ttl != 10 || reply.Answer[1].Header().Rrtype != kind {
 			t.Fatal("original records changed", reply, err)
 		}
+		wantTCP := int32(0)
+		if kind == dns.TypeA {
+			wantTCP = 1 // Only the IPv4 query receives a truncated UDP reply.
+		}
+		if receivedUDP, receivedTCP := udpQueries.Load()-udpBefore, tcpQueries.Load()-tcpBefore; receivedUDP != 1 || receivedTCP != wantTCP {
+			t.Fatalf("original DNS transport: type=%s upstream=%s interface=%s UDP=%d TCP=%d (want UDP=1 TCP=%d)",
+				dns.TypeToString[kind], tcp.Addr(), iface, receivedUDP, receivedTCP, wantTCP)
+		}
 	}
-	if publications != 1 || udpQueries.Load() != 2 || tcpQueries.Load() != 1 {
-		t.Fatal("original UDP/TCP fallback or AAAA path missing", publications, udpQueries.Load(), tcpQueries.Load())
+	if publications != 1 {
+		t.Fatal("original IPv4 publication count", publications)
 	}
 	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !got {
 		t.Fatal("original answer lost native protection", got, err)

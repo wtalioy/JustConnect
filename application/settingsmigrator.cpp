@@ -128,6 +128,7 @@ bool SettingsMigrator::finish(QSettings &settings)
             "JustConnect/CustomDNS",
             "JustConnect/CustomProxyDomain",
             "JustConnect/ExtraArguments",
+            "JustConnect/CampusTargets",
             "Credential/CertFile",
             "Credential/CertPassword",
             "Common/AutoStart",

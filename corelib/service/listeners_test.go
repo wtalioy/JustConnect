@@ -85,6 +85,21 @@ func TestProxyRejectsNonLoopbackListener(t *testing.T) {
 		p.Close()
 		t.Fatal("public listener accepted")
 	}
+	available, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := available.Addr().String()
+	available.Close()
+	if p, err := NewListeners(t.Context(), address, "0.0.0.0:0", nil, nil); err == nil {
+		p.Close()
+		t.Fatal("public HTTP listener accepted")
+	}
+	rebound, err := net.Listen("tcp4", address)
+	if err != nil {
+		t.Fatal("failed HTTP bind left the SOCKS port reserved", err)
+	}
+	rebound.Close()
 }
 
 func TestProxyHalfClosePreservesResponseAndAllowsShutdown(t *testing.T) {

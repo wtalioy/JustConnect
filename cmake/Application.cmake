@@ -6,6 +6,7 @@ add_library(justconnect_application STATIC
     "${REPO}/application/authmethodsquery.cpp"
     "${REPO}/application/networkprotection.cpp"
     "${REPO}/application/campuscapture.cpp"
+    "${REPO}/application/clashextension.cpp"
     "${REPO}/application/applicationlogger.cpp"
     "${REPO}/application/commandlineoptions.cpp"
     "${REPO}/application/applicationshutdown.cpp"

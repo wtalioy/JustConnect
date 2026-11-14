@@ -16,6 +16,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/service"
@@ -27,21 +28,25 @@ const DefaultDNSCacheTTL uint64 = 60
 const DefaultSessionRefreshInterval = 5 * time.Minute
 const DefaultNodeRefreshInterval = 5 * time.Minute
 
+var ErrLocalProxyListen = errors.New("local SOCKS5 listener unavailable")
+
 type Options struct {
-	Client           atrust.ClientOptions
-	Setup            atrust.SetupOptions
-	Underlay         underlay.Options
-	SOCKS            string
-	HTTP             string
-	SecondaryDNS     string
-	DNSCacheTTL      uint64
-	DisableRemoteDNS bool
-	DomainDNS        map[string]string
-	KeepAliveMode    string
-	KeepAliveURL     string
-	QueryAuthMethods bool
-	ProtectionPolicy func() *policy.ProtectionPolicy
-	OriginalDNS      *resolve.OriginalDNS
+	Client             atrust.ClientOptions
+	Setup              atrust.SetupOptions
+	Underlay           underlay.Options
+	SOCKS              string
+	HTTP               string
+	SecondaryDNS       string
+	DNSCacheTTL        uint64
+	DisableRemoteDNS   bool
+	DomainDNS          map[string]string
+	KeepAliveMode      string
+	KeepAliveURL       string
+	QueryAuthMethods   bool
+	LocalProxy         bool
+	ProxyExportTargets []netip.AddrPort
+	ProtectionPolicy   func() *policy.ProtectionPolicy
+	OriginalDNS        *resolve.OriginalDNS
 }
 
 type Observer struct {
@@ -55,6 +60,7 @@ type Resources struct {
 	IPs                           []client.IPResource
 	PrivateIPRanges               [][2]netip.Addr
 	Domains                       client.DomainResources
+	DomainDNSPermissions          client.DomainResources
 	DNSRecords                    map[string][]net.IP
 	CampusDNS                     string
 	CampusDNSEnabled              bool
@@ -175,6 +181,18 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if err := ValidateKeepAlive(options.KeepAliveMode, options.KeepAliveURL); err != nil {
 		return err
 	}
+	var reservedSOCKS net.Listener
+	if options.LocalProxy && !options.QueryAuthMethods {
+		reservedSOCKS, err = service.ListenLoopback(ctx, options.SOCKS)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrLocalProxyListen, err)
+		}
+		defer func() {
+			if reservedSOCKS != nil {
+				_ = reservedSOCKS.Close()
+			}
+		}()
+	}
 	clientOptions := options.Client
 	if clientOptions.UnderlayDialer == nil {
 		if options.Underlay.Diagnostic == nil {
@@ -253,24 +271,34 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	resolver.ProtectionPolicy = options.ProtectionPolicy
 	resolver.OriginalDNS = options.OriginalDNS
 
-	dialer := dial.NewDialer(network, resolver, ips, false)
+	dialer := dial.NewDialer(network, resolver, ips, options.LocalProxy)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
 	dialer.OriginalAuthentication = originalAuthenticationOrigin(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
 	resolver.DomainDNS = options.DomainDNS
 	resolver.DomainDNSDial = dialer.DialDomainDNS
-	if ownedUnderlay != nil {
+	if ownedUnderlay != nil && !options.LocalProxy {
 		upstream := &sessionUpstream{source: ownedUnderlay, gate: make(chan struct{}, 1)}
 		dialer.Upstream = upstream.dialer
 		s.upstream.Store(upstream)
 		defer s.upstream.Store(nil)
 	}
-	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
+	if reservedSOCKS != nil {
+		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer, clientOptions.Diagnostic)
+		reservedSOCKS = nil
+	} else {
+		listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
+	}
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
 	}
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
-	if observer.Resources != nil {
+	if observer.Resources != nil && options.LocalProxy {
+		scoped, _ := ipresource.ScopedRanges(ips)
+		scoped = appendProxyExportTargets(scoped, dialer, options.ProxyExportTargets)
+		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
+			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
+	} else if observer.Resources != nil {
 		var domainDNSNames []string
 		for host := range options.DomainDNS {
 			domainDNSNames = append(domainDNSNames, host)
@@ -286,19 +314,20 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address,
 			Listeners:                     listeners.Addresses()})
 	}
-	probeDNS := remoteDNS
-	if options.DisableRemoteDNS {
-		probeDNS = ""
+	var probeDNS net.IP
+	if !options.DisableRemoteDNS && options.KeepAliveMode != "off" {
+		probeDNS = authorizedDNS(remoteDNS, dialer)
 	}
+	campusProbe := dialer.CampusOnly()
 	probe = func(ctx context.Context) string {
-		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, probeDNS, network, resolver, ips, clientOptions.TLSConfig, options.ProtectionPolicy)
+		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, probeDNS, campusProbe, resolver, clientOptions.TLSConfig)
 	}
 	close(trafficReady)
 	if clientOptions.Observe != nil {
 		result := "unknown"
 		if options.KeepAliveMode == "off" {
 			result = "disabled"
-		} else if options.KeepAliveMode != "target" && authorizedDNS(probeDNS, ips) == nil {
+		} else if options.KeepAliveMode != "target" && probeDNS == nil {
 			result = "unavailable"
 		}
 		clientOptions.Observe("traffic", result)

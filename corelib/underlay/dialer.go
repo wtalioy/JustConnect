@@ -33,7 +33,7 @@ type Dialer struct {
 	localDNSServer    string
 	controllerAddress string
 	controller        *mihomo.Client
-	controllerGate    chan struct{}
+	controllerCheck   *controllerCheck
 	resolver          *net.Resolver
 	tunDevice         string
 	diagnostic        func(string)

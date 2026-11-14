@@ -6,10 +6,13 @@
 
 using Status = CoreEngine::RequestStatus;
 
-NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent)
+NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent,
+    std::function<bool()> captureRequired)
     : QObject(parent), engine(engine), reader(std::move(reader))
 {
-    connect(engine, &CoreEngine::sessionStarted, this, &NetworkPolicySession::begin);
+    connect(engine, &CoreEngine::sessionStarted, this, [this, required = std::move(captureRequired)](const QString &id) {
+        begin(id, required && !required());
+    });
     connect(engine, &CoreEngine::initialProtectionApplied, this, [this](const QJsonObject &policy) {
         if (generation.isEmpty() || policy["generation"] != generation || !confirmedPolicy.isEmpty() || isPolicyUpdating()
             || policy["schema_version"].toInteger() <= 0 || policy["revision"] != "0"
@@ -47,7 +50,8 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
                     if (isNetwork) networkVersion = data["schema_version"];
                 }
             }
-            publish();
+            if (localProxy) emit changed();
+            else publish();
         });
     connect(engine, &CoreEngine::policyUpdated, this,
         [this](const QString &id, const QString &appliedRevision, Status status) {
@@ -58,7 +62,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
         workerBusy = false;
         if (!generation.isEmpty() && result.serial == serial) {
             modelStatus = result.status;
-            currentModel = result.status == Status::Success ? result.model : QJsonObject{};
+            if (result.status == Status::Success) lastModel = result.model;
         }
         publish();
     });
@@ -69,23 +73,26 @@ NetworkPolicySession::~NetworkPolicySession()
     watcher.waitForFinished();
 }
 
-void NetworkPolicySession::begin(const QString &id)
+void NetworkPolicySession::begin(const QString &id, bool proxyOnly)
 {
     clear();
     if (id.isEmpty()) return;
     generation = id;
-    refresh();
+    localProxy = proxyOnly;
+    if (!localProxy) refresh();
 }
 
 void NetworkPolicySession::clear()
 {
     ++serial;
     generation.clear();
+    localProxy = false;
+    resourceStatus = Status::Pending;
     transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
     originalViewFilter = {};
     policyApplier = {};
     waitingForPolicyModel = false;
-    network = resources = currentModel = {};
+    network = resources = lastModel = {};
     networkVersion = {};
     confirmedPolicy = pendingPolicy = {};
     revision = 0;
@@ -106,7 +113,6 @@ void NetworkPolicySession::setOriginalViewFilter(const QString &id, OriginalView
     if (id.isEmpty() || id != generation) return;
     originalViewFilter = std::move(filter);
     ++serial;
-    currentModel = {};
     currentStatus = modelStatus = Status::Pending;
     refreshQueued = true;
     publish();
@@ -129,11 +135,11 @@ void NetworkPolicySession::completePolicy(const QString &id, const QString &appl
 
 bool NetworkPolicySession::refresh()
 {
-    if (!engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || (isPolicyUpdating() && !waitingForPolicyModel)
+    if (localProxy || !engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || (isPolicyUpdating() && !waitingForPolicyModel)
         || (workerBusy && workerSerial == serial)) return false;
     refreshQueued = false;
     ++serial;
-    network = resources = currentModel = {};
+    network = resources = {};
     networkVersion = {};
     networkStatus = resourceStatus = modelStatus = Status::Pending;
     networkPending = true;
@@ -151,7 +157,7 @@ CoreEngine::RequestStatus NetworkPolicySession::synchronizeProtection()
 {
     if (!engine || generation.isEmpty() || isBusy() || currentStatus != Status::Success
         || networkVersion.toInteger() <= 0 || confirmedPolicy.isEmpty()) return Status::Unavailable;
-    auto policy = protectionConfiguration(currentModel["targets"].toArray(),currentModel["name_targets"].toArray());
+    auto policy = protectionConfiguration(lastModel["targets"].toArray(),lastModel["name_targets"].toArray());
     policy["campus"] = campusAddresses();
     policy["campus_names"] = campusNames();
     if (policy["protected"] == confirmedPolicy["protected"] && policy["protected_names"] == confirmedPolicy["protected_names"])
@@ -177,7 +183,7 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
     QJsonObject policy;
     if (currentStatus == Status::Success && networkVersion.toInteger() > 0) {
         bool protectedAddress = false;
-        for (const auto &value : currentModel["targets"].toArray()) {
+        for (const auto &value : lastModel["targets"].toArray()) {
             const auto prefix = value.toObject()["prefix"].toString();
             protectedAddress |= address.isInSubnet(QHostAddress::parseSubnet(prefix));
         }
@@ -186,7 +192,7 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
             emit changed();
             return false;
         }
-        policy = protectionConfiguration(currentModel["targets"].toArray(), currentModel["name_targets"].toArray());
+        policy = protectionConfiguration(lastModel["targets"].toArray(), lastModel["name_targets"].toArray());
         policy["schema_version"] = networkVersion;
         policy["generation"] = generation;
         if (confirmedPolicy.contains("protected_names")) {
@@ -230,7 +236,7 @@ bool NetworkPolicySession::setCampusName(const QString &text, bool campus)
             emit changed();
             return false;
         }
-        policy = protectionConfiguration(currentModel["targets"].toArray(), currentModel["name_targets"].toArray());
+        policy = protectionConfiguration(lastModel["targets"].toArray(), lastModel["name_targets"].toArray());
         policy["schema_version"] = networkVersion;
         policy["generation"] = generation;
     }
@@ -272,7 +278,8 @@ void NetworkPolicySession::buildModel()
     workerBusy = true;
     const auto request = workerSerial = serial;
     const auto read = reader;
-    watcher.setFuture(QtConcurrent::run([read, request, id=generation, version=networkVersion, original=network, campus=resources, filter=originalViewFilter] {
+    watcher.setFuture(QtConcurrent::run([read, request, id=generation, version=networkVersion, original=network,
+                                        campus=resources, filter=originalViewFilter, previous=lastModel] {
         try {
             const auto snapshot = read();
             using NativeStatus = PlatformOperationResult::Status;
@@ -285,6 +292,10 @@ void NetworkPolicySession::buildModel()
             if (!view) return ModelResult{request, Status::Failed, {}};
             const auto projected = originalProxyNetworkView(view->first);
             if (!projected) return ModelResult{request, Status::Failed, {}};
+            // Reuse only after a fresh, successful read and projection of the active ownership view.
+            if (!previous.isEmpty() && previous["schema_version"] == version && previous["network"] == *projected
+                && previous["resources"] == campus && previous["dns"] == view->second)
+                return ModelResult{request, Status::Success, previous};
             const auto targets = originalNetworkProtection(*projected);
             const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;
             const auto names = originalDnsProtection(view->second);
@@ -299,7 +310,7 @@ void NetworkPolicySession::buildModel()
 
 void NetworkPolicySession::publish()
 {
-    if (generation.isEmpty()) { emit changed(); return; }
+    if (generation.isEmpty() || localProxy) { emit changed(); return; }
     if (refreshQueued && !networkBusy && !workerBusy && !networkPending && !resourcesPending && (!isPolicyUpdating() || waitingForPolicyModel)) {
         refreshQueued = false;
         refresh();
@@ -314,7 +325,6 @@ void NetworkPolicySession::publish()
             break;
         }
     }
-    if (currentStatus != Status::Success) currentModel = {};
     if (waitingForPolicyModel && !networkBusy && !workerBusy && !networkPending && !resourcesPending
         && currentStatus != Status::Pending) {
         const auto value = pendingPolicy;

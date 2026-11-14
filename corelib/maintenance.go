@@ -11,12 +11,9 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
-	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
-	"github.com/wtalioy/JustConnect/corelib/stack"
 )
 
 const TrafficProbeTimeout = 10 * time.Second
@@ -39,35 +36,29 @@ func ValidateKeepAlive(mode, target string) error {
 	return errors.New("invalid_keepalive_options")
 }
 
-func authorizedDNS(address string, ips []client.IPResource) net.IP {
+func authorizedDNS(address string, dialer *dial.Dialer) net.IP {
 	ip := net.ParseIP(address)
 	if ip == nil || ip.To4() == nil {
 		return nil
 	}
-	if _, ok := ipresource.New(ips).Match(ip, "udp", 53); !ok {
+	if !dialer.HasIPGrant(ip, "udp", 53) {
 		return nil
 	}
 	return ip
 }
 
 // trafficProbe uses only campus resources and never falls back to the original network.
-func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network stack.Stack, resolver *resolve.Resolver, ips []client.IPResource, tlsPolicy *tls.Config, protection func() *policy.ProtectionPolicy) string {
-	if ips == nil {
-		ips = []client.IPResource{}
-	}
+func trafficProbe(ctx context.Context, mode, target string, dnsIP net.IP, campus *dial.Dialer, resolver *resolve.Resolver, tlsPolicy *tls.Config) string {
 	if mode == "off" {
 		return "disabled"
 	}
 	ctx, cancel := context.WithTimeout(ctx, TrafficProbeTimeout)
 	defer cancel()
-	dnsIP := authorizedDNS(remoteDNS, ips)
 	if mode != "target" {
 		if dnsIP == nil {
 			return "unavailable"
 		}
-		dialer := dial.NewDialer(network, resolver, ips, true)
-		dialer.ProtectionPolicy = protection
-		conn, err := dialer.DialIPPort(ctx, "udp", net.JoinHostPort(dnsIP.String(), "53"))
+		conn, err := campus.DialIPPort(ctx, "udp", net.JoinHostPort(dnsIP.String(), "53"))
 		if err != nil {
 			if errors.Is(err, policy.ErrProtectedTarget) {
 				return "unavailable"
@@ -104,9 +95,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 			if ip.To4() == nil {
 				return nil, dial.ErrACLDenied
 			}
-			dialer := dial.NewDialer(network, resolver, ips, true)
-			dialer.ProtectionPolicy = protection
-			return dialer.DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
+			return campus.DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
 		},
 	}
 	if tlsPolicy != nil {

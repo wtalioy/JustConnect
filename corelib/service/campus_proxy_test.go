@@ -14,13 +14,17 @@ func TestSOCKSResolutionUsesItsIngressBoundary(t *testing.T) {
 	r := resolve.NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"owned.campus.test": {net.ParseIP("203.0.113.7")}}, false)
 	defer r.Close()
 	d := dial.NewDialer(nil, r, nil, false)
-	ordinary := sessionResolver{t.Context(), d}
+	ordinary := Listeners{ctx: t.Context(), dialer: d}
 	if _, ip, err := ordinary.Resolve(t.Context(), "localhost"); err != nil || !ip.IsLoopback() {
 		t.Fatal("ordinary SOCKS lost native name resolution", ip, err)
 	}
-	strict := sessionResolver{t.Context(), d.CampusOnly()}
+	var diagnostic string
+	strict := Listeners{ctx: t.Context(), dialer: d.CampusOnly(), diagnostic: func(code string) { diagnostic = code }}
 	if _, _, err := strict.Resolve(t.Context(), "localhost"); !errors.Is(err, resolve.ErrCampusDNSUnavailable) {
 		t.Fatal("strict SOCKS used ordinary native DNS", err)
+	}
+	if diagnostic != "socks_dns_failed" {
+		t.Fatal("failed resolution did not emit a fixed diagnostic code", diagnostic)
 	}
 	ctx, ip, err := strict.Resolve(t.Context(), "owned.campus.test")
 	if err != nil || !ip.Equal(net.ParseIP("203.0.113.7")) {
@@ -33,7 +37,7 @@ func TestSOCKSResolutionUsesItsIngressBoundary(t *testing.T) {
 	domains := client.DomainResources{"owned.campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}
 	granted := resolve.NewResolver(nil, "", "", 60, domains, map[string][]net.IP{"owned.campus.test": {net.ParseIP("203.0.113.7")}}, false)
 	defer granted.Close()
-	resolver := sessionResolver{t.Context(), dial.NewDialer(nil, granted, nil, false).CampusOnly()}
+	resolver := Listeners{ctx: t.Context(), dialer: dial.NewDialer(nil, granted, nil, false).CampusOnly()}
 	ctx, _, err = resolver.Resolve(t.Context(), "owned.campus.test")
 	if resources, ok := ctx.Value(resolve.ContextKeyDomainResource).([]client.DomainResource); err != nil || !ok || len(resources) != 1 || resources[0].PortMin != 443 {
 		t.Fatal("SOCKS resolution discarded the campus domain grant", err)

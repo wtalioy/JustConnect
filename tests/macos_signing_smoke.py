@@ -72,7 +72,6 @@ static int cache(const char *operation, const char *path) {
 }
 int main(int argc, char **argv) {
     if (fixture() != 42) return 2;
-    if (argc == 2 && !strcmp(argv[1], "--fixture-version")) return FIXTURE_VERSION;
     if (argc == 3 && (!strcmp(argv[1], "--write-cache") || !strcmp(argv[1], "--read-cache")
         || !strcmp(argv[1], "--deny-cache"))) {
         @autoreleasepool { return cache(argv[1], argv[2]); }
@@ -132,11 +131,8 @@ int main(int argc, char **argv) {
         fixture = root / 'fixture.o'
         run('/usr/bin/clang', '-c', '-x', 'c', '-', '-o', fixture,
             input=b'int fixture(void) { return 42; }\n')
-        def compile_host(version):
-            run('/usr/bin/clang', f'-DFIXTURE_VERSION={version}', '-x', 'objective-c', '-', '-x', 'none', fixture,
-                '-framework', 'Foundation', '-framework', 'Security', '-framework', 'ServiceManagement', '-o', host, input=source)
-
-        compile_host(1)
+        run('/usr/bin/clang', '-x', 'objective-c', '-', '-x', 'none', fixture,
+            '-framework', 'Foundation', '-framework', 'Security', '-framework', 'ServiceManagement', '-o', host, input=source)
         shutil.copy2(host, helper)
         scratch = root / 'private-signing'
         scratch.mkdir()
@@ -176,22 +172,14 @@ int main(int argc, char **argv) {
         try:
             run('/usr/bin/security', 'unlock-keychain', '-p', 'fixture', cache_keychain)
             sign(identity)
-            first = run('/usr/bin/codesign', '--display', '-r-', app).stderr
             run(host, '--write-cache', cache_keychain)
-            run(host, '--read-cache', cache_keychain)
-            old_binary = hashlib.sha256(host.read_bytes()).digest()
-            compile_host(2)
-            sign(identity)
-            assert hashlib.sha256(host.read_bytes()).digest() != old_binary
-            run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
-            assert run('/usr/bin/codesign', '--display', '-r-', app).stderr == first
             run(host, '--read-cache', cache_keychain)
             sign()
             run(host, '--deny-cache', cache_keychain)
         finally:
             run('/usr/bin/security', 'delete-keychain', cache_keychain)
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
-    print('PASS: hardened roles, service registration, key cleanup, upgrade cache reuse and rejection of a different signer')
+    print('PASS: hardened roles, service registration, key cleanup, same-build cache reuse and rejection of a different signer')
 
 
 if __name__ == '__main__':

@@ -45,7 +45,7 @@ func (e *Engine) UpdateCoexistence(handle uint64, input []byte) (uint64, Status)
 		s.mu.Unlock()
 		return 0, StaleRequest
 	}
-	if !s.connectOperation || s.protocol == nil {
+	if !s.captureOperation || s.protocol == nil {
 		s.mu.Unlock()
 		return 0, Unsupported
 	}
@@ -102,7 +102,7 @@ func (e *Engine) CopyCoexistence(handle, generation uint64, dst []byte) (int, St
 	if !s.running || s.stopping || s.generation != generation {
 		return 0, StaleRequest
 	}
-	if !s.connectOperation || s.protocol == nil {
+	if !s.captureOperation || s.protocol == nil {
 		return 0, Unsupported
 	}
 	if s.coexistence == nil {

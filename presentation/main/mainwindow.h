@@ -6,7 +6,6 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QPointer>
-#include <QTimer>
 
 #include "application/connectionsession.h"
 #include "application/savedconnectionservice.h"
@@ -24,6 +23,7 @@ class QActionGroup;
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
+class ConnectionDetailsDialog;
 class NetworkPolicyWindow;
 class UpdateChecker;
 
@@ -66,13 +66,12 @@ private:
     void showApplicationPreferences();
     void showConnectionSettings();
 
-    void flushLog();
-    void clearLog();
     void resetConnectionLog();
 
     void resetConnectionUi();
 
     void updateConnectionState(ConnectionState state);
+    void updateMaintenanceDetails();
 
     QString connectionName() const;
     void updateConnectionSummary();
@@ -84,13 +83,13 @@ private:
     );
 
     void updateVersionInfo();
-    void updateDiagnostics();
 
     void setupTrayIcon();
 
     void setupConnectionMenu();
 
     void refreshConnectionMenu();
+    void updateClashExport();
 
     bool switchConnection(const QString &connectionId);
 
@@ -100,8 +99,6 @@ private:
 
     void deleteCurrentConnection();
 
-    QTimer logFlushTimer;
-    QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
     QMenu *trayConnectionMenu;
@@ -112,6 +109,7 @@ private:
     QActionGroup *switchGroup;
     QActionGroup *traySwitchGroup;
     QAction *addConnectionAction;
+    QAction *copyClashScriptAction;
     QAction *renameConnectionAction;
     QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;
@@ -119,12 +117,12 @@ private:
     AuthDialogCoordinator *authenticationDialogs = nullptr;
     ConnectionUiController *connectionUiController=nullptr;
     MainWindowCoordinator *coordinator;
-    ApplicationLogger *applicationLogger;
-    ApplicationLogFile *applicationLogFile;
+    ConnectionDetailsDialog *details;
     UpdateChecker *updateChecker;
     QSettings *settings;
     SavedConnectionService *savedConnections;
     QString currentConnectionId;
+    QString statusTitle, statusDetail;
 
     QPointer<SettingWindow> settingWindow;
     QPointer<QDialog> preferencesWindow;

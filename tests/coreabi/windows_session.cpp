@@ -118,6 +118,9 @@ int main(int argc,char **argv) try
         auto lookup=QtConcurrent::run([name]{return systemIPv4(name);});
         until("ordinary protected-name lookup",[&]{return lookup.isFinished();});
         const auto result=lookup.result();
+        if (result["status"].toInt()!=0 || !result["addresses"].toArray().contains(expected))
+            std::cerr << "DNS fixture: " << name.toStdString() << " expected " << expected.toStdString()
+                      << ", result " << QJsonDocument(result).toJson(QJsonDocument::Compact).constData() << '\n';
         check(result["status"].toInt()==0 && result["addresses"].toArray().contains(expected),"original/campus name choice follows its confirmed source");
     };
     const auto queryOriginalDefault=[&]{

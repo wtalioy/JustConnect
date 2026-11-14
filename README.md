@@ -48,11 +48,26 @@ Always remember your saved sign-in between launches. As long as it’s still val
 
 Windows installers are unsigned, so Windows may show a warning.
 
-macOS builds are not notarized. If macOS blocks JustConnect on first launch because it can’t verify the developer or check the app for malware, confirm that you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases). Then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+macOS builds are not notarized. If macOS blocks the first launch, confirm you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases), then go to **System Settings → Privacy & Security → Open Anyway**.
 
 ### Connect
 
-Choose the built-in Fudan University profile, or add one for your own aTrust gateway. Click **Connect** and follow the sign-in and network permission prompts.
+Use the built-in Fudan University profile or add one for your aTrust gateway. Both modes are available under **Edit connection → Routing mode**.
+
+#### Automatic routing
+
+The default. Click **Connect** and follow the sign-in and network permission prompts. JustConnect routes campus traffic through the gateway and leaves the rest on your existing network.
+
+#### Local proxy only
+
+Select **Local proxy only**, then click **Connect** and sign in. Point your proxy app at `127.0.0.1` and the Local SOCKS5 port in your connection settings. Your proxy app handles routing; JustConnect leaves system routes, DNS, and proxy settings alone and needs no privileged network helper.
+
+**Using Clash Verge Rev?** Once connected, choose **Copy Clash Extend Script** from JustConnect’s connection menu. In [Extend Script](https://www.clashverge.dev/guide/script.html) for your active profile:
+
+- **New script:** Paste the whole script.
+- **Existing script:** Paste the `addJustConnect` function and call `addJustConnect(config);` before your `main` returns.
+
+Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and copy the script again.
 
 ## License and credits
 

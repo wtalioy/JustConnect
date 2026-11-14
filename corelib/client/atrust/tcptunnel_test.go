@@ -36,6 +36,27 @@ func BenchmarkTCPTunnelWrite(b *testing.B) {
 	}
 }
 
+func BenchmarkTCPTunnelRead(b *testing.B) {
+	for _, size := range []int{128, 1200, 32768} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			frame := make([]byte, size+4)
+			frame[0] = 1
+			binary.BigEndian.PutUint16(frame[2:4], uint16(size))
+			source := bytes.NewReader(frame)
+			conn := &tcpTunnelConn{reader: bufio.NewReader(source)}
+			payload := make([]byte, size)
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			for b.Loop() {
+				if n, err := conn.Read(payload); n != size || err != nil {
+					b.Fatal(n, err)
+				}
+				source.Reset(frame)
+			}
+		})
+	}
+}
+
 func TestTCPTunnelReadDecodesDownstreamFramesAcrossBufferSizes(t *testing.T) {
 	for _, bufferSize := range []int{2, 5, 16} {
 		t.Run(fmt.Sprintf("buffer_%d", bufferSize), func(t *testing.T) {

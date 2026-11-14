@@ -25,14 +25,15 @@ import (
 )
 
 type tcpTunnelConn struct {
-	tlsConn  net.Conn
-	reader   *bufio.Reader
-	readMu   sync.Mutex
-	writeMu  sync.Mutex
-	readBuf  []byte
-	writeBuf []byte
-	reuse    bool
-	raw      bool
+	tlsConn    net.Conn
+	reader     *bufio.Reader
+	readMu     sync.Mutex
+	writeMu    sync.Mutex
+	readHeader [4]byte
+	readBuf    []byte
+	writeBuf   []byte
+	reuse      bool
+	raw        bool
 
 	owner          *Client
 	closeOnce      sync.Once
@@ -274,8 +275,7 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 		return 0, nil
 	}
 	if c.raw {
-		n, err := c.reader.Read(b)
-		return n, err
+		return c.reader.Read(b)
 	}
 	if len(c.readBuf) > 0 {
 		n := copy(b, c.readBuf)
@@ -284,9 +284,8 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 	}
 
 	for {
-		var header [4]byte
-		if _, err := io.ReadFull(c.reader, header[:]); err != nil {
-
+		header := c.readHeader[:]
+		if _, err := io.ReadFull(c.reader, header); err != nil {
 			return 0, err
 		}
 		switch {
@@ -299,7 +298,6 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 				if _, err := io.ReadFull(c.reader, b[:length]); err != nil {
 					return 0, err
 				}
-
 				return length, nil
 			}
 
@@ -312,7 +310,6 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 			c.readBuf = payload[n:]
 			return n, nil
 		case header[0] == 0x01 && header[1] == 0x01:
-
 			return 0, io.EOF
 		default:
 			return 0, fmt.Errorf("unexpected TCP tunnel data frame header: % x", header)
@@ -486,11 +483,11 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	}
 	c.BestNodesRWMutex.RUnlock()
 	if nodeAddr == "" {
-		return nil, fmt.Errorf("no available aTrust node for group %q", nodeGroupID)
+		return nil, fmt.Errorf("no available aTrust node for group %q: %w", nodeGroupID, client.ErrTCPNodeConnect)
 	}
-	conn, err := client.DialTLSContext(ctx, c.underlayDialer.DialContext, "tcp", nodeAddr, tunnelTLSConfig(c.nodeTLSPolicy))
+	conn, err := c.dialTunnelTLS(ctx, "tcp", nodeAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to aTrust server: %w", err)
+		return nil, fmt.Errorf("%w: %w", client.ErrTCPNodeConnect, err)
 	}
 	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopCancel()

@@ -41,8 +41,16 @@ NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *polic
 #endif
     proxy = new SystemProxySession(std::move(backend),parent);
     auto *network = new CoexistenceNetworkAccess(native, core, policy, proxy);
-    auto *changes = new ProxyChanges(network);
-    QObject::connect(changes, &ProxyChanges::changed, network, &CoexistenceNetworkAccess::systemProxyChanged);
+    QObject::connect(network, &CoexistenceNetworkAccess::proxyObservationRequired, network,
+        [network, changes = static_cast<ProxyChanges *>(nullptr)](bool enabled) mutable {
+            if (enabled && !changes) {
+                changes = new ProxyChanges(network);
+                QObject::connect(changes, &ProxyChanges::changed, network, &CoexistenceNetworkAccess::systemProxyChanged);
+            } else if (!enabled && changes) {
+                delete changes;
+                changes = nullptr;
+            }
+        });
     return network;
 }
 }
@@ -60,7 +68,8 @@ MainWindowCoordinator::MainWindowCoordinator(
           this
       )),
       coreEngine(new EmbeddedCoreEngine()),
-      networkPolicySession(new NetworkPolicySession(coreEngine, observeSystemDnsSnapshot(), this)),
+      networkPolicySession(new NetworkPolicySession(coreEngine, observeSystemDnsSnapshot(), this,
+          [this] { return !connectionSession->usesLocalProxy(); })),
       systemProxySession(nullptr),
       connectionSession(new ConnectionSession(coreEngine, this,
           createNetworkAccess(coreEngine, networkPolicySession, systemProxySession, this, networkFactory))),

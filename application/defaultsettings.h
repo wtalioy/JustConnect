@@ -10,6 +10,12 @@ namespace DefaultSettings
 inline constexpr const char *RememberAuthentication="JustConnect/RememberAuthentication";
 inline constexpr bool RememberAuthenticationByDefault=true;
 inline constexpr const char *DomainDnsRules="JustConnect/DomainDNSRules";
+inline constexpr const char *AdditionalClashTargets="JustConnect/AdditionalClashTargets";
+inline constexpr const char *RoutingModeKey="JustConnect/RoutingMode";
+inline constexpr const char *LocalProxyMode="local_proxy";
+inline constexpr const char *AutomaticMode="automatic";
+inline constexpr const char *SocksPortKey="JustConnect/SOCKS5Port";
+inline constexpr int DefaultSocksPort=11080;
 inline constexpr const char *SignInMethodName="JustConnect/AuthName";
 const QVariantMap &builtInConnection();
 bool matchesBuiltInServer(const QString &server);

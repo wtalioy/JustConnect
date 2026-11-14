@@ -2,6 +2,13 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN" sourcelanguage="en">
 <context>
+    <name>ApplicationPreferencesDialog</name>
+    <message>
+        <source>App settings</source>
+        <translation>应用设置</translation>
+    </message>
+</context>
+<context>
     <name>ApplicationPreferencesWidget</name>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="57"/>
@@ -309,6 +316,18 @@ This connection remains usable. You may need to sign in again later.</source>
         <source>No pending browser restoration</source>
         <translation>无需恢复浏览器代理</translation>
     </message>
+    <message>
+        <source>Routing mode</source>
+        <translation>分流模式</translation>
+    </message>
+    <message>
+        <source>Local proxy only</source>
+        <translation>仅本地代理</translation>
+    </message>
+    <message>
+        <source>SOCKS5 %1</source>
+        <translation>SOCKS5 %1</translation>
+    </message>
 </context>
 <context>
     <name>ConnectionUiController</name>
@@ -532,6 +551,10 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <source>This connection has no saved sign-in cache.</source>
         <translation>此连接没有已保存的登录缓存。</translation>
     </message>
+    <message>
+        <source>The local SOCKS5 port could not be opened. Close the app using it or change the port in connection settings.</source>
+        <translation>无法打开本地 SOCKS5 端口。请关闭占用端口的应用，或在连接设置中更换端口。</translation>
+    </message>
 </context>
 <context>
     <name>ControllerSelectionCoordinator</name>
@@ -692,6 +715,94 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     </message>
 </context>
 <context>
+    <name>ClashExtension</name>
+    <message>
+        <source>Campus</source>
+        <translation>校园网</translation>
+    </message>
+    <message>
+        <source>// New script: paste everything.
+// Already have a script? Paste only the addJustConnect function below,
+// then add addJustConnect(config); before your main function returns config.
+// Keep only one main function.</source>
+        <translation>// 新建脚本：粘贴全部内容。
+// 已有脚本：只粘贴下方的 addJustConnect 函数，
+// 然后在原 main 函数返回配置前加入 addJustConnect(config);。
+// 只保留一个 main 函数。</translation>
+    </message>
+</context>
+<context>
+    <name>ConnectionDetailsDialog</name>
+    <message>
+        <source>Log file</source>
+        <translation>日志文件</translation>
+    </message>
+    <message>
+        <source>The log file could not be created.</source>
+        <translation>日志文件创建失败。</translation>
+    </message>
+    <message>
+        <source>Copy log</source>
+        <translation>复制日志</translation>
+    </message>
+    <message>
+        <source>Clear displayed log</source>
+        <translation>清空显示的日志</translation>
+    </message>
+    <message>
+        <source>Overview</source>
+        <translation>概览</translation>
+    </message>
+    <message>
+        <source>Connection diagnostics</source>
+        <translation>连接诊断</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <source>Network protection</source>
+        <translation>网络保护</translation>
+    </message>
+    <message>
+        <source>Copy diagnostics</source>
+        <translation>复制诊断</translation>
+    </message>
+    <message>
+        <source>Logs</source>
+        <translation>日志</translation>
+    </message>
+    <message>
+        <source>Activity log</source>
+        <translation>运行日志</translation>
+    </message>
+    <message>
+        <source>Open log file</source>
+        <translation>打开日志文件</translation>
+    </message>
+    <message>
+        <source>Connection logs appear here</source>
+        <translation>连接日志将在这里显示</translation>
+    </message>
+    <message>
+        <source>Connection details</source>
+        <translation>连接详情</translation>
+    </message>
+    <message>
+        <source>Welcome to %1
+System: %2
+Connection: %3
+Configuration: %4
+</source>
+        <translation>欢迎使用 %1
+系统：%2
+连接：%3
+配置文件：%4
+</translation>
+    </message>
+</context>
+<context>
     <name>MainWindow</name>
     <message>
         <source>Fudan</source>
@@ -710,16 +821,6 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
         <source>Wait for the save to finish.</source>
         <translation>请等待保存完成。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
-        <source>Log file</source>
-        <translation>日志文件</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
-        <source>The log file could not be created.</source>
-        <translation>日志文件创建失败。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="195"/>
@@ -765,18 +866,6 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <location filename="../../presentation/main/mainwindow.cpp" line="422"/>
         <source>Not connected</source>
         <translation>尚未连接</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="477"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="494"/>
-        <source>Copy log</source>
-        <translation>复制日志</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="510"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="527"/>
-        <source>Clear displayed log</source>
-        <translation>清空显示的日志</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="573"/>
@@ -1069,36 +1158,9 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>未能保存升级后的连接设置，已保留原设置以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="232"/>
-        <source>Overview</source>
-        <translation>概览</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="238"/>
-        <source>aTrust · Not connected</source>
-        <translation>aTrust · 等待连接</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="248"/>
-        <source>Connection diagnostics</source>
-        <translation>连接诊断</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="301"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="304"/>
-        <source>Refresh</source>
-        <translation>刷新</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="360"/>
         <source>Network protection</source>
         <translation>网络保护</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="323"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="326"/>
-        <source>Copy diagnostics</source>
-        <translation>复制诊断</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="65"/>
@@ -1109,26 +1171,11 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>应用设置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="385"/>
-        <source>Logs</source>
-        <translation>日志</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="422"/>
-        <source>Activity log</source>
-        <translation>运行日志</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="444"/>
         <location filename="../../presentation/main/mainwindow.ui" line="461"/>
         <location filename="../../presentation/main/mainwindow.ui" line="756"/>
         <source>Open log file</source>
         <translation>打开日志文件</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="563"/>
-        <source>Connection logs appear here</source>
-        <translation>连接日志将在这里显示</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="678"/>
@@ -1189,11 +1236,6 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <location filename="../../presentation/main/mainwindow.ui" line="194"/>
         <source>Details</source>
         <translation>详情</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="222"/>
-        <source>Connection details</source>
-        <translation>连接详情</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="331"/>
@@ -1390,16 +1432,12 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>请等待保存完成，再切换连接。</translation>
     </message>
     <message>
-        <source>Welcome to %1
-System: %2
-Connection: %3
-Configuration: %4
-</source>
-        <translation>欢迎使用 %1
-系统：%2
-连接：%3
-配置文件：%4
-</translation>
+        <source>Copy Clash Extend Script</source>
+        <translation>复制 Clash 扩展脚本</translation>
+    </message>
+    <message>
+        <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
+        <translation>本地代理已就绪。Clash 负责分流选定的校园流量。</translation>
     </message>
 </context>
 <context>
@@ -1923,9 +1961,9 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>服务器 CA</translation>
     </message>
     <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="107"/>
-        <source>One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.</source>
-        <translation>每行一个域名，可在后方填写 IPv4 DNS；留空则使用网关 DNS。</translation>
+        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="113"/>
+        <source>Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.</source>
+        <translation>指定 JustConnect 如何解析这些域名。每行一个域名，可在后面填写 DNS 服务器的 IPv4 地址；不填服务器时使用网关 DNS。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="101"/>
@@ -1939,17 +1977,49 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="106"/>
-        <source>Domain DNS</source>
+        <source>Per-domain DNS</source>
         <translation>域名专用 DNS</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="109"/>
-        <source>Use the local application proxy for domains not published by the gateway.</source>
-        <translation>网关未发布的域名请通过应用本地代理访问。</translation>
+        <source>In Automatic routing, use the local proxy for domains the gateway does not publish.</source>
+        <translation>在自动分流模式下，网关未发布的域名请通过本地代理访问。</translation>
     </message>
     <message>
         <source>Address</source>
         <translation>地址</translation>
+    </message>
+    <message>
+        <source>Routing mode</source>
+        <translation>分流模式</translation>
+    </message>
+    <message>
+        <source>Automatic routing</source>
+        <translation>自动分流</translation>
+    </message>
+    <message>
+        <source>Local proxy only</source>
+        <translation>仅本地代理</translation>
+    </message>
+    <message>
+        <source>Local SOCKS5 port</source>
+        <translation>本地 SOCKS5 端口</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Once connected, choose Copy Clash Extend Script from the connection menu.</source>
+        <translation>连接后，在连接菜单中选择「复制 Clash 扩展脚本」。</translation>
+    </message>
+    <message>
+        <source>Additional Clash destinations</source>
+        <translation>补充 Clash 目标</translation>
+    </message>
+    <message>
+        <source>Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22</source>
+        <translation>可选。每行一个 IPv4 地址和 TCP 端口，例如 192.0.2.10:22</translation>
     </message>
 </context>
 <context>
@@ -2316,6 +2386,10 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>the current connection</source>
         <translation>当前连接</translation>
+    </message>
+    <message>
+        <source>Choose a local SOCKS5 port to use Local proxy only.</source>
+        <translation>使用「仅本地代理」前，请设置本地 SOCKS5 端口。</translation>
     </message>
 </context>
 <context>

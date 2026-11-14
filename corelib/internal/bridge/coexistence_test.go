@@ -15,7 +15,7 @@ func TestCoexistenceRejectsUntrustedStateAndStaleGeneration(t *testing.T) {
 		t.Fatal(status)
 	}
 	s := e.lookup(h)
-	s.running, s.connectOperation, s.generation, s.ctx = true, true, 7, context.Background()
+	s.running, s.captureOperation, s.generation, s.ctx = true, true, 7, context.Background()
 	s.protocol = corelib.NewSession(corelib.Options{})
 	input := func(generation string, endpoints any) []byte {
 		data, _ := json.Marshal(map[string]any{"schema_version": ABIVersion, "generation": generation, "system_proxy_endpoints": endpoints, "system_proxy_managed": false})

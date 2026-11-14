@@ -64,6 +64,10 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 		return nil
 	}
 	ingress.mu.Lock()
+	if len(ingress.flows) == 0 && len(ingress.publishingDNS) == 0 {
+		ingress.mu.Unlock()
+		return nil
+	}
 	addresses := make(map[[4]byte]struct{})
 	for flow := range ingress.flows {
 		address, ok := netip.AddrFromSlice(flow.id.LocalAddress.AsSlice())

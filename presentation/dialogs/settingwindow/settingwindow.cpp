@@ -516,6 +516,12 @@ void SettingWindow::saveSettings() {
     if (connectionOptions.endpoint.authType.isEmpty()) {
         QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
     }
+    if (connectionOptions.routingMode==RoutingMode::LocalProxy) {
+        if (connectionOptions.proxy.socksBind.isEmpty()) {
+            QMessageBox::warning(this,tr("Invalid connection"),tr("Choose a local SOCKS5 port to use Local proxy only."));
+            return;
+        }
+    }
     const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;

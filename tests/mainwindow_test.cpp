@@ -29,6 +29,7 @@
 #include <QElapsedTimer>
 #include <QKeySequence>
 #include <QComboBox>
+#include <QClipboard>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QPlainTextEdit>
@@ -109,9 +110,12 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         "home, tray and native menu bar use separate profile menus");
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("addConnectionAction");
+    auto *copyScript=window.findChild<QAction *>("copyClashScriptAction");
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
+    check(copyScript && !copyScript->isEnabled() && menu->actions().indexOf(copyScript)==menu->actions().indexOf(editAction)+1,
+        "the automatic profile shows a disabled script action next to its editor");
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");
@@ -138,6 +142,8 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     defaultProfile.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");defaultProfile.sync();
     QSettings namedProfile(storage.connectionPath(profile),QSettings::IniFormat);
     namedProfile.setValue("JustConnect/ConnectionKind","Custom");
+    namedProfile.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
+    namedProfile.setValue(DefaultSettings::SocksPortKey,32081);
     namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
     const auto homeActions = menu->actions();
@@ -151,6 +157,7 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         choice->trigger();
         check(checked(menu)==name && checked(trayMenu)==name && checked(menuBarProfiles)==name,
             "home, tray and native profile selections stay synchronized");
+        check(!copyScript->isEnabled(),"script export stays disabled on every disconnected connection");
         check(menuButton->text()==name && menuButton->toolTip().contains(
             name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),
             "home shows the selected connection name and its tooltip shows the server address");
@@ -356,7 +363,7 @@ static void languagePreferences(MainWindow &window) {
             for (int y=0;y<glyph.height();++y)
                 check(glyph.pixelColor(x,y).alpha()==0,"text buttons reserve a consistent gap after the vector icon");
     }
-    check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("MainWindow","Copy diagnostics")
+    check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("ConnectionDetailsDialog","Copy diagnostics")
         && copy->accessibleName()==copy->toolTip() && !copy->icon().pixmap(18,18).isNull(),
         "icon actions retain translated hover text, accessibility and a rendered glyph");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
@@ -679,9 +686,17 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         "the live log discards cleared entries and keeps the latest 1000 lines across batches");
     details->reject();QCoreApplication::processEvents();
     check(window.isVisible() && !details->isVisible() && session->state()==state,"closing details preserves the accessible home and connection");
+    emit logger.entryAdded("While closed\nSecond hidden line");
+    QCoreApplication::processEvents();
+    check(log->toPlainText().endsWith("\n1002"),"hidden log updates do not touch the text document");
     for (int i=0;i<2;++i) {
         window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
-        check(details->isVisible() && session->state()==state,"reopening details preserves the session");
+        check(details->isVisible() && detailTabs->currentIndex()==0
+            && session->state()==state,"reopening details resets its tab and preserves its log and session");
+        detailTabs->setCurrentIndex(1);
+        check(log->blockCount()==1000 && log->toPlainText().startsWith("5\n")
+            && log->toPlainText().endsWith("While closed\nSecond hidden line"),
+            "opening the log displays the newest lines in order within the document limit");
         details->reject();QCoreApplication::processEvents();
     }
     ScrollPaints editorPaints("loginTab");
@@ -926,8 +941,13 @@ int main(int argc,char **argv) {
             auto *core=connection->findChild<CoreEngine *>();
             check(core,"session owns its core event source");
             const auto observedAt=QDateTime::currentDateTimeUtc();
+            int progressUpdates=0;
+            const auto progress=QObject::connect(connection,&ConnectionSession::progressChanged,
+                &window,[&]{++progressUpdates;});
             emit core->observation("renewal","succeeded",observedAt);
             emit core->observation("traffic","unavailable",observedAt);
+            QObject::disconnect(progress);
+            check(progressUpdates==0,"maintenance observations do not redraw connection progress");
             const auto detail=window.findChild<QLabel *>("statusDetailLabel")->text();
             check(detail.contains("Last Session renewal: Succeeded") && detail.contains("Last Traffic keepalive (campus DNS): Unavailable")
                 && detail.contains("authorized") && detail.contains(observedAt.toLocalTime().toString(Qt::ISODate))

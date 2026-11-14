@@ -51,4 +51,5 @@ const (
 	CredentialsRequired Status = -15
 	SessionInvalid      Status = -16
 	PermissionDenied    Status = -17
+	LocalProxyListen    Status = -18
 )

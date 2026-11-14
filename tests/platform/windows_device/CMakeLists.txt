@@ -36,6 +36,15 @@ foreach(CASE IN ITEMS process_identity registry_journal packet_frame nrpt instal
     target_link_libraries(windows_${CASE}_test PRIVATE windows_helper_support windows_fixture_support)
 endforeach()
 
+# One MSBuild invocation per stage avoids reevaluating shared project dependencies.
+add_custom_target(windows_initial_checks)
+add_dependencies(windows_initial_checks JustConnectDnsReader windows_dnsreader_test windows_session_test
+    windows_installation_test windows_system_dns_test windows_recovery_test)
+add_custom_target(windows_device_checks)
+add_dependencies(windows_device_checks windows_device_broker windows_device_concurrency_test
+    windows_device_removal_test windows_device_reuse_test windows_session_wakeup_test
+    windows_process_identity_test windows_registry_journal_test windows_packet_frame_test windows_nrpt_test)
+
 option(JC_WINDOWS_QT_CONTROL_TEST "Build the ordinary Qt ownership control client checks" OFF)
 if(JC_WINDOWS_QT_CONTROL_TEST)
     justconnect_windows_network_client(windows_control_client)

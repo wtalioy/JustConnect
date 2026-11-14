@@ -42,12 +42,9 @@ def stage_sdk(output, *, prepared=False):
     return contract, arch, metadata
 
 
-def build_native(arch, metadata):
-    native = pathlib.Path(metadata['native_build'])
-    subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
-        '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
-        '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
-    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
+def build_native(native, target):
+    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3',
+                    '--target', target], check=True, timeout=180)
     return native / 'Release'
 
 
@@ -80,7 +77,8 @@ def device():
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_WINTUN_DLL=' + str(dll) + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-    native = build_native(arch, metadata)
+    # The preceding helper checks configured this build with verified SDK inputs.
+    native = build_native(pathlib.Path(metadata['native_build']), 'windows_device_checks')
     subprocess.run([str(native / 'windows_device_concurrency_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_device_removal_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_device_reuse_test.exe'), str(dll)], env=env, check=True, timeout=30)
@@ -102,14 +100,13 @@ def device():
 
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_CPP_WINTUN_BROKER=' + env['JC_TEST_CPP_WINTUN_BROKER'] + '\n')
-    source = pathlib.Path('corelib/tests/windows/device/main.go').resolve()
-    tests = pathlib.Path('corelib/tests/windows/device/main_test.go').resolve()
-    if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
+    package = './tests/windows/device'
+    if subprocess.check_output(['gofmt', '-l', 'corelib/tests/windows/device'], env=env).strip():
         raise RuntimeError('Unformatted device probe')
-    subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
     probe, unit = output / 'windows-device-probe.exe', output / 'windows-device-unit.exe'
-    subprocess.run(['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), str(source)], env=env, check=True, timeout=120)
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-c', '-o', str(unit), str(source), str(tests)], env=env, check=True, timeout=120)
+    flags = ['-mod=readonly', '-tags=jc_wintun_probe']
+    subprocess.run(['go', '-C', 'corelib', 'build', *flags, '-o', str(probe), package], env=env, check=True, timeout=120)
+    subprocess.run(['go', '-C', 'corelib', 'test', *flags, '-vet=all', '-c', '-o', str(unit), package], env=env, check=True, timeout=120)
     log_path = output / 'windows-device.log'
     with log_path.open('w', encoding='utf-8') as log:
         try:
@@ -160,7 +157,11 @@ def main():
     if args.build_only:
         output = pathlib.Path('build/coreabi').resolve()
         _, arch, metadata = stage_sdk(output)
-        native = build_native(arch, metadata)
+        build = pathlib.Path(metadata['native_build'])
+        subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(build),
+            '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
+            '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
+        native = build_native(build, 'windows_initial_checks')
         verify_native_dns(native, output, arch)
         subprocess.run([str(native / 'windows_session_test.exe')], check=True, timeout=15)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)

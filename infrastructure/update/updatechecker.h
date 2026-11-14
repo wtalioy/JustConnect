@@ -15,7 +15,7 @@ struct VersionInfo
     enum class UpdateState { Checking, Disabled, Failed, Ready };
     QString uiVersion;
     QString uiLatest;
-    UpdateState updateState=UpdateState::Checking;
+    UpdateState updateState=UpdateState::Disabled;
 };
 
 class UpdateChecker : public QObject
@@ -26,10 +26,8 @@ public:
     explicit UpdateChecker(QObject *parent = nullptr);
 
     const VersionInfo &versionInfo() const;
-    void markDisabled();
     void check();
 
-    static QString normalizeVersionTag(const QString &tag);
     static std::optional<QString> parseReleaseVersion(const QByteArray &payload);
     static bool isNewerVersion(const QString &currentVersion, const QString &latestVersion);
 
@@ -41,7 +39,7 @@ private:
     void handleUiReply(QNetworkReply *reply);
 
     VersionInfo versions;
-    QNetworkAccessManager *uiNetworkManager;
+    QNetworkAccessManager *uiNetworkManager = nullptr;
 };
 
 #endif // UPDATECHECKER_H

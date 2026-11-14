@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"net/netip"
 
@@ -25,13 +26,10 @@ type originalDNSListener struct {
 func (p *Listeners) OriginalDNSListeners() map[string]string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	result := make(map[string]string)
-	if !p.closed.Load() {
-		for name, address := range p.originalDNS {
-			result[name] = address
-		}
+	if p.closed.Load() {
+		return nil
 	}
-	return result
+	return maps.Clone(p.originalDNS)
 }
 
 // PrepareOriginalDNS installs one immutable source set before device attachment.

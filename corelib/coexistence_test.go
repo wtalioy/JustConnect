@@ -30,6 +30,7 @@ func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 	defer server.Close()
 	fixture := testmihomo.StartConfiguredBinary(t, "127.0.0.1:9", true, map[string]any{"mixed-port": testmihomo.ProxyPort(t)})
 	var controller *mihomo.Client
+	var info mihomo.ProxyInfo
 	fixture.WaitReady(t, func() error {
 		processes, err := mihomo.Processes(t.Context())
 		if err != nil {
@@ -37,17 +38,25 @@ func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 		}
 		for _, process := range processes {
 			if process.PID == fixture.PID {
-				controller, err = mihomo.Inspect(t.Context(), process)
-				return err
+				candidate, err := mihomo.Inspect(t.Context(), process)
+				if err != nil {
+					return err
+				}
+				info, err = candidate.ObserveProxy(t.Context())
+				if err != nil || info.Proxy == nil || len(info.Endpoints) == 0 {
+					candidate.Close()
+					if err != nil {
+						return err
+					}
+					return errors.New("owned data listener is not ready")
+				}
+				controller = candidate
+				return nil
 			}
 		}
 		return mihomo.ErrUnavailable
 	})
 	defer controller.Close()
-	info, err := controller.ObserveProxy(t.Context())
-	if err != nil || info.Proxy == nil || len(info.Endpoints) == 0 {
-		t.Fatal("owned data listener was not verified", err)
-	}
 	// Only switch facts are injected; traffic always uses the real native-owned proxy.
 	tun := false
 	var observationError error

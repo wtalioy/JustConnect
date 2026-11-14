@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/wtalioy/JustConnect/corelib"
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/service"
 )
 
@@ -26,6 +27,7 @@ type resourceSnapshot struct {
 	IPs                           []ipResource                    `json:"ip_resources"`
 	PrivateIPRanges               [][2]netip.Addr                 `json:"private_ip_ranges,omitempty"`
 	Domains                       map[string][]resourcePermission `json:"domain_resources"`
+	DomainDNSPermissions          map[string][]resourcePermission `json:"domain_dns_permissions,omitempty"`
 	DNSRecords                    map[string][]string             `json:"dns_records"`
 	CampusDNS                     string                          `json:"campus_dns"`
 	CampusDNSEnabled              bool                            `json:"campus_dns_enabled"`
@@ -76,6 +78,16 @@ func encodeResources(snapshot resourcesEnvelope) ([]byte, Status) {
 	return data, OK
 }
 
+func copyPermissions(destination map[string][]resourcePermission, source client.DomainResources) {
+	for domain, rows := range source {
+		permissions := make([]resourcePermission, len(rows))
+		for i, row := range rows {
+			permissions[i] = resourcePermission{row.Protocol, row.PortMin, row.PortMax}
+		}
+		destination[domain] = permissions
+	}
+}
+
 func (s *Session) setResources(resources corelib.Resources) Status {
 	s.mu.Lock()
 	generation := s.generation
@@ -101,12 +113,10 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 	for i, row := range resources.IPs {
 		snapshot.IPs[i] = ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}}
 	}
-	for domain, rows := range resources.Domains {
-		permissions := make([]resourcePermission, len(rows))
-		for i, row := range rows {
-			permissions[i] = resourcePermission{row.Protocol, row.PortMin, row.PortMax}
-		}
-		snapshot.Domains[domain] = permissions
+	copyPermissions(snapshot.Domains, resources.Domains)
+	if len(resources.DomainDNSPermissions) != 0 {
+		snapshot.DomainDNSPermissions = make(map[string][]resourcePermission, len(resources.DomainDNSPermissions))
+		copyPermissions(snapshot.DomainDNSPermissions, resources.DomainDNSPermissions)
 	}
 	for domain, addresses := range resources.DNSRecords {
 		values := make([]string, len(addresses))
@@ -147,14 +157,14 @@ func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Stat
 	if !s.running || s.stopping || s.generation != generation {
 		return 0, StaleRequest
 	}
-	if !s.connectOperation {
+	if !s.resourceOperation {
 		return 0, Unsupported
 	}
 	if s.resourcesStatus != OK {
 		return 0, s.resourcesStatus
 	}
 	var activity resourceActivity
-	if s.protocol != nil {
+	if s.captureOperation && s.protocol != nil {
 		// A publication hold ends only after its DNS binding exists; read the hold side first.
 		activity = resourceActivity{
 			active:    s.protocol.ActiveTUNAddresses(),

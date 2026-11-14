@@ -27,7 +27,10 @@ JC_API int32_t jc_network_snapshot(uint32_t abi, uint8_t *output, uint32_t capac
 JC_API int32_t jc_controller_validate(uint32_t abi, const uint8_t *address, uint32_t length);
 /* Enumerate verified local controllers without returning control credentials. */
 JC_API int32_t jc_controller_snapshot(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
-/* Pure validation: no session, listeners, DNS or network operations. */
+/* Pure validation: no session, listeners, DNS or network operations.
+ * local_proxy=true requires one fixed IPv4 loopback SOCKS5 listener.
+ * Such sessions do not support TUN, capture snapshots, or coexistence updates.
+ */
 JC_API int32_t jc_config_validate(uint32_t abi, const uint8_t *config, uint32_t length);
 JC_API int32_t jc_session_create(uint32_t abi, uint64_t *handle);
 /* Start validates and copies config synchronously, then starts asynchronously.
@@ -55,7 +58,10 @@ JC_API int32_t jc_session_coexistence(uint64_t handle, uint64_t generation, uint
  * A failed preparation releases its sockets and permits retry; success seals it.
  */
 JC_API int32_t jc_session_prepare_original_dns(uint64_t handle, const uint8_t *sources, uint32_t length, uint64_t *generation);
-/* Read parsed campus resources for the requested active generation. */
+/* Read parsed campus resources for the requested active generation.
+ * Local proxy sessions expose the SOCKS listener and exportable grants only.
+ * domain_dns_permissions contains exact names derived from authorized IPv4 DNS answers.
+ */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Borrow a validated, nonblocking macOS utun fd for the ready generation.
  * Success owns a CLOEXEC duplicate until stop; the original fd and its flags remain

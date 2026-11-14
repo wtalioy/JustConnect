@@ -38,15 +38,12 @@ def main():
     modules = go('list', '-m', '-f', '{{.Path}}', 'all', capture=True).splitlines()
     if 'github.com/mythologyli/zju-connect' in modules:
         raise RuntimeError('Integrated sources must not depend on the remote upstream module')
-    go('vet', './...')
-    go('build', './...')
-
-    packages = go('list', './...', capture=True).splitlines()
-    go('test', '-timeout', '90s', *packages)
+    # The test command compiles and vets every package, including those without tests.
+    go('test', '-vet=all', '-timeout', '90s', './...')
     for name, before in locks.items():
         if (CORE / name).read_bytes() != before:
             raise RuntimeError(f'Go verification modified the lock file: {name}')
-    print(f'PASS: {version}, integrated module build, {len(packages)} package test suites', flush=True)
+    print(f'PASS: {version}, integrated module build, full vet and package tests', flush=True)
 
 
 if __name__ == '__main__':

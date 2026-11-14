@@ -2,21 +2,23 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
-type sessionResolver struct {
-	ctx    context.Context
-	dialer *dial.Dialer
-}
-
-func (r sessionResolver) Resolve(_ context.Context, host string) (context.Context, net.IP, error) {
-	return r.dialer.Resolve(r.ctx, host)
+func (p *Listeners) Resolve(_ context.Context, host string) (context.Context, net.IP, error) {
+	ctx, ip, err := p.dialer.Resolve(p.ctx, host)
+	if err != nil && p.diagnostic != nil && p.ctx.Err() == nil {
+		p.diagnostic("socks_dns_failed")
+	}
+	return ctx, ip, err
 }
 
 func (p *Listeners) socksServer() *socks5.Server {
@@ -24,10 +26,20 @@ func (p *Listeners) socksServer() *socks5.Server {
 		socks5.WithAssociateHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 			return p.handleSOCKSUDP(ctx, writer, request, udpIdleTimeout)
 		}),
-		socks5.WithResolver(sessionResolver{p.ctx, p.dialer}),
+		socks5.WithResolver(p),
 		socks5.WithConnectHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 			target, err := p.dial(ctx, "tcp", request.DestAddr.String())
 			if err != nil {
+				if p.diagnostic != nil && p.ctx.Err() == nil {
+					code := "socks_campus_dial_failed"
+					switch {
+					case errors.Is(err, dial.ErrACLDenied), errors.Is(err, policy.ErrProtectedTarget), errors.Is(err, client.ErrResourceNotFound):
+						code = "socks_destination_denied"
+					case errors.Is(err, client.ErrTCPNodeConnect):
+						code = "socks_tunnel_node_unreachable"
+					}
+					p.diagnostic(code)
+				}
 				_ = socks5.SendReply(writer, statute.RepHostUnreachable, nil)
 				return err
 			}

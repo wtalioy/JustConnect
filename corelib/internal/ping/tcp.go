@@ -49,6 +49,9 @@ func Probe(ctx context.Context, target Target, dial client.DialContextFunc, tlsP
 		}
 		result.SuccessCounter++
 		result.TotalDuration += duration
+		if target.StopOnSuccess {
+			break
+		}
 	}
 	if result.SuccessCounter > 0 {
 		result.Err = nil

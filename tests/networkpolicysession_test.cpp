@@ -209,6 +209,13 @@ static void ownershipViewsStaySerializedAndGenerationBound()
     until([&] { return !session.isBusy(); });
     check(session.status() == Status::Success && !session.model()["network"].toObject().contains("owned_filter")
           && session.model()["targets"].toArray().size() == 3, "New generation inherited previous ownership");
+    const auto previousModel = session.model();
+    const int beforeRefresh = reads.load();
+    check(session.refresh() && session.model().isEmpty(), "Pending read exposed the previous model");
+    reply(engine, "next", "192.168.12.19");
+    until([&] { return !session.isBusy(); });
+    check(reads == beforeRefresh + 1 && session.model() == previousModel,
+          "Stable facts did not produce the same view after a fresh DNS read");
     session.setOriginalViewFilter("next", [](const QJsonObject &, const QJsonObject &) -> std::optional<NetworkPolicySession::OriginalView> { return {}; });
     reply(engine, "next", "192.168.12.19");
     until([&] { return !session.isBusy(); });
@@ -256,6 +263,23 @@ static void synchronizeCurrentProtection()
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    {
+        Engine core;
+        NetworkPolicySession proxy(&core, {}, nullptr, [] { return false; });
+        emit core.sessionStarted("local");
+        check(core.requests.isEmpty() && proxy.localProxyResources().isEmpty() && !proxy.refresh(),
+              "Local proxy does not read or refresh system network state");
+        emit core.connectionEstablished();
+        check(core.requests.size()==1 && core.requests.first()==std::make_pair(Kind::Resources,QString("local")),
+              "Ready local proxy reads only the active generation's grants");
+        emit core.snapshotReady(Kind::Resources,"previous",resources("192.0.2.10"),Status::Success);
+        check(proxy.localProxyResources().isEmpty(),"A stale snapshot cannot enable export");
+        emit core.snapshotReady(Kind::Resources,"local",resources("192.0.2.11"),Status::Success);
+        check(!proxy.localProxyResources().isEmpty() && proxy.model().isEmpty(),"Local grants never form a system capture model");
+        proxy.clear();
+        emit core.snapshotReady(Kind::Resources,"local",resources("192.0.2.12"),Status::Success);
+        check(proxy.localProxyResources().isEmpty(),"Disconnect discards local export grants");
+    }
     coordinatedPolicyRequiresBothConfirmations();
     withdrawalWaitsForCurrentOwnedView();
     synchronizeCurrentProtection();

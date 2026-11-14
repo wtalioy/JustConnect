@@ -45,7 +45,7 @@ func (e *Engine) PrepareOriginalDNS(handle uint64, input []byte) (uint64, Status
 	if !s.running || s.stopping || s.generation != request.Generation {
 		return 0, StaleRequest
 	}
-	if !s.connectOperation {
+	if !s.captureOperation {
 		return 0, Unsupported
 	}
 	if !s.ready {

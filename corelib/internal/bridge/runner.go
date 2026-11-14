@@ -52,10 +52,12 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		Underlay: underlay.Options{InterfaceName: config.Network.Interface, AutoDetect: config.Network.AutoDetect, LocalDNSServer: config.Network.LocalDNS, ControllerAddress: config.Network.ControllerAddress},
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
 		KeepAliveMode: config.KeepAlive.Mode, KeepAliveURL: config.KeepAlive.URL,
-		QueryAuthMethods: config.Operation == "auth_methods",
-		ProtectionPolicy: host.ProtectionPolicy,
-		OriginalDNS:      config.originalDNS,
-		DomainDNS:        config.domainDNS,
+		QueryAuthMethods:   config.Operation == "auth_methods",
+		LocalProxy:         config.LocalProxy,
+		ProxyExportTargets: config.proxyTargets,
+		ProtectionPolicy:   host.ProtectionPolicy,
+		OriginalDNS:        config.originalDNS,
+		DomainDNS:          config.domainDNS,
 	}
 	if config.AuthenticationCache.Enabled {
 		options.Client.Session.Username = config.AuthenticationCache.Account
@@ -98,6 +100,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, context.Canceled) {
 		return Cancelled
+	}
+	if errors.Is(err, corelib.ErrLocalProxyListen) {
+		return LocalProxyListen
 	}
 	if errors.Is(err, mihomo.ErrAmbiguous) {
 		return Unsupported

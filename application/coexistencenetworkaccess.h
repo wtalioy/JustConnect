@@ -17,6 +17,8 @@ public:
     void activate(const QUuid &attempt, const ConnectionOptions &connectionOptions) override;
     void stop(const QUuid &attempt) override;
     void systemProxyChanged();
+signals:
+    void proxyObservationRequired(bool enabled);
 private:
     enum class Stage { Idle, Recovering, Preparing, Prepared, Activating, Synchronizing, Ready, Stopping, StopFailed };
     enum class Pending { None, Inspect, Resources, Update, Snapshot, Enable, Clear };

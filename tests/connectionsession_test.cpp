@@ -57,6 +57,29 @@ public:
     void stop(const QUuid &id) override { if (id == attempt) ++stops; }
 };
 
+bool localProxyDoesNotUseNetworkOwnership()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    ConnectionOptions local;
+    local.routingMode = RoutingMode::LocalProxy;
+    if (!session.start(local,{true,1}) || engine->startCalls != 1 ||
+        session.phase() != ConnectionPhase::Initializing) return false;
+    engine->establishConnection();
+    if (session.state() != ConnectionState::Running || session.phase() != ConnectionPhase::TransportReady) return false;
+    engine->complete(ConnectionError::NETWORK_FAILED);
+    if (session.state() != ConnectionState::Reconnecting) return false;
+    QElapsedTimer timer;
+    timer.start();
+    while (engine->startCalls != 2 && timer.elapsed() < 1000) QCoreApplication::processEvents();
+    if (engine->startCalls != 2 || engine->lastProfile.routingMode != RoutingMode::LocalProxy) return false;
+    session.stop();
+    engine->complete();
+    return session.state() == ConnectionState::Disconnected && engine->stopCalls == 1
+        && network->preparations == 0 && network->activations == 0 && network->stops == 0;
+}
+
 bool ordersNetworkOwnershipAroundTheCore()
 {
     auto *engine = new FakeCoreEngine;
@@ -555,7 +578,8 @@ bool progressUsesObservedEventsAndRejectsLateResults()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return networkRestartWaitsForOwnedRecovery()
+    return localProxyDoesNotUseNetworkOwnership()
+        && networkRestartWaitsForOwnedRecovery()
         && networkRestartDoesNotRetryPermissionOrAuthenticationFailures()
         && ordersNetworkOwnershipAroundTheCore()
         && stagedNetworkReleaseWaitsForCoreAndFinalReceipt()

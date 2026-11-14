@@ -32,20 +32,20 @@ func (r *Resolver) OriginalDNSRecords() map[string][]string {
 }
 
 func (r *Resolver) dnsRecords(original bool) map[string][]string {
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return nil
 	}
 	r.cacheMu.RLock()
-	result := make(map[string][]string)
+	var result map[string][]string
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
 		var text string
 		for _, binding := range bindings {
 			if binding.original != original || (!original && !binding.expires.After(now)) {
 				continue
+			}
+			if result == nil {
+				result = make(map[string][]string)
 			}
 			if text == "" {
 				text = address.String()
@@ -131,7 +131,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 			return nil, err
 		}
 	}
-	if _, _, granted := r.domainIndex.Match(host); !granted && !original {
+	if !original && !r.domainIndex.Contains(host) {
 		return result, nil
 	}
 	if err := r.storeDNSBindings(host, addresses, original); err != nil {
@@ -218,10 +218,7 @@ func (r *Resolver) CampusResourcesExcludingName(ctx context.Context, address net
 }
 
 func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name, excluded string) (client.DomainResources, uint32) {
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return nil, 0
 	}
 	snapshot, captured := ctx.Value(ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)

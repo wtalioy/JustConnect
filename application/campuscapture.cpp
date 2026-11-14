@@ -73,7 +73,7 @@ std::optional<QStringList> prefixesForRanges(const IPv4Ranges &ranges)
             // The owned backend permits /2 through /32; never synthesize a default route.
             quint64 span = quint64(1) << 30;
             int bits = 2;
-            while (span > range.second - first + 1 || first % span) { span >>= 1; ++bits; }
+            while (span > range.second - first + 1 || (first & (span - 1))) { span >>= 1; ++bits; }
             result.append(QHostAddress(quint32(first)).toString() + "/" + QString::number(bits));
             if (result.size() > MaxModelItems) return {};
             first += span;
@@ -255,15 +255,19 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     }
     for (const auto &name : *required) if (!forwarded.contains(name)) return {};
     CampusCaptureTargets result;
+    const auto addIPv4 = [&](quint64 first, quint64 last) {
+        if (included.size() >= MaxModelItems) return false;
+        included.append({first, last});
+        return true;
+    };
     auto add = [&](const QString &first, const QString &last) {
-        const QHostAddress low(first), high(last);
+        const QHostAddress low(first);
+        const QHostAddress high = first == last ? low : QHostAddress(last);
         if (low.isNull() || high.isNull() || low.protocol() != high.protocol() || mapped(low) || mapped(high)
             || !low.scopeId().isEmpty() || !high.scopeId().isEmpty() || compare(low, high) > 0) return false;
-        if (low.protocol() == QAbstractSocket::IPv4Protocol) {
-            if (!ipv4Number(first) || !ipv4Number(last)) return false;
-            included.append({low.toIPv4Address(), high.toIPv4Address()});
-        }
-        return included.size() <= MaxModelItems;
+        if (low.protocol() != QAbstractSocket::IPv4Protocol) return true;
+        return low.toString() == first && (first == last || high.toString() == last)
+            && addIPv4(low.toIPv4Address(), high.toIPv4Address());
     };
     for (qsizetype index = 0; index < ips.size(); ++index) {
         const auto entry = ips[index];
@@ -279,8 +283,10 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         if (!add(row["ip_min"].toString(), row["ip_max"].toString()))
             return fail(QStringLiteral("Campus IP resource %1 has an invalid address range or exceeds the rule limit.").arg(index));
     }
-    for (const auto &address : dynamicAddresses)
-        if (!ipv4Number(address) || !add(address,address)) return {};
+    for (const auto &text : dynamicAddresses) {
+        const auto address = ipv4Number(text);
+        if (!address || !addIPv4(*address,*address)) return {};
+    }
     for (const auto &value : protectedIPs) {
         if (!value.isString()) return {};
         const auto subnet = QHostAddress::parseSubnet(value.toString());
@@ -348,9 +354,8 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     result.dnsDomains = *dnsDomains;
     const bool remoteDNS = resources["campus_dns_enabled"].toBool();
     if (remoteDNS) {
-        const auto server = resources["campus_dns"].toString();
-        const auto address = ipv4Number(server);
-        if (!address || !add(server, server) || std::any_of(reserved.begin(), reserved.end(),
+        const auto address = ipv4Number(resources["campus_dns"].toString());
+        if (!address || !addIPv4(*address,*address) || std::any_of(reserved.begin(), reserved.end(),
             [&](const IPv4Range &range) { return range.first <= *address && *address <= range.second; }))
             return fail(QStringLiteral("The campus DNS server is not a usable IPv4 address."));
         // Internal DNS uses the existing campus tunnel; subtraction below preserves a shared original endpoint.

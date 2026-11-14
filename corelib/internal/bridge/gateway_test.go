@@ -56,6 +56,7 @@ type gateway struct {
 	passwordMethod   atomic.Bool
 	rotateSID        atomic.Bool
 	probeDNS         atomic.Bool
+	exportDNS        atomic.Bool
 	nativeDNS        atomic.Bool
 	nativeDNSQueries atomic.Int32
 	dnsUDPPackets    atomic.Int32
@@ -199,6 +200,9 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			}
 			if g.originalDNSName.Load() {
 				addresses += `,{"protocol":"tcp","port":"80","host":"host.campus.test"}`
+			}
+			if g.exportDNS.Load() {
+				addresses += `,{"protocol":"tcp","port":"8443-8450","host":"192.0.2.17"},{"protocol":"udp","port":"1053","host":"192.0.2.17"}`
 			}
 			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
@@ -519,6 +523,14 @@ func (g *gateway) serveL3(conn net.Conn) {
 						}
 						reply := new(dns.Msg)
 						reply.SetReply(request)
+						if g.exportDNS.Load() && len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeA {
+							name := request.Question[0].Name
+							address := "192.0.2.99"
+							if name == "alias.test." {
+								address = "192.0.2.17"
+							}
+							reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: name, Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.ParseIP(address)}}
+						}
 						if g.nativeDNS.Load() && len(request.Question) == 1 && (request.Question[0].Name == "campus.test." || request.Question[0].Name == "host.campus.test." || request.Question[0].Name == "target.campus.test.") && request.Question[0].Qtype == dns.TypeA {
 							resourceIP, _ := g.resourceIP.Load().(string)
 							reply.Answer = []dns.RR{

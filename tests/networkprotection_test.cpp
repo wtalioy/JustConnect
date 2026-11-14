@@ -35,17 +35,20 @@ static void macProxyTunnelView()
     const auto tunnel = QJsonObject{{"index",7},{"name","utun5"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"198.19.0.1/30"}}};
     const auto original = QJsonObject{{"destination","192.0.2.0/24"},{"interface_index",2}};
     const auto captured = QJsonObject{{"destination","8.0.0.0/5"},{"interface_index",7}};
-    const QJsonObject network{{"interfaces",QJsonArray{physical,tunnel}},{"routes",QJsonArray{original,captured}},
+    const auto capturedPrivate = QJsonObject{{"destination","10.0.0.0/8"},{"interface_index",7}};
+    const auto originalPrivate = QJsonObject{{"destination","10.1.0.0/16"},{"interface_index",2}};
+    const QJsonObject network{{"interfaces",QJsonArray{physical,tunnel}},{"routes",QJsonArray{original,captured,capturedPrivate,originalPrivate}},
         {"proxy_tunnel",QJsonObject{{"interface_index",7},{"name","utun5"}}}};
     const auto view = macOriginalProxyView(network);
-    check(view && (*view)["routes"].toArray() == QJsonArray{original},
+    check(view && (*view)["routes"].toArray() == QJsonArray{original,originalPrivate},
         "Verified macOS proxy exit obscured a private campus");
     check((*view)["interfaces"] == network["interfaces"] && macOriginalProxyView(*view) == view,
         "macOS projection lost allocation reservations or was not idempotent");
 #if defined(Q_OS_MACOS)
     const auto targets = originalNetworkProtection(*view);
     const auto protectedPrefixes = targets ? protectionConfiguration(*targets,{})["protected"].toArray() : QJsonArray{};
-    check(protectedPrefixes.contains("192.0.2.0/24") && !protectedPrefixes.contains("8.0.0.0/5")
+    check(protectedPrefixes.contains("192.0.2.0/24") && protectedPrefixes.contains("10.1.0.0/16")
+        && !protectedPrefixes.contains("10.0.0.0/8") && !protectedPrefixes.contains("8.0.0.0/5")
         && !protectedPrefixes.contains("198.19.0.0/30"), "Projected protection still included the proxy tunnel");
 #endif
     auto unknown = network; unknown.remove("proxy_tunnel");
@@ -92,6 +95,11 @@ static void captureTargets()
     const auto contains = [](const QStringList &prefixes, const QString &address) {
         return std::any_of(prefixes.begin(),prefixes.end(),[&](const QString &prefix) { return QHostAddress(address).isInSubnet(QHostAddress::parseSubnet(prefix)); });
     };
+    const auto dynamic = campusCaptureTargets(resources,policy,{"198.51.100.7"});
+    check(dynamic && contains(dynamic->ipv4Prefixes,"198.51.100.7") && !contains(dynamic->ipv4Prefixes,"198.51.100.8"),
+        "A live campus address must add only its own route");
+    for (const auto &bad : {QString("198.51.100.007"),QString("::ffff:198.51.100.7")})
+        check(!campusCaptureTargets(resources,policy,{bad}),"A noncanonical live IPv4 address entered capture");
     auto externalAuth = originalAnswers;
     externalAuth["original_authentication_address"] = "203.0.113.16";
     const auto preserved = campusCaptureTargets(externalAuth,originalPolicy);

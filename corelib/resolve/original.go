@@ -239,10 +239,7 @@ func (r *Resolver) exchangeOriginalRoute(ctx context.Context, request *dns.Msg, 
 // Original direction outlives DNS TTL: a lingering capture must never become a campus grant.
 // Name protection wins when two names resolve to the same address.
 func (r *Resolver) OriginalDNSProtectedIP(ctx context.Context, address netip.Addr) (bool, error) {
-	r.resolutionMu.Lock()
-	closed := r.resolutionClosed
-	r.resolutionMu.Unlock()
-	if closed {
+	if r.resolutionClosed.Load() {
 		return false, net.ErrClosed
 	}
 	snapshot, captured := ctx.Value(ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
