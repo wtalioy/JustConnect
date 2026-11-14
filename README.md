@@ -48,24 +48,26 @@ Always remember your saved sign-in between launches. As long as it’s still val
 
 Windows installers are unsigned, so Windows may show a warning.
 
-macOS builds are not notarized. If macOS blocks JustConnect on first launch because it can’t verify the developer or check the app for malware, confirm that you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases). Then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+macOS builds are not notarized. If macOS blocks the first launch, confirm you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases), then go to **System Settings → Privacy & Security → Open Anyway**.
 
 ### Connect
 
-Choose the built-in Fudan University profile, or add one for your own aTrust gateway. Click **Connect** and follow the sign-in and network permission prompts.
+Use the built-in Fudan University profile or add one for your aTrust gateway. Both modes are available under **Edit connection → Routing mode**.
 
-### Use your own proxy app
+#### Automatic routing
 
-Choose **Local proxy only** in **Edit connection**. JustConnect listens on `127.0.0.1` at the **Local SOCKS5 port** shown there, leaving your system routes, DNS, and proxy settings alone. Any app that supports a SOCKS5 upstream can use that address. In your proxy app, route the campus traffic you need to that upstream and keep your usual rules for everything else.
+The default. Click **Connect** and follow the sign-in and network permission prompts. JustConnect routes campus traffic through the gateway and leaves the rest on your existing network.
 
-For [Clash Verge Rev](https://www.clashverge.dev/guide/script.html), connect first, then choose **Copy Clash Extend Script** from the connection menu. In Clash Verge Rev, open **Extend Script** for the active profile. The script uses the current gateway’s campus grants, including the allowed TCP or UDP ports. It also includes exact Per-domain DNS names when their campus DNS answer matches an IP grant.
+#### Local proxy only
 
-- **No existing script:** Paste the whole script and use Rule mode.
-- **Already have a script:** Paste just the `addJustConnect` function, then add `addJustConnect(config);` just before your existing `main` returns its config.
+Select **Local proxy only**, then click **Connect** and sign in. Point your proxy app at `127.0.0.1` and the Local SOCKS5 port in your connection settings. Your proxy app handles routing; JustConnect leaves system routes, DNS, and proxy settings alone and needs no privileged network helper.
 
-The SOCKS5 node uses the connection name shown in JustConnect. A blanket IP grant does not become a catch-all rule. Copy the script again after changing the connection or when its gateway grants change.
+**Using Clash Verge Rev?** Once connected, choose **Copy Clash Extend Script** from JustConnect’s connection menu. In [Extend Script](https://www.clashverge.dev/guide/script.html) for your active profile:
 
-If a numeric SSH destination is missing from the exported rules, add its IPv4 address and TCP port under **Additional Clash destinations**, for example `192.0.2.10:22`. Reconnect and copy the script again. JustConnect adds that exact endpoint only if the gateway allows it.
+- **New script:** Paste the whole script.
+- **Existing script:** Paste the `addJustConnect` function and call `addJustConnect(config);` before your `main` returns.
+
+Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and copy the script again.
 
 ## License and credits
 
