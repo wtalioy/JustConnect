@@ -485,7 +485,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	if nodeAddr == "" {
 		return nil, fmt.Errorf("no available aTrust node for group %q: %w", nodeGroupID, client.ErrTCPNodeConnect)
 	}
-	conn, err := client.DialTLSContext(ctx, c.underlayDialer.DialContext, "tcp", nodeAddr, tunnelTLSConfig(c.nodeTLSPolicy))
+	conn, err := c.dialTunnelTLS(ctx, "tcp", nodeAddr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", client.ErrTCPNodeConnect, err)
 	}

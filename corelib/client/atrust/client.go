@@ -106,6 +106,7 @@ type Client struct {
 	underlayDialer       client.UnderlayDialer
 	tlsPolicy            *tls.Config
 	nodeTLSPolicy        *tls.Config
+	tunnelTLSPolicy      *tls.Config
 	tcpTunnelZeroRTT     bool
 	invalidateClientData func()
 }
@@ -115,6 +116,8 @@ func NewClient(options ClientOptions) *Client {
 	policy := tlsConfig(options.TLSConfig)
 	nodePolicy := policy.Clone()
 	nodePolicy.InsecureSkipVerify = policy.InsecureSkipVerify || options.AllowUnverifiedNodes
+	tunnelPolicy := nodePolicy.Clone()
+	tunnelPolicy.SessionTicketsDisabled = true
 	return &Client{
 		Username:        options.Session.Username,
 		SID:             options.Session.SID,
@@ -123,6 +126,7 @@ func NewClient(options ClientOptions) *Client {
 		underlayDialer:  options.UnderlayDialer,
 		tlsPolicy:       policy,
 		nodeTLSPolicy:   nodePolicy,
+		tunnelTLSPolicy: tunnelPolicy,
 		language:        options.Language,
 		diagnostic:      options.Diagnostic,
 		observe:         options.Observe,

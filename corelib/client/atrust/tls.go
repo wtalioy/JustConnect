@@ -1,7 +1,10 @@
 package atrust
 
 import (
+	"context"
 	"crypto/tls"
+
+	"github.com/wtalioy/JustConnect/corelib/client"
 )
 
 func tlsConfig(config *tls.Config) *tls.Config {
@@ -13,8 +16,6 @@ func tlsConfig(config *tls.Config) *tls.Config {
 	return config
 }
 
-func tunnelTLSConfig(config *tls.Config) *tls.Config {
-	config = tlsConfig(config)
-	config.SessionTicketsDisabled = true
-	return config
+func (c *Client) dialTunnelTLS(ctx context.Context, network, address string) (*tls.Conn, error) {
+	return client.DialTLSContext(ctx, c.underlayDialer.DialContext, network, address, c.tunnelTLSPolicy)
 }
