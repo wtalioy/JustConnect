@@ -20,10 +20,9 @@ const (
 	procPath           = "/proc"
 	procNetUnix        = procPath + "/net/unix"
 	maxNativeReadBytes = 1 << 20
-	// Unix domain socket states from /proc/net/unix: TCP_LISTEN marks a listener.
-	unixStateListen = "0A"
-	unixTypeStream  = "0002"
-	unixPathLimit   = 108 // sizeof(struct sockaddr_un)::sun_path
+	unixAcceptConn     = "00010000" // /proc/net/unix Flags for TCP_LISTEN
+	unixTypeStream     = "0001"     // SOCK_STREAM
+	unixPathLimit      = 108        // sizeof(struct sockaddr_un)::sun_path
 )
 
 // procID is one process identity fact kept local to this package.
@@ -162,9 +161,7 @@ func observedIPC(pid int) []string {
 	return result
 }
 
-// unixListenerPaths reads /proc/net/unix: listening stream sockets carry the
-// TCP_LISTEN state and expose their public path column to every user. The path
-// column is unquoted, so column splitting stops after the fixed fields.
+// The kernel prints the socket path unquoted after seven fields and one space.
 func unixListenerPaths() (map[int]string, error) {
 	file, err := os.Open(procNetUnix)
 	if err != nil {
@@ -174,39 +171,24 @@ func unixListenerPaths() (map[int]string, error) {
 	result := make(map[int]string)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := strings.TrimLeft(scanner.Text(), " ")
-		const fixedFields = 8
-		fields, path := splitFields(line, fixedFields)
-		if len(fields) < fixedFields || fields[4] != unixTypeStream || fields[5] != unixStateListen {
+		var fields [7]string
+		path := scanner.Text()
+		for i := range fields {
+			fields[i], path, _ = strings.Cut(strings.TrimLeft(path, " "), " ")
+		}
+		if fields[3] != unixAcceptConn || fields[4] != unixTypeStream {
 			continue
 		}
 		inode, err := strconv.Atoi(fields[6])
 		if err != nil || inode <= 0 {
 			continue
 		}
-		path = strings.TrimSpace(path)
 		if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\x00\r\n") || len(path) >= unixPathLimit {
 			continue
 		}
 		result[inode] = path
 	}
 	return result, scanner.Err()
-}
-
-// splitFields consumes count space-separated tokens and returns them plus the
-// unsplit remainder.
-func splitFields(line string, count int) ([]string, string) {
-	fields := make([]string, 0, count)
-	remainder := line
-	for range count {
-		token, rest, found := strings.Cut(remainder, " ")
-		if !found {
-			return fields, ""
-		}
-		fields = append(fields, token)
-		remainder = strings.TrimLeft(rest, " ")
-	}
-	return fields, remainder
 }
 
 func processSocketInodes(pid int) (map[int]bool, error) {
