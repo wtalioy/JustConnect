@@ -4,7 +4,7 @@ Build and test JustConnect on Debian 13 x64, then optionally turn the same build
 
 ## Install build dependencies
 
-Install the exact Go version in [corelib/go.mod](corelib/go.mod) and put it on `PATH`. Use APT for the remaining dependencies.
+Install the exact Go version in [corelib/go.mod](../corelib/go.mod) and put it on `PATH`. Use APT for the remaining dependencies.
 
 ```sh
 sudo apt update
@@ -27,7 +27,7 @@ cmake --build build --parallel 3
 xvfb-run -a ctest --test-dir build --output-on-failure
 ```
 
-Run `./build/JustConnect` to try **Local proxy only**. The package in the next step installs the network helper and polkit policy for **Automatic routing**. See the [Linux runtime requirements](README.md#linux-requirements).
+Run `./build/JustConnect` to try **Local proxy only**. The package in the next step installs the network helper and polkit policy for **Automatic routing**. See the [Linux runtime requirements](../README.md#linux-requirements).
 
 ## Package and install
 

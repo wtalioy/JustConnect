@@ -5,7 +5,7 @@ on:
     branches: [main, develop]
     paths-ignore: &documentation
       - 'README.md'
-      - 'build-linux.md'
+      - 'docs/build-linux.md'
       - '.github/screenshots/**'
       - 'docs/releases/**'
   push:

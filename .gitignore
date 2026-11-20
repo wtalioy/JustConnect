@@ -64,4 +64,5 @@ aqtinstall.log
 /AGENTS.md
 /plan.md
 /docs/*
+!/docs/build-linux.md
 !/docs/releases/

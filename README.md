@@ -57,7 +57,7 @@ macOS builds are not notarized. If macOS blocks the first launch, confirm you do
 - **Automatic routing** requires polkit and an active systemd-resolved with `/etc/resolv.conf` using its DNS stub at `127.0.0.53`. The Debian package installs the network helper. With the portable build, run `sudo ./setup-network-helper.sh` from the extracted directory after installing or upgrading.
 - **Saved sign-in** requires a Secret Service keyring. Without one, JustConnect keeps the sign-in in memory until you quit.
 
-See [Building on Linux](build-linux.md) for source builds and Debian packaging.
+See [Building on Linux](docs/build-linux.md) for source builds and Debian packaging.
 
 ### Connect
 

@@ -7,7 +7,7 @@
 # programs are only honored when root owns every path component, and a helper
 # inside an extracted archive keeps the extractor's ownership. There is no
 # in-place promotion of the shipped copy; the application also refuses to
-# launch helpers from unpacked package trees (see build-linux.md).
+# launch helpers from unpacked package trees (see docs/build-linux.md).
 #
 # Usage:
 #   sudo ./setup-network-helper.sh   install the helper plus the polkit action
