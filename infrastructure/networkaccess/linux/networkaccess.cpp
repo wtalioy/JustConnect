@@ -186,7 +186,7 @@ void LinuxNetworkAccess::observeModel()
         stage = Stage::Prepared; emit restartRequired(attempt, QStringLiteral("Original network exit changed; restoring before reconnecting.")); return;
     }
     const auto update = owned ? updatedLinuxCapturePrefixes(model["resources"].toObject(), policy->confirmedProtection(), *owned,
-        model["network"].toObject(), model["dns"].toObject()) : std::nullopt;
+        model["dns"].toObject()) : std::nullopt;
     if (!update) { stage = Stage::Prepared; emit restartRequired(attempt, QStringLiteral("Original DNS or campus scope changed; restoring before reconnecting.")); return; }
     auto actual = owned->capturePrefixes, expected = *update; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*update); return; }
@@ -204,7 +204,7 @@ void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
     const auto owned = helper.ownedConfiguration();
     const auto model = policy->model();
     const auto update = owned ? updatedLinuxCapturePrefixes(model["resources"].toObject(), value, *owned,
-        model["network"].toObject(), model["dns"].toObject()) : std::nullopt;
+        model["dns"].toObject()) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !update) {
         const bool automatic = automaticPolicy; automaticPolicy = false;
         policy->completePolicy(value["generation"].toString(), value["revision"].toString(), CoreEngine::RequestStatus::Unavailable);

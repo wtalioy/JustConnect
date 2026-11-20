@@ -318,16 +318,16 @@ static void preparationChecks()
         && prepared.configuration.address == QStringLiteral("10.0.0.4") && prepared.configuration.peer == QStringLiteral("10.0.0.5"),
         QStringLiteral("Linux preparation lost actual resource scopes or captured an existing DNS endpoint (%1: %2)")
             .arg(prepared.result.detail, prepared.configuration.capturePrefixes.join(QChar(','))));
-    const auto unchanged = updatedLinuxCapturePrefixes(resources, protection, prepared.configuration, network, dns);
+    const auto unchanged = updatedLinuxCapturePrefixes(resources, protection, prepared.configuration, dns);
     check(unchanged && *unchanged == prepared.configuration.capturePrefixes, QStringLiteral("Unchanged scope drifted"));
     auto drifted = resources; drifted["campus_dns"] = QStringLiteral("203.0.113.99");
-    const auto updated = updatedLinuxCapturePrefixes(drifted, protection, prepared.configuration, network, dns);
+    const auto updated = updatedLinuxCapturePrefixes(drifted, protection, prepared.configuration, dns);
     check(updated && updated->contains(QStringLiteral("203.0.113.99/32")) && *updated != prepared.configuration.capturePrefixes,
         QStringLiteral("Campus DNS drift was ignored"));
     auto domainDrift = resources;
     domainDrift["domain_resources"] = QJsonObject{{"campus.test", QJsonArray{QJsonValue("203.0.113.20")}},
         {"other.test", QJsonArray{QJsonValue("203.0.113.21")}}};
-    check(!updatedLinuxCapturePrefixes(domainDrift, protection, prepared.configuration, network, dns),
+    check(!updatedLinuxCapturePrefixes(domainDrift, protection, prepared.configuration, dns),
         QStringLiteral("Campus domain drift was ignored"));
     auto missing = resources; missing["underlay_interface"] = QStringLiteral("justconnect-nonexistent-interface");
     check(!prepareLinuxNetworkHelper(missing, protection, network, dns, {}, 1400).result.succeeded(),
@@ -348,11 +348,11 @@ static void preparationChecks()
     check(sources && sources->size() == 1 && sources->at(0).toObject()["name"] == coveredPolicy["protected_names"].toArray().at(0)
         && sources->at(0).toObject()["servers"].toArray() == QJsonArray{QJsonValue("10.0.0.1:53"), QJsonValue("10.0.0.2:53")},
         QStringLiteral("Original DNS rows lost the required rule or the snapshot resolvers"));
-    const auto stable = updatedLinuxCapturePrefixes(resources, coveredPolicy, forwarded.configuration, network, dns);
+    const auto stable = updatedLinuxCapturePrefixes(resources, coveredPolicy, forwarded.configuration, dns);
     check(stable && *stable == forwarded.configuration.capturePrefixes,
         QStringLiteral("Forwarded protected names drifted without a change"));
     const QJsonObject dry{{"resolv_conf", QJsonObject{{"nameservers", QJsonArray{}}}}};
-    check(!updatedLinuxCapturePrefixes(resources, coveredPolicy, forwarded.configuration, network, dry),
+    check(!updatedLinuxCapturePrefixes(resources, coveredPolicy, forwarded.configuration, dry),
         QStringLiteral("Losing every original resolver kept the session alive"));
     check(!prepareLinuxNetworkHelper(resources, coveredPolicy, network, dry, QStringLiteral("10.0.0.3:53"), 1400).result.succeeded(),
         QStringLiteral("A required protected name survived without any original resolver"));

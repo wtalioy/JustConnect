@@ -27,4 +27,4 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
 // Re-derives the live capture prefix set from authoritative resources; nullopt
 // when the DNS or campus scope drifted and the session must be restored.
 std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const LinuxHelperConfiguration &configuration, const QJsonObject &network, const QJsonObject &dns);
+    const LinuxHelperConfiguration &configuration, const QJsonObject &dns);

@@ -80,8 +80,6 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     const QStringList &dynamicAddresses)
 {
     using Status = PlatformOperationResult::Status;
-    const auto domains = campusDnsDomains(resources);
-    if (!domains) return {{Status::Unsupported, QStringLiteral("Cannot determine complete original DNS requirements.")}, {}};
     // Names the policy protects from campus capture must keep resolving via
     // the original resolvers: the rows prove those sources exist, reserve
     // their addresses outside the capture and drop every campus scope they
@@ -119,7 +117,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
 }
 
 std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const LinuxHelperConfiguration &configuration, const QJsonObject &network, const QJsonObject &dns)
+    const LinuxHelperConfiguration &configuration, const QJsonObject &dns)
 {
     const auto domains = campusDnsDomains(resources);
     if (!domains) return {};
