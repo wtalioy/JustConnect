@@ -152,15 +152,20 @@ DnsSnapshot readWindowsDnsSnapshot(const PlatformCommandRunner &runner)
     if (!command.result.succeeded()) {
         auto result = command.result;
         const QRegularExpression phase(QStringLiteral("^JCDNS phase=([A-Za-z0-9_]{1,64}) elapsed_ms=([0-9]{1,8})$"));
+        const QRegularExpression provider(QStringLiteral("^Native DNS provider failed with code ([0-9]{1,10})(?:: permission denied)?; no partial snapshot published\\.$"));
         const QStringList stages{"native", "local_session", "nrpt_sources", "nrpt", "nrpt_rows", "nrpt_consistency", "doh_class", "adapter_dns", "global_dns", "serialize",
             "MSFT_DNSClientDohServerAddress", "MSFT_DNSClientServerAddress", "MSFT_DNSClient", "MSFT_DNSClientGlobalSetting"};
-        QString last;
+        QString last, providerCode;
         for (const auto &line : command.standardError.split('\n')) {
-            const auto match = phase.match(line.trimmed());
+            const auto text = line.trimmed();
+            const auto match = phase.match(text);
             if (match.hasMatch() && stages.contains(match.captured(1)))
                 last = QStringLiteral(" (DNS phase %1 at %2 ms)").arg(match.captured(1), match.captured(2));
+            const auto failure = provider.match(text);
+            if (failure.hasMatch()) providerCode = failure.captured(1);
         }
         result.detail += last;
+        if (!providerCode.isEmpty()) result.detail += QStringLiteral(" (DNS provider code %1)").arg(providerCode);
         return {result, {}};
     }
     const auto bytes = command.output.toUtf8();
