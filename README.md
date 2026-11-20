@@ -45,11 +45,19 @@ Always remember your saved sign-in between launches. As long as it’s still val
 | --- | --- |
 | **Windows** · x64 or ARM64 | Run the installer, or extract the portable ZIP and open `JustConnect.exe`. |
 | **macOS** · 14.4 or later, Apple silicon or Intel | Open the DMG and drag JustConnect into Applications. |
-| **Linux** · x64 | On Debian 13, install the package with `sudo apt install ./JustConnect-…-linux-x64.deb`. With the portable tarball, extract it and run `bin/JustConnect`. For automatic routing, install the portable helper with `sudo ./setup-network-helper.sh`. See the [Linux requirements and build guide](build-linux.md). |
+| **Linux** · x64 | On Debian 13, install the package with `sudo apt install ./JustConnect-…-linux-x64.deb`. For the portable build, extract the tarball and run `bin/JustConnect`. |
 
 Windows installers are unsigned, so Windows may show a warning.
 
 macOS builds are not notarized. If macOS blocks the first launch, confirm you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases), then go to **System Settings → Privacy & Security → Open Anyway**.
+
+#### Linux requirements
+
+- **Sign-in** uses WebKitGTK 4.1. The Debian package pulls it in automatically. Install `libwebkit2gtk-4.1` yourself for the portable build, and make sure XWayland is available if you use Wayland.
+- **Automatic routing** requires polkit and an active systemd-resolved with `/etc/resolv.conf` using its DNS stub at `127.0.0.53`. The Debian package installs the network helper. With the portable build, run `sudo ./setup-network-helper.sh` from the extracted directory after installing or upgrading.
+- **Saved sign-in** requires a Secret Service keyring. Without one, JustConnect keeps the sign-in in memory until you quit.
+
+See [Building on Linux](build-linux.md) for source builds and Debian packaging.
 
 ### Connect
 
