@@ -3,8 +3,14 @@ name: Debian package
 on:
   pull_request:
     branches: [main, develop]
+    paths-ignore: &documentation
+      - 'README.md'
+      - 'build-linux.md'
+      - '.github/screenshots/**'
+      - 'docs/releases/**'
   push:
     branches: [develop]
+    paths-ignore: *documentation
   workflow_dispatch:
   workflow_call:
     inputs:

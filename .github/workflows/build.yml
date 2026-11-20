@@ -7,6 +7,7 @@ on:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
     paths-ignore:
       - 'README.md'
+      - 'build-linux.md'
       - '.github/screenshots/**'
       - 'docs/releases/**'
   workflow_dispatch:
