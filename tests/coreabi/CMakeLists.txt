@@ -43,7 +43,7 @@ foreach(KIND coreabi coreabi_fixture)
     set_tests_properties(${ADAPTER} PROPERTIES TIMEOUT 60)
     add_test(NAME ${HOST} COMMAND ${HOST})
     set_tests_properties(${HOST} PROPERTIES TIMEOUT 60
-        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
+        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_LOGGING_RULES=justconnect.signin.debug=true")
 endforeach()
 
 
