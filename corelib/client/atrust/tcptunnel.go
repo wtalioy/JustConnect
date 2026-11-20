@@ -19,8 +19,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
-	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
@@ -415,12 +413,6 @@ func calcXRequestSig(key []byte, data []byte) string {
 	return strings.ToUpper(hex.EncodeToString(sum))
 }
 
-func matchTCPIPResource(index *ipresource.Index, addr *net.TCPAddr) (client.IPResource, bool) {
-	return index.MatchLastWhere(addr.IP, "tcp", addr.Port, func(resource client.IPResource) bool {
-		return !resource.EnableTCPPrefL3
-	})
-}
-
 func tcpTunnelAuthDestinations(realDstHost string, port int, domain string, addrPretend bool) (destAddr, destIP string) {
 	destAddr = net.JoinHostPort(realDstHost, strconv.Itoa(port))
 	if !addrPretend && domain != "" {
@@ -465,8 +457,15 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		addrPretend = resource.AddrPretend
 	}
 	if appID == "" {
-		resource, ok := matchTCPIPResource(c.resourceIndex, addr)
+		resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource)
+		if !ok {
+			// DNS transport can dial the fixed gateway endpoint without passing through the dialer.
+			resource, ok = c.resourceIndex.MatchTCPTunnel(addr.IP, addr.Port)
+		}
 		if ok {
+			if resource.EnableTCPPrefL3 {
+				return nil, client.ErrResourceNotFound
+			}
 			appID = resource.AppID
 			nodeGroupID = resource.NodeGroupID
 			domain = ""

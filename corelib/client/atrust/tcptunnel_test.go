@@ -840,38 +840,24 @@ func TestWaitForTCPConnectRejectsMalformedResponse(t *testing.T) {
 	}
 }
 
-func TestMatchTCPIPResourceUsesLastMatchingRule(t *testing.T) {
-	resources := []client.IPResource{
-		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "first"},
-		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "last"},
+func TestDialTCPKeepsTheSelectedIPResource(t *testing.T) {
+	ip := net.IPv4(192, 0, 2, 7)
+	specific := client.IPResource{
+		IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443,
+		Protocol: "tcp", AppID: "specific", NodeGroupID: "specific-node",
 	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443})
-	if !ok {
-		t.Fatal("matchTCPIPResource() did not find matching resource")
+	defaultGrant := client.IPResource{
+		IPMin: net.IPv4(0, 0, 0, 0), IPMax: net.IPv4(255, 255, 255, 255),
+		PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "default", NodeGroupID: "default-node",
 	}
-	if resource.AppID != "last" {
-		t.Fatalf("matched AppID = %q, want last matching rule", resource.AppID)
-	}
-}
-
-func TestMatchTCPIPResourceRejectsTCPPrefL3(t *testing.T) {
-	resources := []client.IPResource{{
-		IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443,
-		Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true,
-	}}
-	if resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443}); ok {
-		t.Fatalf("matchTCPIPResource() = %#v, want no TCP tunnel resource", resource)
-	}
-}
-
-func TestMatchTCPIPResourceExcludesL3WhenTCPAlsoMatches(t *testing.T) {
-	resources := []client.IPResource{
-		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "tcp-app"},
-		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true},
-	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222})
-	if !ok || resource.AppID != "tcp-app" {
-		t.Fatalf("matchTCPIPResource() = (%#v, %t), want regular tcp-app", resource, ok)
+	c := NewClient(ClientOptions{})
+	defer c.Close()
+	c.resourceIndex = ipresource.New([]client.IPResource{specific, defaultGrant})
+	c.BestNodes = map[string]string{}
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyIPResource, specific)
+	_, err := c.DialTCP(ctx, &net.TCPAddr{IP: ip, Port: 443})
+	if !errors.Is(err, client.ErrTCPNodeConnect) || !strings.Contains(err.Error(), `"specific-node"`) {
+		t.Fatalf("DialTCP chose a different node group: %v", err)
 	}
 }
 

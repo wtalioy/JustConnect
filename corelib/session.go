@@ -16,7 +16,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/dial"
-	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/service"
@@ -306,7 +305,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
 	if observer.Resources != nil && options.LocalProxy {
-		scoped, _ := ipresource.ScopedRanges(ips)
+		scoped, _ := dialer.CaptureIPResources()
 		scoped = appendProxyExportTargets(scoped, dialer, options.ProxyExportTargets)
 		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})

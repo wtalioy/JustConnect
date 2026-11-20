@@ -260,12 +260,12 @@ func (d *Dialer) dialIP(ctx context.Context, network string, endpoint netip.Addr
 		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	if !matchedResource {
-		index := d.scopedIndex
-		if useVPN || address.IsPrivate() {
-			index = d.resourceIndex
-		}
 		ip := address.As4()
-		if resource, matched := matchIPResourceForTunnel(index, ip[:], network, port); matched {
+		resource, matched := matchIPResourceForTunnel(d.scopedIndex, ip[:], network, port)
+		if !matched && d.scopedIndex != d.resourceIndex && (useVPN || address.IsPrivate()) {
+			resource, matched = matchIPResourceForTunnel(d.resourceIndex, ip[:], network, port)
+		}
+		if matched {
 			ctx = context.WithValue(ctx, resolve.ContextKeyIPResource, resource)
 			useVPN = true
 			matchedResource = true
@@ -334,9 +334,7 @@ func matchDomainResourceForTunnel(resources []client.DomainResource, network str
 
 func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network string, port int) (client.IPResource, bool) {
 	if network == "tcp" {
-		if resource, ok := index.MatchWhere(target, network, port, func(resource client.IPResource) bool {
-			return !resource.EnableTCPPrefL3
-		}); ok {
+		if resource, ok := index.MatchTCPTunnel(target, port); ok {
 			return resource, true
 		}
 	}
@@ -396,12 +394,10 @@ func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []clie
 		resourceIndex: ipresource.New(ipResources),
 		alwaysUseVPN:  alwaysUseVPN,
 	}
-	if !alwaysUseVPN {
-		d.scopedRanges, d.privateRanges = ipresource.ScopedRanges(ipResources)
-		d.scopedIndex = d.resourceIndex
-		if len(d.scopedRanges) != len(ipResources) {
-			d.scopedIndex = ipresource.New(d.scopedRanges)
-		}
+	d.scopedRanges, d.privateRanges = ipresource.ScopedRanges(ipResources)
+	d.scopedIndex = d.resourceIndex
+	if len(d.scopedRanges) != len(ipResources) {
+		d.scopedIndex = ipresource.New(d.scopedRanges)
 	}
 	return d
 }

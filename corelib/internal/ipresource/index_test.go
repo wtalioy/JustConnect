@@ -56,30 +56,18 @@ func TestIndexPreservesFirstMatchingResource(t *testing.T) {
 	}
 }
 
-func TestIndexCanPreserveLastMatchingResource(t *testing.T) {
-	index := New([]client.IPResource{
-		{IPMin: net.IPv4(10, 0, 0, 0), IPMax: net.IPv4(10, 0, 0, 255), PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "first"},
-		{IPMin: net.IPv4(10, 0, 0, 42), IPMax: net.IPv4(10, 0, 0, 42), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "last"},
-	})
-	resource, ok := index.MatchLastWhere(net.IPv4(10, 0, 0, 42), "tcp", 443, nil)
-	if !ok {
-		t.Fatal("overlapping resource did not match")
+func TestMatchTCPTunnelUsesLastMatchingTCPGrant(t *testing.T) {
+	ip := net.IPv4(10, 0, 0, 42)
+	resources := []client.IPResource{
+		{IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "first"},
+		{IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "all", AppID: "last"},
+		{IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "l3", EnableTCPPrefL3: true},
 	}
-	if resource.AppID != "last" {
-		t.Fatalf("matched AppID = %q, want last rule", resource.AppID)
+	if resource, ok := New(resources).MatchTCPTunnel(ip, 443); !ok || resource.AppID != "last" {
+		t.Fatalf("MatchTCPTunnel() = (%#v, %t), want last TCP grant", resource, ok)
 	}
-}
-
-func TestIndexCanFilterMatchingResources(t *testing.T) {
-	index := New([]client.IPResource{
-		{IPMin: net.IPv4(10, 0, 0, 42), IPMax: net.IPv4(10, 0, 0, 42), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "tcp-tunnel"},
-		{IPMin: net.IPv4(10, 0, 0, 42), IPMax: net.IPv4(10, 0, 0, 42), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "l3", EnableTCPPrefL3: true},
-	})
-	resource, ok := index.MatchLastWhere(net.IPv4(10, 0, 0, 42), "tcp", 443, func(resource client.IPResource) bool {
-		return !resource.EnableTCPPrefL3
-	})
-	if !ok || resource.AppID != "tcp-tunnel" {
-		t.Fatalf("filtered match = (%#v, %t), want tcp-tunnel", resource, ok)
+	if resource, ok := New(resources[2:]).MatchTCPTunnel(ip, 443); ok {
+		t.Fatalf("MatchTCPTunnel() selected a grant that requires L3: %#v", resource)
 	}
 }
 
