@@ -177,7 +177,8 @@ assert.deepEqual(existingScript({}).rules.slice(-2), ["DOMAIN,keep.example,DIREC
     DefaultSettings::applyBuiltInConnection(settings);
     editor.load(settings);
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
-        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn\ncloud.fudan.edu.cn",
+        && editor.serverAddress() == "vpn.fudan.edu.cn"
+        && rules->toPlainText() == "zb.fudan.edu.cn\ncloud.fudan.edu.cn\nelearning.fudan.edu.cn",
         "Fudan displays its fixed endpoint and domain DNS default");
     settings.remove("JustConnect/TLSVerify");
     editor.load(settings);
