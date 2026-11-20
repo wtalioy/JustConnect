@@ -1,38 +1,39 @@
 # Building on Linux
 
+Build and test JustConnect on Debian 13 x64, then optionally turn the same build into a `.deb`. Run the commands from the repository root.
+
 ## Install build dependencies
 
-Use a C++17 compiler, CMake 3.20 or later, Qt 6.8 or later, and the exact Go version in [corelib/go.mod](corelib/go.mod). The sign-in browser requires WebKitGTK 4.1 and X11 development packages. OpenSSL development headers enable support for custom gateway CAs.
-
-On Debian 13, install the Go toolchain separately and use APT for the remaining dependencies.
+Install the exact Go version in [corelib/go.mod](corelib/go.mod) and put it on `PATH`. Use APT for the remaining dependencies.
 
 ```sh
-sudo apt install build-essential cmake git ninja-build pkg-config \
+sudo apt update
+sudo apt install build-essential cmake git ninja-build pkg-config python3 \
   qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-l10n-tools qt6-translations-l10n \
   libgl1-mesa-dev libegl-dev libxkbcommon-dev libfontconfig1-dev \
   libwebkit2gtk-4.1-dev libx11-dev libssl-dev xvfb xauth
 ```
 
-If your distribution ships an older Qt, install a Qt SDK with Widgets, SVG, and Linguist Tools. Pass its installation directory to CMake with `-DCMAKE_PREFIX_PATH`.
+For other distributions, use the equivalent packages and Qt 6.8 or later. If you install the Qt SDK separately, pass its directory to CMake with `-DCMAKE_PREFIX_PATH`. The `.deb` below is built against Debian 13 system libraries.
 
 ## Build and test
 
-From the repository root, with the pinned Go toolchain on `PATH`:
+Set the install prefix to `/usr` so the compiled-in helper path matches the Debian package layout.
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=ON
 cmake --build build --parallel 3
 xvfb-run -a ctest --test-dir build --output-on-failure
 ```
 
-Run `./build/JustConnect` to try the build in **Local proxy only** mode. Automatic routing needs the helper installed in a root-owned system directory. The Debian package below sets that up, including the polkit policy. See the [Linux runtime requirements](README.md#linux-requirements) for both modes.
+Run `./build/JustConnect` to try **Local proxy only**. The package in the next step installs the network helper and polkit policy for **Automatic routing**. See the [Linux runtime requirements](README.md#linux-requirements).
 
-## Build a Debian package
+## Package and install
 
-On an x64 host with Docker, run the [build script used by CI](scripts/build-debian-package.sh) in a Debian 13 container. The script installs its own build dependencies.
+On Debian 13 x64, package the `build` directory from the previous step.
 
 ```sh
-docker run --rm -v "$PWD":/justconnect -w /justconnect debian:13 \
-  bash scripts/build-debian-package.sh "" justconnect.deb
+./scripts/package-deb.sh build justconnect.deb "0.0.0~git$(git rev-parse --short=7 HEAD)"
 sudo apt install ./justconnect.deb
 ```
