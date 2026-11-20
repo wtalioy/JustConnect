@@ -35,7 +35,7 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
     connect(policy,&NetworkPolicySession::changed,this,&MacNetworkAccess::prepareConfiguration);
     connect(policy,&NetworkPolicySession::changed,this,&MacNetworkAccess::observeModel,Qt::QueuedConnection);
     observation.setInterval(2000);
-    connect(&observation,&QTimer::timeout,this,[this] { if (stage == Stage::Ready && !this->policy->isBusy()) this->policy->refresh(); });
+    connect(&observation,&QTimer::timeout,this,[this] { if (stage == Stage::Ready) this->policy->requestRefresh(); });
     connect(&worker,&QFutureWatcher<MacHelperPreparation>::finished,this,[this] {
         preparing = false;
         if (stage == Stage::Stopping) { driveStop(); return; }
@@ -185,7 +185,8 @@ void MacNetworkAccess::observeModel()
 {
     if (stage != Stage::Ready || generation != policy->currentGeneration() || automaticPolicy || policy->isBusy()) return;
     if (policy->status() != CoreEngine::RequestStatus::Success) {
-        stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("Cannot completely read the original network; restoring ownership."),true}); return;
+        stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("Cannot completely read the original network (%1); restoring ownership.")
+            .arg(policy->failureDetail().isEmpty() ? QStringLiteral("reason unavailable") : policy->failureDetail()),true}); return;
     }
     const auto model = policy->model();
     const auto exit = macOriginalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());

@@ -16,6 +16,8 @@ inline constexpr const char *LocalProxyMode="local_proxy";
 inline constexpr const char *AutomaticMode="automatic";
 inline constexpr const char *SocksPortKey="JustConnect/SOCKS5Port";
 inline constexpr int DefaultSocksPort=11080;
+inline constexpr const char *HTTPPortKey="JustConnect/HTTPPort";
+inline constexpr int DefaultHTTPPort=11081;
 inline constexpr const char *SignInMethodName="JustConnect/AuthName";
 const QVariantMap &builtInConnection();
 bool matchesBuiltInServer(const QString &server);

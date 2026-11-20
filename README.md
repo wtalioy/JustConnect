@@ -7,7 +7,7 @@
 <p align="center"><strong>Connect to campus. Keep your network.</strong></p>
 
 <p align="center">
-  An open-source aTrust client for Windows and macOS.
+  An open-source aTrust client for Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@ Always remember your saved sign-in between launches. As long as it’s still val
 
 ### Lightweight. Ready to go.
 
-14–22 MiB for JustConnect vs. 201–224 MiB for official aTrust client. Get onto your campus network with about a tenth of the download.
+14–22 MiB for the Windows and macOS builds vs. 201–224 MiB for official aTrust client. Get onto your campus network with about a tenth of the download.
 
 ## Screenshots
 
@@ -45,6 +45,7 @@ Always remember your saved sign-in between launches. As long as it’s still val
 | --- | --- |
 | **Windows** · x64 or ARM64 | Run the installer, or extract the portable ZIP and open `JustConnect.exe`. |
 | **macOS** · 14.4 or later, Apple silicon or Intel | Open the DMG and drag JustConnect into Applications. |
+| **Linux** · x64 | On Debian 13, install the package with `sudo apt install ./JustConnect-…-linux-x64.deb`. With the portable tarball, extract it and run `bin/JustConnect`. For automatic routing, install the portable helper with `sudo ./setup-network-helper.sh`. See the [Linux requirements and build guide](build-linux.md). |
 
 Windows installers are unsigned, so Windows may show a warning.
 

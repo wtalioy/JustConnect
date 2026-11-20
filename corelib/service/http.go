@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"io"
 	stdlog "log"
 	"net"
@@ -10,6 +11,9 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/policy"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 const (
@@ -50,6 +54,7 @@ type httpTunnel struct {
 
 type httpProxy struct {
 	failure     func(error)
+	diagnostic  func(string)
 	closed      bool
 	dialContext client.DialContextFunc
 	client      *http.Client
@@ -57,9 +62,25 @@ type httpProxy struct {
 	tunnels     map[*httpTunnel]struct{}
 }
 
-func newHTTPProxy(dialContext client.DialContextFunc) *httpProxy {
+// httpDialDiagnostic mirrors the SOCKS entry: a browser failure must identify
+// its stage instead of surfacing an anonymous 500 page.
+func httpDialDiagnostic(err error) string {
+	var dnsErr *net.DNSError
+	switch {
+	case errors.Is(err, dial.ErrACLDenied), errors.Is(err, policy.ErrProtectedTarget), errors.Is(err, client.ErrResourceNotFound):
+		return "http_destination_denied"
+	case errors.Is(err, resolve.ErrCampusDNSUnavailable), errors.As(err, &dnsErr):
+		return "http_dns_failed"
+	case errors.Is(err, client.ErrTCPNodeConnect):
+		return "http_tunnel_node_unreachable"
+	}
+	return "http_dial_failed"
+}
+
+func newHTTPProxy(dialContext client.DialContextFunc, diagnostic func(string)) *httpProxy {
 	proxy := &httpProxy{
 		dialContext: dialContext,
+		diagnostic:  diagnostic,
 		tunnels:     make(map[*httpTunnel]struct{}),
 	}
 	transport := &http.Transport{
@@ -90,7 +111,9 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-
+		if p.diagnostic != nil {
+			p.diagnostic(httpDialDiagnostic(err))
+		}
 		w.WriteHeader(500)
 		_, _ = w.Write([]byte(err.Error() + "\n"))
 		return
@@ -125,7 +148,9 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 
 	targetConn, err := p.dialContext(req.Context(), "tcp", req.Host)
 	if err != nil {
-
+		if p.diagnostic != nil {
+			p.diagnostic(httpDialDiagnostic(err))
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error() + "\n"))
 		return

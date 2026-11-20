@@ -22,7 +22,7 @@ runs:
         target: desktop
         arch: ${{ inputs.arch }}
         # lrelease in the SDK links QtQml; the application does not.
-        archives: qtbase qtsvg qtdeclarative qttools qttranslations
+        archives: qtbase qtsvg qtdeclarative qttools qttranslations${{ inputs.host == 'linux' && ' icu' || '' }}
         # Extension repositories and native ARM64 support are not in aqt 3.3.0.
         aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
         py7zrversion: '==1.1.4'

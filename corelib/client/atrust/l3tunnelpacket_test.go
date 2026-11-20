@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
@@ -102,5 +104,46 @@ func TestIsAuthTimeoutErr(t *testing.T) {
 
 	if isAuthTimeoutErr(fmt.Errorf("l3-tunnel auth timeout for unrelated text")) {
 		t.Fatal("plain text error must not be treated as auth timeout")
+	}
+}
+
+func TestUnauthorizedDNSDestinationIsReportedOnce(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	tunnel := &L3Tunnel{client: &Client{diagnostic: func(code string) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if code != "l3_dns_destination_unauthorized" {
+			t.Fatalf("unexpected diagnostic %q", code)
+		}
+	}}}
+	packet := zctcpip.IPv4Packet(makeUDPPacket(12345, 53))
+	if err := tunnel.processIPV4(packet); !errors.Is(err, client.ErrResourceNotFound) {
+		t.Fatalf("an unauthorized DNS destination failed differently: %v", err)
+	}
+	for i := 0; i < 8; i++ {
+		if err := tunnel.processIPV4(packet); !errors.Is(err, client.ErrResourceNotFound) {
+			t.Fatalf("repeated unauthorized DNS destination failed differently: %v", err)
+		}
+	}
+	mu.Lock()
+	if calls != 1 {
+		mu.Unlock()
+		t.Fatalf("DNS miss diagnostics exceeded their rate limit: %d", calls)
+	}
+	mu.Unlock()
+	// Non-DNS destinations stay silent; the ACL error alone describes them.
+	other := zctcpip.IPv4Packet(makeUDPPacket(12345, 8080))
+	mu.Lock()
+	calls = 0
+	mu.Unlock()
+	if err := tunnel.processIPV4(other); !errors.Is(err, client.ErrResourceNotFound) {
+		t.Fatalf("an unauthorized non-DNS destination failed differently: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 0 {
+		t.Fatal("non-DNS misses produced diagnostics")
 	}
 }

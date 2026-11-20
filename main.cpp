@@ -34,6 +34,12 @@ int main(int argc, char *argv[])
         if (output.write(bytes) != bytes.size() || !output.flush()) return 1;
         return report["ok"].toBool() ? 0 : 1;
     }
+#if defined(Q_OS_MACOS)
+    // An ACL from an earlier build should fall back to campus sign-in without a Keychain prompt.
+    if (SecKeychainSetUserInteractionAllowed(false) != errSecSuccess)
+        qWarning() << "Could not disable interactive Keychain access.";
+#endif
+
     QApplication app(argc, argv);
     QApplication::setApplicationName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationDisplayName(ApplicationConstants::ApplicationName);

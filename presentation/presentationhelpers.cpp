@@ -2,7 +2,9 @@
 
 #include <QApplication>
 #include <QAccessibleAnnouncementEvent>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
 #include <QAccessibilityHints>
+#endif
 #include <QClipboard>
 #include <QDate>
 #include <QDialog>
@@ -81,6 +83,7 @@ bool PresentationHelpers::actionPrompt(QWidget *parent,const QString &title,cons
     auto *dismissButton = buttons->button(dismiss);
     dismissButton->setProperty("promptPrimary",false);
     for (auto *button : {primaryButton,dismissButton}) {
+        button->setIcon({});
         button->setAutoDefault(false);
         // The button box may have queried the style before assigning these roles.
         button->style()->unpolish(button);

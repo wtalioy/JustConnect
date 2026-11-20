@@ -36,7 +36,7 @@ const QVariantMap &defaults()
         {"JustConnect/LocalDNSServer", ""},
         {"JustConnect/DNSTTL", DnsOptions{}.ttl},
         {DefaultSettings::SocksPortKey, DefaultSettings::DefaultSocksPort},
-        {"JustConnect/HTTPPort", 11081},
+        {DefaultSettings::HTTPPortKey, DefaultSettings::DefaultHTTPPort},
         {"JustConnect/KeepAliveMode", KeepAliveOptions{}.mode},
         {"JustConnect/KeepAliveURL", ""},
 

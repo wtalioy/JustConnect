@@ -149,18 +149,20 @@ func ListenLoopback(ctx context.Context, address string) (net.Listener, error) {
 }
 
 func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.Dialer, resolver *resolve.Resolver) (*Listeners, error) {
-	return startListeners(ctx, socksAddr, httpAddr, nil, dialer, resolver, nil)
+	return startListeners(ctx, socksAddr, httpAddr, nil, nil, dialer, resolver, nil)
 }
 
-// StartLocalSOCKS takes ownership of a reserved loopback socket, even on error.
-func StartLocalSOCKS(ctx context.Context, socket net.Listener, dialer *dial.Dialer, diagnostic func(string)) (*Listeners, error) {
-	return startListeners(ctx, "", "", socket, dialer, nil, diagnostic)
+// StartLocal takes ownership of reserved loopback sockets, even on error.
+func StartLocal(ctx context.Context, socks, http net.Listener, dialer *dial.Dialer, diagnostic func(string)) (*Listeners, error) {
+	return startListeners(ctx, "", "", socks, http, dialer, nil, diagnostic)
 }
 
-func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListener net.Listener, dialer *dial.Dialer, resolver *resolve.Resolver, diagnostic func(string)) (*Listeners, error) {
+func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListener, httpListener net.Listener, dialer *dial.Dialer, resolver *resolve.Resolver, diagnostic func(string)) (*Listeners, error) {
 	if err := ctx.Err(); err != nil {
-		if socksListener != nil {
-			_ = socksListener.Close()
+		for _, listener := range []net.Listener{socksListener, httpListener} {
+			if listener != nil {
+				_ = listener.Close()
+			}
 		}
 		return nil, err
 	}
@@ -183,13 +185,14 @@ func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListen
 		p.addresses.SOCKS = socksListener.Addr().String()
 		p.listeners = append(p.listeners, socksListener)
 	}
-	var httpListener net.Listener
-	if httpAddr != "" {
+	if httpListener == nil && httpAddr != "" {
 		var err error
 		httpListener, err = ListenLoopback(ctx, httpAddr)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if httpListener != nil {
 		p.addresses.HTTP = httpListener.Addr().String()
 		p.listeners = append(p.listeners, httpListener)
 	}
@@ -213,7 +216,11 @@ func startListeners(ctx context.Context, socksAddr, httpAddr string, socksListen
 		})
 	}
 	if httpListener != nil {
-		p.proxy = newHTTPProxy(p.dial)
+		p.proxy = newHTTPProxy(p.dial, func(code string) {
+			if p.diagnostic != nil && p.ctx.Err() == nil {
+				p.diagnostic(code)
+			}
+		})
 		p.proxy.failure = p.fail
 		p.http = newHTTPServer(httpAddr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !p.begin() {

@@ -420,5 +420,12 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     case ConnectionError::NONE:
         return;
     }
+    // Platform failures carry a concrete cause (helper output, remedy steps); show it alongside the guidance.
+    if (error == ConnectionError::OTHER || error == ConnectionError::PERMISSION_DENIED
+        || error == ConnectionError::BACKGROUND_HELPER_UNAVAILABLE)
+    {
+        const QString detail=connectionSession->platformFailureDetail();
+        if (!detail.isEmpty()) message+="\n"+detail;
+    }
     QMessageBox::critical(parentWidget, tr("Error"), message);
 }

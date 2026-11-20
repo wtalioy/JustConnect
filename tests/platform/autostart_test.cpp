@@ -49,6 +49,33 @@ int main(int argc, char **argv) {
     check(cleaned.succeeded() && !run.contains(app.applicationName()) && run.value(unrelated).toString()=="other application",
         "owned startup cleanup preserves unrelated Run entries");
     run.remove(unrelated);run.sync();
+#elif defined(Q_OS_LINUX)
+    qputenv("XDG_CONFIG_HOME", directory.path().toUtf8());
+    const auto entryPath=[] { return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + "/autostart/" + QCoreApplication::applicationName() + ".desktop"; };
+    static const QString ownedName = app.applicationName();
+    std::atexit([] {
+        const auto config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+        QFile::remove(config+"/autostart/"+ownedName+".desktop");
+        QFile::remove(config+"/autostart/"+ownedName+"-other.desktop");
+    });
+    check(!QFile::exists(entryPath()), "test owns a fresh autostart directory");
+    auto result=AutoStart::setEnabled(true);
+    check(result.succeeded(),qPrintable(result.detail));
+    QFile entry(entryPath());
+    check(entry.open(QIODevice::ReadOnly),"entry readable after enable");
+    const auto lines=QString::fromUtf8(entry.readAll()).split('\n');
+    check(lines.contains("Exec=\""+app.applicationFilePath()+"\""),"entry records the quoted executable");
+    check(lines.contains("[Desktop Entry]") && lines.contains("Type=Application"),"entry is a desktop entry");
+    result=AutoStart::setEnabled(false);
+    check(result.succeeded() && !QFile::exists(entryPath()),"disable removes the entry");
+    check(AutoStart::setEnabled(false).succeeded(),"disable idempotent");
+    const auto unrelated=QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        +"/autostart/"+app.applicationName()+"-other.desktop";
+    QFile unrelatedEntry(unrelated);
+    check(unrelatedEntry.open(QIODevice::WriteOnly) && unrelatedEntry.write("[Desktop Entry]\n")>0,"write unrelated entry");
+    check(AutoStart::setEnabled(false).succeeded() && QFile::exists(unrelated),"owned cleanup preserves unrelated autostart entries");
+    QFile::remove(unrelated);
 #else
     int calls=0, count=0;
     bool deny=false, ignore=false, malformed=false;

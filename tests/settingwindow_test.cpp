@@ -79,6 +79,8 @@ int main(int argc,char **argv) {
     const auto dataRoot=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     const auto cleanup=qScopeGuard([&] { QDir(configRoot).removeRecursively(); QDir(dataRoot).removeRecursively(); });
     QSettings settings(directory.filePath("profile.ini"),QSettings::IniFormat); DefaultSettings::reset(settings);
+    // This fixture models an automatic-routing profile; Linux defaults to local proxy only.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::AutomaticMode);
     settings.setValue("Credential/Username","fixture-user");
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");

@@ -26,6 +26,8 @@ QString PersistentProxyBackend::credentialKey() {
 PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, WindowsProxyApi api)
 #elif defined(Q_OS_MACOS)
 PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api, CredentialStore *receiptStore)
+#elif defined(Q_OS_LINUX)
+PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, LinuxProxyApi api)
 #else
 PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, PlatformCommandRunner api)
 #endif

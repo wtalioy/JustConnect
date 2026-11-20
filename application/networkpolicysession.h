@@ -13,7 +13,9 @@ class NetworkPolicySession : public QObject
     Q_OBJECT
 public:
     using OriginalView = std::pair<QJsonObject, QJsonObject>;
-    using OriginalViewFilter = std::function<std::optional<OriginalView>(const QJsonObject &, const QJsonObject &)>;
+    // The optional failure out-parameter lets platform ownership filters name
+    // exactly which snapshot expectation was violated.
+    using OriginalViewFilter = std::function<std::optional<OriginalView>(const QJsonObject &, const QJsonObject &, QString *)>;
     using PolicyApplier = std::function<void(const QJsonObject &)>;
     using DnsReader = std::function<DnsSnapshot()>;
     NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent = nullptr,
@@ -25,6 +27,10 @@ public:
     void setPolicyApplier(const QString &generation, PolicyApplier applier);
     void completePolicy(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
     bool refresh();
+    // Observation entry point: refreshes immediately when idle, otherwise
+    // coalesces the change into one queued follow-up instead of dropping it
+    // (publish() drains the queue once the busy flags clear).
+    void requestRefresh();
     CoreEngine::RequestStatus synchronizeProtection();
     bool setCampusAddress(const QString &address, bool campus);
     bool setCampusName(const QString &name, bool campus);
@@ -38,13 +44,17 @@ public:
     QJsonObject confirmedProtection() const { return confirmedPolicy; }
     QJsonObject model() const { return currentStatus == CoreEngine::RequestStatus::Success ? lastModel : QJsonObject{}; }
     QJsonObject localProxyResources() const { return localProxy && resourceStatus == CoreEngine::RequestStatus::Success ? resources : QJsonObject{}; }
+    // Names the read or projection behind a non-Success status, for failure diagnostics.
+    QString failureDetail() const;
 signals:
     void changed();
 private:
-    struct ModelResult { quint64 serial; CoreEngine::RequestStatus status; QJsonObject model; };
+    struct ModelResult { quint64 serial; CoreEngine::RequestStatus status; QJsonObject model; QString reason; };
     bool submitPolicy(QJsonObject policy);
     void begin(const QString &generation, bool proxyOnly);
     void buildModel();
+    static ModelResult finishModel(quint64 request, const QString &generation, const QJsonValue &version,
+        const QJsonObject &campus, const QJsonObject &previous, const OriginalView &view);
     void publish();
     QPointer<CoreEngine> engine;
     DnsReader reader;
@@ -62,6 +72,7 @@ private:
     CoreEngine::RequestStatus modelStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus currentStatus = CoreEngine::RequestStatus::Unavailable;
     QJsonObject network, resources, lastModel;
+    QString modelFailureReason;
     QJsonValue networkVersion;
     QJsonObject confirmedPolicy, pendingPolicy;
     quint64 revision = 0;

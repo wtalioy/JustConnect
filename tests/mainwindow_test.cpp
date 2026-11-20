@@ -837,6 +837,16 @@ int main(int argc,char **argv) {
     const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QTemporaryDir folder;
     ApplicationLogger logger;ApplicationLogFile log(folder.filePath("app.log"));
+#if defined(Q_OS_LINUX)
+    // The offscreen platform plugin warns on every unsupported window operation; keep that
+    // chatter out of the log window while forwarding every other message to the logger.
+    // Installed after ApplicationLogger so this filter sits at the head of the chain.
+    static QtMessageHandler platformNoisePrevious = nullptr;
+    platformNoisePrevious = qInstallMessageHandler([](QtMsgType type,const QMessageLogContext &context,const QString &message) {
+        if (type==QtWarningMsg && message.contains(QLatin1String("This plugin does not support"))) return;
+        if (platformNoisePrevious) platformNoisePrevious(type,context,message);
+    });
+#endif
 #if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
     if (app.arguments().contains("--native-startup")) {
         const auto module = QStringLiteral(JC_SHARED_LIBRARY).toStdWString();

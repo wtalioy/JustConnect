@@ -13,6 +13,9 @@
 #include <QVBoxLayout>
 #include "application/defaultsettings.h"
 #include "core/connectionoptions.h"
+#if defined(Q_OS_LINUX)
+#include "infrastructure/networkhelper/linux/networkhelperavailability.h"
+#endif
 
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *layout = new QVBoxLayout(this);
@@ -55,15 +58,26 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     socksPort->setObjectName("localSocksPortSpinBox");
     socksPort->setRange(0,65535);
     socksPort->setValue(DefaultSettings::DefaultSocksPort);
+    httpPort=new QSpinBox(this);
+    httpPort->setObjectName("localHttpPortSpinBox");
+    httpPort->setRange(0,65535);
+    httpPort->setValue(DefaultSettings::DefaultHTTPPort);
     clashHelp=new QLabel(this);
     connect(routingMode,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::updateRoutingFields);
-    for(auto *field:QList<QWidget *>{address,port,routingMode,socksPort}) {
+    for(auto *field:QList<QWidget *>{address,port,routingMode,socksPort,httpPort}) {
         auto *label=new QLabel(this);label->setBuddy(field);
-        // QFormLayout otherwise caps label height at 7/4 of its text height, above our taller inputs.
         label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
+        field->ensurePolished();
+        label->setMinimumHeight(qBound(field->minimumHeight(), field->sizeHint().height(), field->maximumHeight()));
         form->addRow(label,field);
     }
     layout->addLayout(form);
+    routingWarning=new QLabel(this);
+    routingWarning->setObjectName("routingModeWarningLabel");
+    routingWarning->setWordWrap(true);
+    routingWarning->setProperty("warning",true);
+    routingWarning->hide();
+    layout->addWidget(routingWarning);
     clashTargetsLabel=new QLabel(this);
     clashTargets=new QPlainTextEdit(this);
     clashTargets->setObjectName("clashTargetsEdit");
@@ -106,9 +120,15 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
 void ServerSettingsWidget::updateRoutingFields() {
     const bool local=routingMode->currentData().toString()==DefaultSettings::LocalProxyMode;
     form->setRowVisible(socksPort,local);
+    form->setRowVisible(httpPort,local);
     clashHelp->setVisible(local);
     clashTargetsLabel->setVisible(local);
     clashTargets->setVisible(local);
+#if defined(Q_OS_LINUX)
+    // Automatic routing asks polkit for administrator authorization; surface
+    // whatever this host is missing before the user reaches connect.
+    routingWarning->setVisible(!local);
+#endif
     QString help=tr("Choose how JustConnect looks up specific domains. Use one domain per line, optionally followed by a DNS server's IPv4 address. With no server specified, JustConnect uses gateway DNS.");
 #ifndef Q_OS_WIN
     if (!local) help+=" "+tr("In Automatic routing, use the local proxy for domains the gateway does not publish.");
@@ -125,8 +145,20 @@ void ServerSettingsWidget::retranslate() {
     qobject_cast<QLabel *>(form->labelForField(routingMode))->setText(tr("Routing mode"));
     routingMode->setItemText(0,tr("Automatic routing"));
     routingMode->setItemText(1,tr("Local proxy only"));
+#if defined(Q_OS_LINUX)
+    const auto availability = linuxNetworkHelperAvailability();
+    if (availability.available)
+        routingWarning->setText(tr("Connecting with automatic routing asks for administrator authorization (polkit password) once per application start."));
+    else {
+        const auto detail = availability.helperDetail.isEmpty() ? availability.routingDetail : availability.helperDetail;
+        routingWarning->setText((availability.remedy.isEmpty() ? detail : detail + QChar('\n') + availability.remedy)
+            + QChar('\n') + tr("Choose “Local proxy only”, then connect to use the local SOCKS5/HTTP proxy."));
+    }
+#endif
     qobject_cast<QLabel *>(form->labelForField(socksPort))->setText(tr("Local SOCKS5 port"));
     socksPort->setSpecialValueText(tr("Off"));
+    qobject_cast<QLabel *>(form->labelForField(httpPort))->setText(tr("Local HTTP port"));
+    httpPort->setSpecialValueText(tr("Off"));
     clashHelp->setText(tr("Once connected, choose Copy Clash Extend Script from the connection menu."));
     clashTargetsLabel->setText(tr("Additional Clash destinations"));
     clashTargets->setPlaceholderText(tr("Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22"));
@@ -146,6 +178,7 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     const auto number = settings.value("JustConnect/ServerPort", 443).toInt();
     routingMode->setCurrentIndex(qMax(0,routingMode->findData(settings.value(DefaultSettings::RoutingModeKey))));
     socksPort->setValue(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
+    httpPort->setValue(settings.value(DefaultSettings::HTTPPortKey,DefaultSettings::DefaultHTTPPort).toInt());
     builtIn = DefaultSettings::isBuiltInConnection(settings);
     address->setText(host);
     address->setReadOnly(builtIn);
@@ -173,5 +206,6 @@ QVariantMap ServerSettingsWidget::settingsValues() const {
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
         {DefaultSettings::AdditionalClashTargets,clashTargets->toPlainText().trimmed()},
         {DefaultSettings::RoutingModeKey,routingMode->currentData()},{DefaultSettings::SocksPortKey,socksPort->value()},
+        {DefaultSettings::HTTPPortKey,httpPort->value()},
         {"Common/NeedsConfiguration",false}};
 }

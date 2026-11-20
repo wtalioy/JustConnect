@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -37,6 +38,29 @@ type L3Tunnel struct {
 	closed        bool
 	connectCtx    context.Context
 	cancelConnect context.CancelFunc
+
+	// lastDNSMissDiagnostic rate-limits reports of DNS packets the server's
+	// resource list does not authorize, so a blackholed resolver stays visible
+	// without flooding the packet path.
+	lastDNSMissDiagnostic atomic.Int64
+}
+
+const dnsMissDiagnosticInterval = 30 * time.Second
+
+// noteDNSMiss reports an unauthorized DNS destination at most once per interval.
+func (t *L3Tunnel) noteDNSMiss() {
+	if t.client == nil || t.client.diagnostic == nil {
+		return
+	}
+	now := time.Now().Unix()
+	last := t.lastDNSMissDiagnostic.Load()
+	if last != 0 && time.Since(time.Unix(last, 0)) < dnsMissDiagnosticInterval {
+		return
+	}
+	if !t.lastDNSMissDiagnostic.CompareAndSwap(last, now) {
+		return
+	}
+	t.client.diagnostic("l3_dns_destination_unauthorized")
 }
 
 type l3TunnelConnectCall struct {

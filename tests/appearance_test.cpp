@@ -477,7 +477,7 @@ int main(int argc,char **argv) {
         "natural-width captions render fully, matching a roomier button even with fractional glyph advances");
     QPushButton details("Details");details.setObjectName("detailsButton");details.setFlat(true);layout.addWidget(&details);details.show();
     QToolButton tool;tool.setAutoRaise(true);tool.setFocusPolicy(Qt::StrongFocus);layout.addWidget(&tool);tool.show();
-    QWidget::setTabOrder(&secret,&details);QCoreApplication::processEvents();secret.setFocus();
+    QWidget::setTabOrder(&secret,&details);inputs.activateWindow();QCoreApplication::processEvents();secret.setFocus();
     UiWait::until(__FILE__,__LINE__,[&]{return secret.hasFocus();});
     check(details.focusPolicy()==Qt::TabFocus && tool.focusPolicy()==Qt::TabFocus,
         "flat and icon tools keep keyboard focus without mouse click focus");

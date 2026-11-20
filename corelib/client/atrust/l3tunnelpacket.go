@@ -49,6 +49,12 @@ func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
 		return t.writePacket(packet, meta, resource.AppID, resource.NodeGroupID)
 	}
 
+	// A resolver query the server never authorized is dropped silently by the
+	// network stack; report it so an unreachable campus DNS stays diagnosable.
+	if port == 53 {
+		t.noteDNSMiss()
+	}
+
 	if port != -1 {
 		return fmt.Errorf("%s:%d, [%s]: %w", meta.dstIP, port, protocol, client.ErrResourceNotFound)
 	}

@@ -150,6 +150,8 @@ static void reconnectDelayBounds() {
 }
 static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);
+    // Linux refuses automatic routing in the UI; fixtures that connect use local proxy only.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
     settings.setValue(DefaultSettings::RememberAuthentication,false);
@@ -256,6 +258,7 @@ static void manualCredentialsAndLateResults() {
 }
 static void authenticationCacheLifecycle() {
     QTemporaryDir folder;QSettings settings(folder.filePath("cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","login-alias");
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
@@ -373,6 +376,7 @@ static void authenticationCacheLifecycle() {
 
 static void onlineExpiryOffersOneReauthentication() {
     QTemporaryDir folder;QSettings settings(folder.filePath("online-expiry.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.setValue("Common/AutoReconnect",true);settings.sync();
@@ -425,6 +429,7 @@ static void onlineExpiryOffersOneReauthentication() {
 
 static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("official-client.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/AuthType","httpsOauth2");settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
@@ -449,6 +454,7 @@ static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
 
 static void authenticationSurvivesTunnelFailure() {
     QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
@@ -479,6 +485,40 @@ static void authenticationSurvivesTunnelFailure() {
     check(engine->connectionOptions.authenticationCache.account==saved.account && engine->connectionOptions.authenticationCache.data==saved.data,
         "retry restores the authenticated account instead of starting with an empty cache");
     emit engine->finished(ConnectionError::NONE);
+}
+
+static void platformFailureDetailAppearsInTheErrorDialog() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("platform-detail-dialog.ini"),QSettings::IniFormat);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;
+    class DetailNetwork : public NetworkAccess {
+    public:
+        QUuid attempt;
+        void prepare(const QUuid &id) override {
+            attempt=id;
+            emit prepared(id,{PlatformOperationResult::Status::Failed,
+                "helper binary is missing: pkexec sh -c 'install helper'",false});
+        }
+        void activate(const QUuid &,const ConnectionOptions &) override {}
+        void stop(const QUuid &) override {}
+    };
+    auto *network=new DetailNetwork;
+    ConnectionSession session(engine,nullptr,network);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
+    CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
+    bool errorShown=false;QTimer closeError;
+    QObject::connect(&closeError,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            check(box->text().contains("Unexpected error") && box->text().contains("helper binary is missing"),
+                "platform failure detail is shown alongside the error guidance");
+            errorShown=true;box->accept();
+        }
+    });closeError.start(1);
+    session.start({},{});emit network->stopped(network->attempt,{});closeError.stop();
+    check(errorShown,"failed platform setup surfaces its concrete cause, not only a generic message");
 }
 
 static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
@@ -579,6 +619,7 @@ static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
 
 static void quitWaitsForInitialSsoCache() {
     QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
@@ -1176,6 +1217,8 @@ static void gateway(const QJsonObject &config) {
     });
     QTemporaryDir profileFolder;QSettings settings(profileFolder.filePath("gateway.ini"),QSettings::IniFormat);
     DefaultSettings::reset(settings);
+    // The protocol host verifies the full automatic-routing flow against the real core.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::AutomaticMode);
     settings.setValue("JustConnect/ServerAddress",p.endpoint.server);settings.setValue("JustConnect/ServerPort",p.endpoint.port);
     settings.setValue("JustConnect/AuthType",p.endpoint.authType);settings.setValue("JustConnect/AuthID",p.endpoint.authId);
     settings.setValue("JustConnect/AuthSubType",p.endpoint.authSubType);settings.setValue("JustConnect/LoginDomain",p.endpoint.loginDomain);
@@ -1395,5 +1438,5 @@ int main(int argc, char **argv) {
         });
         return app.exec();
     }
-    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); reconnectDelayBounds(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); reconnectDelayBounds(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); platformFailureDetailAppearsInTheErrorDialog(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

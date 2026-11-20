@@ -1,0 +1,5 @@
+// Absolute installed path of the privileged Linux network helper, injected by
+// CMake; polkit authorizes exactly this binary via the .policy exec annotation.
+#pragma once
+
+inline constexpr const char *JustConnectNetworkHelperPath = "@JUSTCONNECT_HELPER_PATH@";

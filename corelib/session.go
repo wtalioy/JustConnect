@@ -181,7 +181,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if err := ValidateKeepAlive(options.KeepAliveMode, options.KeepAliveURL); err != nil {
 		return err
 	}
-	var reservedSOCKS net.Listener
+	var reservedSOCKS, reservedHTTP net.Listener
 	if options.LocalProxy && !options.QueryAuthMethods {
 		reservedSOCKS, err = service.ListenLoopback(ctx, options.SOCKS)
 		if err != nil {
@@ -192,6 +192,17 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 				_ = reservedSOCKS.Close()
 			}
 		}()
+		if options.HTTP != "" {
+			reservedHTTP, err = service.ListenLoopback(ctx, options.HTTP)
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrLocalProxyListen, err)
+			}
+			defer func() {
+				if reservedHTTP != nil {
+					_ = reservedHTTP.Close()
+				}
+			}()
+		}
 	}
 	clientOptions := options.Client
 	if clientOptions.UnderlayDialer == nil {
@@ -270,6 +281,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	resolver = resolve.NewResolver(network, remoteDNS, options.SecondaryDNS, ttl, domains, dnsResource, !options.DisableRemoteDNS && remoteDNS != "")
 	resolver.ProtectionPolicy = options.ProtectionPolicy
 	resolver.OriginalDNS = options.OriginalDNS
+	resolver.Diagnostic = clientOptions.Diagnostic
 
 	dialer := dial.NewDialer(network, resolver, ips, options.LocalProxy)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
@@ -283,8 +295,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		defer s.upstream.Store(nil)
 	}
 	if reservedSOCKS != nil {
-		listeners, err = service.StartLocalSOCKS(ctx, reservedSOCKS, dialer, clientOptions.Diagnostic)
-		reservedSOCKS = nil
+		listeners, err = service.StartLocal(ctx, reservedSOCKS, reservedHTTP, dialer, clientOptions.Diagnostic)
+		reservedSOCKS, reservedHTTP = nil, nil
 	} else {
 		listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
 	}

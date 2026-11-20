@@ -48,12 +48,36 @@ type Resolver struct {
 	resolutionClosed  atomic.Bool
 	activeResolutions atomic.Int64
 
+	// Diagnostic receives stable codes for campus DNS failures; nil disables reporting.
+	Diagnostic func(string)
+	// lastCampusDiagnostic rate-limits campus DNS diagnostics so hot paths stay quiet.
+	lastCampusDiagnostic atomic.Int64
+
 	workers   sync.WaitGroup
 	cacheMu   sync.RWMutex
 	closeOnce sync.Once
 }
 
 const remoteDNSTCPFallbackDelay = 300 * time.Millisecond
+
+// campusDiagnosticInterval keeps repeated failures from flooding the diagnostic channel.
+const campusDiagnosticInterval = 30 * time.Second
+
+// noteCampusDNS reports a campus DNS failure at most once per interval.
+func (r *Resolver) noteCampusDNS(code string) {
+	if r.Diagnostic == nil {
+		return
+	}
+	now := time.Now().Unix()
+	last := r.lastCampusDiagnostic.Load()
+	if last != 0 && time.Since(time.Unix(last, 0)) < campusDiagnosticInterval {
+		return
+	}
+	if !r.lastCampusDiagnostic.CompareAndSwap(last, now) {
+		return
+	}
+	r.Diagnostic(code)
+}
 
 type lookupIPFunc func(context.Context, string, string) ([]net.IP, error)
 
@@ -189,6 +213,10 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 			return r.resolveRemote(lookupCtx, host)
 		})
 		if err != nil {
+			// The authorized campus resolver is the only off-campus source for
+			// campus names; make its unreachability visible instead of failing
+			// straight into the (off-campus useless) native fallback.
+			r.noteCampusDNS("campus_dns_unreachable")
 			if campusOnly {
 				return ctx, nil, err
 			}
@@ -202,6 +230,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 		return ctx, ip, nil
 	} else {
 		if campusOnly {
+			r.noteCampusDNS("campus_dns_unconfigured")
 			return ctx, nil, ErrCampusDNSUnavailable
 		}
 		return r.ResolveWithSecondaryDNS(ctx, host)

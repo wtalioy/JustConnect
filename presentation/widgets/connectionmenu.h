@@ -1,5 +1,4 @@
 #pragma once
-#include <QAccessibilityHints>
 #include <QAction>
 #include <QApplication>
 #include <QKeyEvent>
@@ -8,6 +7,9 @@
 #include <QPainter>
 #include <QStyle>
 #include <QStyleHints>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
+#include <QAccessibilityHints>
+#endif
 #include <QVariantAnimation>
 
 class ConnectionMenu final : public QMenu {

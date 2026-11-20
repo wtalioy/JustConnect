@@ -30,7 +30,7 @@ func (b *trackingBody) Close() error {
 
 func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 	body := &trackingBody{Reader: bytes.NewBufferString("response")}
-	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext, nil)
 	proxy.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -49,7 +49,7 @@ func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 }
 
 func TestHTTPProxyTransportHasBoundedPool(t *testing.T) {
-	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext, nil)
 	transport, ok := proxy.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport type = %T, want *http.Transport", proxy.client.Transport)
@@ -93,7 +93,7 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		}
 	}()
 
-	proxy := httptest.NewServer(newHTTPProxy((&net.Dialer{}).DialContext))
+	proxy := httptest.NewServer(newHTTPProxy((&net.Dialer{}).DialContext, nil))
 	defer proxy.Close()
 
 	clientConn, err := net.Dial("tcp", proxy.Listener.Addr().String())
@@ -143,7 +143,7 @@ func TestHTTPProxyKeepsCredentialsAndHopHeadersOnTheirOwnConnection(t *testing.T
 		_, _ = io.WriteString(w, "response")
 	}))
 	defer origin.Close()
-	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext, nil)
 	defer proxy.close()
 	req := httptest.NewRequest(http.MethodGet, origin.URL, nil)
 	req.Header.Set("Proxy-Authorization", "Basic local-secret")

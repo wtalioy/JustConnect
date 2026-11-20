@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #if defined(Q_OS_WIN)
 #include "infrastructure/systemproxy/windows/proxyapi.h"
+#elif defined(Q_OS_LINUX)
+#include "infrastructure/systemproxy/linux/proxyapi.h"
 #else
 #include "infrastructure/systemproxy/macos/proxyapi.h"
 #endif
@@ -17,6 +19,9 @@ public:
 #if defined(Q_OS_WIN)
     explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}, CheckpointWriter writer = {})
         : api(api), checkpointWriter(std::move(writer)) {}
+#elif defined(Q_OS_LINUX)
+    explicit PlatformSystemProxyBackend(LinuxProxyApi api = {}, CheckpointWriter writer = {})
+        : api(std::move(api)), checkpointWriter(std::move(writer)) {}
 #else
     explicit PlatformSystemProxyBackend(MacProxyApi api = {}, CheckpointWriter writer = {})
         : api(std::move(api)), checkpointWriter(std::move(writer)) {}
@@ -36,6 +41,8 @@ private:
     std::shared_ptr<Snapshot> snapshot;
 #if defined(Q_OS_WIN)
     WindowsProxyApi api;
+#elif defined(Q_OS_LINUX)
+    LinuxProxyApi api;
 #else
     MacProxyApi api;
 #endif

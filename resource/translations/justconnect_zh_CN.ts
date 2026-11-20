@@ -332,6 +332,10 @@ This connection remains usable. You may need to sign in again later.</source>
 <context>
     <name>ConnectionUiController</name>
     <message>
+        <source>Automatic routing unavailable</source>
+        <translation>自动分流暂不可用</translation>
+    </message>
+    <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="144"/>
         <source>Connect</source>
         <translation>连接</translation>
@@ -1986,6 +1990,14 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>在自动分流模式下，网关未发布的域名请通过本地代理访问。</translation>
     </message>
     <message>
+        <source>Automatic routing is not yet available on Linux. Choose “Local proxy only”, then connect to use the local SOCKS5/HTTP proxy.</source>
+        <translation>Linux 暂不支持自动分流。请选择「仅本地代理」，连接后使用本地 SOCKS5/HTTP 代理。</translation>
+    </message>
+    <message>
+        <source>Connecting with automatic routing asks for administrator authorization (polkit password) once per application start.</source>
+        <translation>使用自动分流连接时，会在每次启动应用后首次连接时请求管理员授权（polkit 密码）。</translation>
+    </message>
+    <message>
         <source>Address</source>
         <translation>地址</translation>
     </message>
@@ -2441,6 +2453,40 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="83"/>
         <source>Page address</source>
         <translation>页面地址</translation>
+    </message>
+</context>
+<context>
+    <name>SignInBrowser</name>
+    <message>
+        <source>The sign-in page cannot be embedded in this desktop session and opened in a separate window instead. Complete the sign-in there.</source>
+        <translation>登录页面无法内嵌于当前桌面会话，已在独立窗口中打开；请在该窗口中完成登录。</translation>
+    </message>
+</context>
+<context>
+    <name>LinuxNetworkAvailability</name>
+    <message>
+        <source>Cannot read /etc/resolv.conf; automatic routing has no supported DNS mechanism.</source>
+        <translation>无法读取 /etc/resolv.conf；自动分流没有受支持的 DNS 机制。</translation>
+    </message>
+    <message>
+        <source>/etc/resolv.conf is not a plain file; no supported DNS mechanism was found.</source>
+        <translation>/etc/resolv.conf 不是普通文件；未找到受支持的 DNS 机制。</translation>
+    </message>
+    <message>
+        <source>The JustConnect network helper is not installed as a root-owned executable at %1.</source>
+        <translation>JustConnect 网络 helper 未以 root 属主的可执行文件形式安装在 %1。</translation>
+    </message>
+    <message>
+        <source>Run: sudo chown root:root &apos;%1&apos; &amp;&amp; sudo chmod 0755 &apos;%1&apos; — or install it to %2 as a root-owned executable, then reconnect.</source>
+        <translation>请运行：sudo chown root:root &apos;%1&apos; &amp;&amp; sudo chmod 0755 &apos;%1&apos;；或将它以 root 属主可执行文件的形式安装到 %2，然后重新连接。</translation>
+    </message>
+    <message>
+        <source>polkit (pkexec) is not available; automatic routing needs it to request administrator privileges.</source>
+        <translation>polkit（pkexec）不可用；自动分流需要它来请求管理员权限。</translation>
+    </message>
+    <message>
+        <source>Install polkit with your package manager (for example: sudo apt install policykit-1), then reconnect.</source>
+        <translation>请用软件包管理器安装 polkit（例如：sudo apt install policykit-1），然后重新连接。</translation>
     </message>
 </context>
 </TS>

@@ -70,6 +70,7 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	if event := next(t, e, h); event.Type != "terminal" || event.Status != Cancelled {
 		t.Fatal(event)
 	}
+	c.Listeners.HTTP = freeAddress(t)
 	startProtocol(t, e, h, c)
 	ready := next(t, e, h)
 	if ready.State != "ready" {
@@ -78,6 +79,7 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	data, status := readResourceBytes(e, h, ready.Generation)
 	var snapshot resourcesEnvelope
 	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
+		snapshot.Resources.Listeners.HTTP != c.Listeners.HTTP ||
 		len(snapshot.Resources.Domains["campus.test"]) == 0 || len(snapshot.Resources.IPs) == 0 ||
 		len(snapshot.Resources.DNSRecords) != 0 || len(snapshot.Resources.PrivateIPRanges) != 0 {
 		t.Fatal("local mode must publish its listener and export grants, without system capture data", status)
@@ -106,6 +108,45 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 			t.Fatal("local mode opened a non-campus connection")
 		}
 	}
+	tunnel, err := net.DialTimeout("tcp", c.Listeners.HTTP, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	if err := tunnel.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.WriteString(tunnel, "CONNECT campus.test:80 HTTP/1.1\r\nHost: campus.test:80\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := http.ReadResponse(bufio.NewReader(tunnel), &http.Request{Method: http.MethodConnect})
+	if err != nil || reply.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP CONNECT = %v, %v", reply, err)
+	}
+	echo(t, tunnel)
+	proxyURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 5 * time.Second}
+	response, err := client.Get("http://campus.test/resource")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || string(body) != "vpn-response" {
+		t.Fatalf("HTTP proxy response = %q, %v", body, err)
+	}
+	deniedURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+	denied := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(deniedURL)}, Timeout: 5 * time.Second}
+	if rejection, err := denied.Get("http://192.0.2.99:80/"); err == nil {
+		rejectionBody, _ := io.ReadAll(rejection.Body)
+		_ = rejection.Body.Close()
+		if rejection.StatusCode == http.StatusOK {
+			t.Fatalf("HTTP proxy served a non-campus connection: %q", rejectionBody)
+		}
+	}
+	client.CloseIdleConnections()
+	denied.CloseIdleConnections()
 	if e.Stop(h, 3000) != OK {
 		t.Fatal("local proxy did not stop")
 	}

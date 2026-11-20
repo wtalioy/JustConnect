@@ -27,7 +27,7 @@ ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
     p.dns.disableRemoteDns=settings.value("JustConnect/DisableRemoteDNS",p.dns.disableRemoteDns).toBool();
     const auto bind=[](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };
     p.proxy.socksBind=bind(settings.value(DefaultSettings::SocksPortKey,DefaultSettings::DefaultSocksPort).toInt());
-    p.proxy.httpBind=bind(settings.value("JustConnect/HTTPPort").toInt());
+    p.proxy.httpBind=bind(settings.value(DefaultSettings::HTTPPortKey,DefaultSettings::DefaultHTTPPort).toInt());
     p.proxy.additionalClashTargets=settings.value(DefaultSettings::AdditionalClashTargets).toString();
     if (settings.value(DefaultSettings::RoutingModeKey).toString()==DefaultSettings::LocalProxyMode)
         p.routingMode=RoutingMode::LocalProxy;

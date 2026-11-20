@@ -226,6 +226,52 @@ bool failedRecoveryCanRetryWhileCoreStopIsPending()
     return !session.isActive() && finishes==1;
 }
 
+bool failedPlatformSetupCarriesItsDetailToTheErrorDialog()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    ConnectionError reported=ConnectionError::NONE;int finishes=0;
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error){reported=error;++finishes;});
+    if (!session.start({},{})) return false;
+    const auto id=network->attempt;
+    emit network->prepared(id,{PlatformOperationResult::Status::Failed,"helper binary is missing: run the documented install commands",false});
+    if (engine->startCalls) return false;
+    emit network->stopped(id,{});
+    if (finishes!=1 || reported!=ConnectionError::OTHER || session.isActive()) return false;
+    if (session.platformFailureDetail()!="helper binary is missing: run the documented install commands") return false;
+    if (!session.start({},{})) return false;
+    if (!session.platformFailureDetail().isEmpty()) return false;
+    session.stop();emit network->stopped(network->attempt,{});
+    return finishes==2 && reported==ConnectionError::NONE && session.platformFailureDetail().isEmpty();
+}
+
+bool platformFailureDetailTracksOnlyThePrimaryError()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    ConnectionError reported=ConnectionError::NONE;int finishes=0;
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error){reported=error;++finishes;});
+    if (!session.start({},{})) return false;
+    emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    emit network->lost(network->attempt,{PlatformOperationResult::Status::PermissionDenied,"device authorization was revoked",false});
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::Failed,"restore failed",true});
+    if (session.platformFailureDetail()!="device authorization was revoked") return false;
+    engine->complete();
+    session.stop();emit network->stopped(network->attempt,{});
+    if (finishes!=1 || reported!=ConnectionError::PERMISSION_DENIED || session.isActive()) return false;
+    if (!session.start({},{})) return false;
+    emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    engine->complete(ConnectionError::CLIENT_FAILED);
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::Failed,"restore broke",true});
+    if (!session.platformFailureDetail().isEmpty()) return false;
+    session.stop();emit network->stopped(network->attempt,{});
+    return finishes==2 && reported==ConnectionError::CLIENT_FAILED;
+}
+
 bool recoveredDisconnectPreservesOnlyPrimaryErrors()
 {
     for(const auto coreError:{ConnectionError::NONE,ConnectionError::NETWORK_FAILED,ConnectionError::SESSION_INVALID}){
@@ -585,6 +631,8 @@ int main(int argc, char *argv[])
         && stagedNetworkReleaseWaitsForCoreAndFinalReceipt()
         && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
         && failedRecoveryCanRetryWhileCoreStopIsPending()
+        && failedPlatformSetupCarriesItsDetailToTheErrorDialog()
+        && platformFailureDetailTracksOnlyThePrimaryError()
         && recoveredDisconnectPreservesOnlyPrimaryErrors()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()

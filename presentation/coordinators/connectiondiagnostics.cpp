@@ -53,6 +53,8 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                                          "local_controller_real_dns",      "local_controller_ambiguous",
                                          "local_controller_unavailable",   "coexistence_refresh_failed",
                                          "socks_dns_failed", "socks_destination_denied", "socks_tunnel_node_unreachable", "socks_campus_dial_failed",
+                                         "http_dns_failed", "http_destination_denied", "http_tunnel_node_unreachable", "http_dial_failed",
+                                         "campus_dns_unreachable", "campus_dns_unconfigured", "l3_dns_destination_unauthorized",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
                                          "tls_authentication_failed",      "persistence_failed",
                                          "browser_proxy_changed_externally", "browser_proxy_observation_unavailable",
@@ -84,9 +86,14 @@ QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
         return {};
     if (connection->usesLocalProxy()) {
         const bool ready = connection->state() == ConnectionState::Running;
+        const auto proxyOptions = connection->proxyOptions();
+        const auto entry = ready ? (proxyOptions.httpBind.isEmpty()
+                                        ? tr("SOCKS5 %1").arg(proxyOptions.socksBind)
+                                        : tr("HTTP %1 · SOCKS %2").arg(proxyOptions.httpBind, proxyOptions.socksBind))
+                                 : tr("Not active");
         QList<QPair<QString,QString>> result{
             {tr("Routing mode"),tr("Local proxy only")},
-            {tr("Local entry"),ready ? tr("SOCKS5 %1").arg(connection->proxyOptions().socksBind) : tr("Not active")},
+            {tr("Local entry"),entry},
             {tr("Campus exit"),ready ? tr("Campus tunnel") : unknown}};
         if (!code.isEmpty())
             result.append({tr("Diagnostic code"),code});

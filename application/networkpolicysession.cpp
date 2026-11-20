@@ -62,6 +62,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
         workerBusy = false;
         if (!generation.isEmpty() && result.serial == serial) {
             modelStatus = result.status;
+            modelFailureReason = result.status == Status::Success ? QString() : result.reason;
             if (result.status == Status::Success) lastModel = result.model;
         }
         publish();
@@ -141,6 +142,7 @@ bool NetworkPolicySession::refresh()
     ++serial;
     network = resources = {};
     networkVersion = {};
+    modelFailureReason.clear();
     networkStatus = resourceStatus = modelStatus = Status::Pending;
     networkPending = true;
     currentStatus = Status::Pending;
@@ -151,6 +153,21 @@ bool NetworkPolicySession::refresh()
     }
     publish();
     return true;
+}
+
+void NetworkPolicySession::requestRefresh()
+{
+    if (localProxy || !engine || generation.isEmpty()) return;
+    // A change observed while a refresh (or a native policy write) runs must
+    // not be lost, but it must not multiply either: one queued follow-up
+    // coalesces every observation made while this one is outstanding, and
+    // publish() drains it once the busy flags clear. An explicit refresh()
+    // from the retry path keeps its immediate, refusing semantics.
+    if (isBusy()) {
+        refreshQueued = true;
+        return;
+    }
+    refresh();
 }
 
 CoreEngine::RequestStatus NetworkPolicySession::synchronizeProtection()
@@ -280,32 +297,56 @@ void NetworkPolicySession::buildModel()
     const auto read = reader;
     watcher.setFuture(QtConcurrent::run([read, request, id=generation, version=networkVersion, original=network,
                                         campus=resources, filter=originalViewFilter, previous=lastModel] {
+        QString reason;
         try {
             const auto snapshot = read();
             using NativeStatus = PlatformOperationResult::Status;
             if (!snapshot.result.succeeded()) {
                 const auto status = snapshot.result.status == NativeStatus::Unsupported ? Status::Unavailable
                     : snapshot.result.status == NativeStatus::Cancelled ? Status::Stale : Status::Failed;
-                return ModelResult{request, status, {}};
+                return ModelResult{request, status, {}, QStringLiteral("system resolver snapshot read failed: %1")
+                    .arg(snapshot.result.detail.isEmpty() ? QStringLiteral("unspecified") : snapshot.result.detail)};
             }
-            const auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
-            if (!view) return ModelResult{request, Status::Failed, {}};
-            const auto projected = originalProxyNetworkView(view->first);
-            if (!projected) return ModelResult{request, Status::Failed, {}};
-            // Reuse only after a fresh, successful read and projection of the active ownership view.
-            if (!previous.isEmpty() && previous["schema_version"] == version && previous["network"] == *projected
-                && previous["resources"] == campus && previous["dns"] == view->second)
-                return ModelResult{request, Status::Success, previous};
-            const auto targets = originalNetworkProtection(*projected);
-            const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;
-            const auto names = originalDnsProtection(view->second);
-            if (!targets || !conflicts || !names) return ModelResult{request, Status::Failed, {}};
-            return ModelResult{request, Status::Success,
-                {{"schema_version", version}, {"generation", id}, {"network", *projected}, {"resources", campus},
-                 {"dns", view->second}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
-                 {"targets", *targets}, {"conflicts", *conflicts}}};
-        } catch (...) { return ModelResult{request, Status::Failed, {}}; }
+            if (filter) {
+                reason = QStringLiteral("the owned network view filter rejected the snapshot");
+                const auto view = filter(original, snapshot.data, &reason);
+                if (!view) return ModelResult{request, Status::Failed, {}, reason};
+                return finishModel(request, id, version, campus, previous, *view);
+            }
+            return finishModel(request, id, version, campus, previous, OriginalView{original, snapshot.data});
+        } catch (...) { return ModelResult{request, Status::Failed, {}, QStringLiteral("the model worker crashed")}; }
     }));
+}
+
+NetworkPolicySession::ModelResult NetworkPolicySession::finishModel(quint64 request, const QString &id,
+    const QJsonValue &version, const QJsonObject &campus, const QJsonObject &previous, const OriginalView &view)
+{
+    const auto projected = originalProxyNetworkView(view.first);
+    if (!projected) return {request, Status::Failed, {}, QStringLiteral("cannot project the proxy network view")};
+    // Reuse only after a fresh, successful read and projection of the active ownership view.
+    if (!previous.isEmpty() && previous["schema_version"] == version && previous["network"] == *projected
+        && previous["resources"] == campus && previous["dns"] == view.second)
+        return {request, Status::Success, previous, {}};
+    const auto targets = originalNetworkProtection(*projected);
+    if (!targets) return {request, Status::Failed, {}, QStringLiteral("cannot derive protected targets from the network view")};
+    const auto conflicts = campusProtectionConflicts(*targets, campus);
+    if (!conflicts) return {request, Status::Failed, {}, QStringLiteral("the campus resources shape is invalid for protection")};
+    const auto names = originalDnsProtection(view.second);
+    if (!names) return {request, Status::Failed, {}, QStringLiteral("cannot derive DNS protection from the resolver snapshot")};
+    return {request, Status::Success,
+        {{"schema_version", version}, {"generation", id}, {"network", *projected}, {"resources", campus},
+         {"dns", view.second}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
+         {"targets", *targets}, {"conflicts", *conflicts}}, {}};
+}
+
+QString NetworkPolicySession::failureDetail() const
+{
+    if (networkStatus != Status::Success) return QStringLiteral("original network snapshot read failed");
+    if (resourceStatus != Status::Success) return QStringLiteral("campus resources snapshot read failed");
+    if (modelStatus != Status::Success && modelStatus != Status::Pending)
+        return QStringLiteral("original network model build failed: %1")
+            .arg(modelFailureReason.isEmpty() ? QStringLiteral("unspecified") : modelFailureReason);
+    return {};
 }
 
 void NetworkPolicySession::publish()

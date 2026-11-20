@@ -216,8 +216,16 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if c.LocalProxy {
 		socks, err := netip.ParseAddrPort(c.Listeners.SOCKS)
+		var httpEntry netip.AddrPort
+		if c.Listeners.HTTP != "" {
+			// An optional HTTP entry point may accompany SOCKS; both must be fixed loopback ports.
+			httpEntry, err = netip.ParseAddrPort(c.Listeners.HTTP)
+		}
 		if c.Operation == "auth_methods" || err != nil || socks.Addr() != netip.AddrFrom4([4]byte{127, 0, 0, 1}) ||
-			socks.Port() == 0 || c.Listeners.HTTP != "" || len(c.Network.OriginalDNS) != 0 {
+			socks.Port() == 0 ||
+			(c.Listeners.HTTP != "" && (httpEntry.Addr() != netip.AddrFrom4([4]byte{127, 0, 0, 1}) ||
+				httpEntry.Port() == 0 || c.Listeners.HTTP == c.Listeners.SOCKS)) ||
+			len(c.Network.OriginalDNS) != 0 {
 			return Config{}, InvalidArgument
 		}
 		if c.Protection == nil {

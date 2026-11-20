@@ -112,7 +112,7 @@ static void withdrawalWaitsForCurrentOwnedView()
             "Withdrawal reached native capture planning before the current ownership view was ready");
         applied.append(value);
     });
-    const auto project = [](QJsonObject network,QJsonObject dns) -> std::optional<NetworkPolicySession::OriginalView> {
+    const auto project = [](QJsonObject network,QJsonObject dns,QString *) -> std::optional<NetworkPolicySession::OriginalView> {
         return NetworkPolicySession::OriginalView{network,dns};
     };
     session.setOriginalViewFilter("withdraw",project);
@@ -176,7 +176,7 @@ static void ownershipViewsStaySerializedAndGenerationBound()
           && !session.setCampusName("campus.test", true) && engine.policies.isEmpty(),
           "A changing owned network allowed new reads or policy choices");
     const auto select = [](const QString &marker) -> NetworkPolicySession::OriginalViewFilter {
-        return [marker](QJsonObject network, QJsonObject dns) -> std::optional<NetworkPolicySession::OriginalView> {
+        return [marker](QJsonObject network, QJsonObject dns, QString *) -> std::optional<NetworkPolicySession::OriginalView> {
             network["interfaces"] = QJsonArray{};
             network["owned_filter"] = marker;
             return NetworkPolicySession::OriginalView{network, dns};
@@ -216,7 +216,7 @@ static void ownershipViewsStaySerializedAndGenerationBound()
     until([&] { return !session.isBusy(); });
     check(reads == beforeRefresh + 1 && session.model() == previousModel,
           "Stable facts did not produce the same view after a fresh DNS read");
-    session.setOriginalViewFilter("next", [](const QJsonObject &, const QJsonObject &) -> std::optional<NetworkPolicySession::OriginalView> { return {}; });
+    session.setOriginalViewFilter("next", [](const QJsonObject &, const QJsonObject &, QString *) -> std::optional<NetworkPolicySession::OriginalView> { return {}; });
     reply(engine, "next", "192.168.12.19");
     until([&] { return !session.isBusy(); });
     check(session.status() == Status::Failed && session.model().isEmpty() && engine.policies.isEmpty(),
@@ -260,6 +260,36 @@ static void synchronizeCurrentProtection()
     session.clear();check(session.synchronizeProtection() == Status::Unavailable,"Stopped generation synchronized its old native model");
 }
 
+static void buildFailuresCarryTheirReason()
+{
+    Engine engine;
+    NetworkPolicySession session(&engine, [] { return DnsSnapshot{}; });
+    emit engine.sessionStarted("reasons");
+    reply(engine,"reasons","192.168.10.19");
+    until([&] { return !session.isBusy(); });
+    check(session.status() == Status::Success && session.failureDetail().isEmpty(),
+        "A healthy model carries no failure detail");
+    // A rejected ownership view names the violated expectation.
+    session.setOriginalViewFilter("reasons",[](QJsonObject,QJsonObject,QString *reason)
+        -> std::optional<NetworkPolicySession::OriginalView> {
+        if (reason) *reason = "the owned tunnel device jc0 is missing from the network snapshot";
+        return std::nullopt;
+    });
+    // A fresh snapshot runs the model worker through the rejecting filter.
+    reply(engine,"reasons","192.168.10.19");
+    until([&] { return session.status() == Status::Failed; });
+    check(session.failureDetail().contains("the owned tunnel device jc0 is missing"),
+        "A rejected ownership view names the violated expectation");
+    // A failed native snapshot read names its own stage.
+    Engine unsupported;
+    unsupported.unsupported = true;
+    NetworkPolicySession failing(&unsupported, [] { return DnsSnapshot{}; });
+    emit unsupported.sessionStarted("unsupported");
+    until([&] { return failing.status() == Status::Unavailable; });
+    check(failing.failureDetail().contains("original network snapshot read failed"),
+        "A failed native snapshot names its stage");
+}
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
@@ -283,6 +313,7 @@ int main(int argc, char **argv) try
     coordinatedPolicyRequiresBothConfirmations();
     withdrawalWaitsForCurrentOwnedView();
     synchronizeCurrentProtection();
+    buildFailuresCarryTheirReason();
     ownershipViewsStaySerializedAndGenerationBound();
     Engine engine;
     std::atomic_int reads = 0;

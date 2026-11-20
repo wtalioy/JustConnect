@@ -59,7 +59,7 @@ int main(int argc,char **argv) try
     const auto ownership=WindowsNetworkOwnership::capture(configuration,device,network,dns);
     check(ownership.has_value(),"confirmed owned snapshot was rejected");
     const auto filter=ownership->filter(configuration);check(bool(filter),"confirmed capture set was rejected");
-    const auto clean=filter(network,dns);check(clean && clean->first["interfaces"]==QJsonArray{lan}
+    const auto clean=filter(network,dns,nullptr);check(clean && clean->first["interfaces"]==QJsonArray{lan}
         && clean->first["routes"]==QJsonArray{originalRoute} && clean->second["nrpt"]==QJsonArray{originalPolicy}
         && clean->second["adapters"]==QJsonArray{originalAdapter} && clean->second["nrpt_sources"]==QJsonArray{originalSource},"original network was not restored in the read model");
     auto borrowedConfiguration=configuration,borrowedDevice=device,borrowedDNS=dns;
@@ -73,7 +73,7 @@ int main(int argc,char **argv) try
     borrowedDNS["nrpt_sources"]=QJsonArray{redirectedSource,ownedSource};borrowedDNS["nrpt"]=QJsonArray{redirectedPolicy,ownedPolicy};
     const auto borrowed=WindowsNetworkOwnership::capture(borrowedConfiguration,borrowedDevice,network,borrowedDNS);
     check(borrowed.has_value(),"Confirmed borrowed NRPT source was rejected");
-    const auto borrowedFilter=borrowed->filter(borrowedConfiguration);const auto borrowedView=borrowedFilter(network,borrowedDNS);
+    const auto borrowedFilter=borrowed->filter(borrowedConfiguration);const auto borrowedView=borrowedFilter(network,borrowedDNS,nullptr);
     check(borrowedView && borrowedView->second==clean->second,"Borrowed NRPT source was not projected back to its original query context");
     for(const auto &field:{"class","original","server","global_policy"}){
         auto changed=binding;changed[field]="foreign";
@@ -82,23 +82,23 @@ int main(int argc,char **argv) try
     check(!WindowsNetworkOwnership::bindingsMatch(borrowedConfiguration,QJsonArray{binding,binding}),"Duplicate borrowed source was accepted");
     for(const auto &field:{"class","owner","servers"}){
         auto changed=redirectedSource;changed[field]="external edit";auto external=borrowedDNS;external["nrpt_sources"]=QJsonArray{changed,ownedSource};
-        check(!borrowedFilter(network,external),"An external edit to a borrowed source was hidden");
+        check(!borrowedFilter(network,external,nullptr),"An external edit to a borrowed source was hidden");
     }
     auto changedEffective=redirectedPolicy;changedEffective["NameServers"]=QJsonArray{"203.0.113.53"};
     auto effectiveDNS=borrowedDNS;effectiveDNS["nrpt"]=QJsonArray{changedEffective,ownedPolicy};
-    check(!borrowedFilter(network,effectiveDNS),"Foreign effective DNS acquired borrowed ownership");
+    check(!borrowedFilter(network,effectiveDNS,nullptr),"Foreign effective DNS acquired borrowed ownership");
     auto sourceChange=dns,foreignSource=ownedSource;
     foreignSource["class"]="JustConnect/{ED2C083A-0914-410C-A462-09FEC57B31FA}";
     sourceChange["nrpt_sources"]=QJsonArray{originalSource,foreignSource};
-    check(!filter(network,sourceChange),"same-namespace source replacement was hidden as current ownership");
+    check(!filter(network,sourceChange,nullptr),"same-namespace source replacement was hidden as current ownership");
     auto editedOriginal=originalSource;editedOriginal["servers"]="192.168.1.54";
     sourceChange["nrpt_sources"]=QJsonArray{editedOriginal,ownedSource};
-    const auto sourceView=filter(network,sourceChange);
+    const auto sourceView=filter(network,sourceChange,nullptr);
     check(sourceView && sourceView->second["nrpt_sources"]==QJsonArray{editedOriginal},"foreign original NRPT source change was hidden");
     auto foreignDns=dns, editedAdapter=ownedAdapter;
     editedAdapter["DnsServers"]=QJsonArray{QJsonObject{{"Address","203.0.113.53"},{"Port",5353}}};
     foreignDns["adapters"]=QJsonArray{originalAdapter,editedAdapter};
-    const auto nativeEdit=filter(network,foreignDns);
+    const auto nativeEdit=filter(network,foreignDns,nullptr);
     check(nativeEdit && nativeEdit->second["adapters"].toArray().contains(editedAdapter),"external native DNS source was hidden");
     editedAdapter=ownedAdapter;editedAdapter["Luid"]="9101";foreignDns["adapters"]=QJsonArray{originalAdapter,editedAdapter};
     check(!WindowsNetworkOwnership::capture(configuration,device,network,foreignDns),"reused interface index acquired native DNS ownership");
@@ -108,38 +108,38 @@ int main(int argc,char **argv) try
     auto foreign=peer;foreign["destination"]="203.0.113.9/32";foreign["protocol"]=99;
     auto routes=network["routes"].toArray();routes.append(foreign);changedNetwork["routes"]=routes;
     auto editedPolicy=ownedPolicy;editedPolicy["external_option"]=true;changedDns["nrpt"]=QJsonArray{originalPolicy,editedPolicy};
-    const auto preserved=filter(changedNetwork,changedDns);
+    const auto preserved=filter(changedNetwork,changedDns,nullptr);
     check(preserved && preserved->first["routes"].toArray().contains(foreign)
         && preserved->first["interfaces"].toArray().last().toObject()["addresses"].toArray()==QJsonArray{"203.0.113.8/32"}
         && preserved->second["nrpt"].toArray().contains(editedPolicy),"external address, route or DNS edit was hidden");
     changedTun=tun;changedTun["external_attribute"]="kept";changedNetwork["interfaces"]=QJsonArray{lan,changedTun};
-    const auto attributes=filter(changedNetwork,dns);
+    const auto attributes=filter(changedNetwork,dns,nullptr);
     check(attributes && attributes->first["interfaces"].toArray().last().toObject()["external_attribute"]=="kept",
         "external interface attributes were hidden");
     changedNetwork["routes"]=QJsonArray{originalRoute,target,foreign,target,peer,source};
-    const auto duplicate=filter(changedNetwork,dns);
+    const auto duplicate=filter(changedNetwork,dns,nullptr);
     check(duplicate && duplicate->first["routes"]==QJsonArray{originalRoute,foreign,target},
         "one owned route may remove only one matching row and must preserve the order of the remainder");
     auto editedTarget=target;editedTarget["metric"]=9;changedNetwork["routes"]=QJsonArray{originalRoute,peer,editedTarget,source};
-    check(!filter(changedNetwork,dns),"missing or edited capture was treated as active ownership");
+    check(!filter(changedNetwork,dns,nullptr),"missing or edited capture was treated as active ownership");
     auto onLink=target;onLink["gateway"]="0.0.0.0";changedNetwork["routes"]=QJsonArray{originalRoute,peer,onLink,source};
-    check(!filter(changedNetwork,dns),"on-link capture was accepted as a remote campus route");
+    check(!filter(changedNetwork,dns,nullptr),"on-link capture was accepted as a remote campus route");
     auto withPeer=configuration;withPeer["capture_prefixes"]=QJsonArray{"198.18.0.6/32",peer["destination"]};
     const auto peerFilter=ownership->filter(withPeer);check(bool(peerFilter),"explicit peer capture unavailable");
-    const auto peerView=peerFilter(network,dns);check(peerView && peerView->first["routes"]==QJsonArray{originalRoute},"peer host route became a gateway to itself");
+    const auto peerView=peerFilter(network,dns,nullptr);check(peerView && peerView->first["routes"]==QJsonArray{originalRoute},"peer host route became a gateway to itself");
     auto next=configuration;next["capture_prefixes"]=QJsonArray{"198.18.0.7/32"};auto nextTarget=target;nextTarget["destination"]="198.18.0.7/32";
     changedNetwork["routes"]=QJsonArray{originalRoute,peer,nextTarget,source,target};
     const auto replacement=ownership->filter(next);check(bool(replacement),"new confirmed capture was rejected");
-    const auto replaced=replacement(changedNetwork,dns);check(replaced && replaced->first["routes"].toArray().contains(target),"revoked capture was hidden after external reappearance");
+    const auto replaced=replacement(changedNetwork,dns,nullptr);check(replaced && replaced->first["routes"].toArray().contains(target),"revoked capture was hidden after external reappearance");
     auto merged=configuration;merged["capture_prefixes"]=QJsonArray{"198.18.0.6/31"};
     auto mergedTarget=target;mergedTarget["destination"]="198.18.0.6/31";
     auto broadcast=source;broadcast["destination"]="198.18.0.7/32";
     changedNetwork=network;changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget};
     const auto mergedFilter=ownership->filter(merged);check(bool(mergedFilter),"coalesced capture filter unavailable");
-    const auto mergedView=mergedFilter(changedNetwork,dns);
+    const auto mergedView=mergedFilter(changedNetwork,dns,nullptr);
     check(mergedView && mergedView->first["routes"]==QJsonArray{originalRoute},"coalesced remote capture leaked into original protection");
     changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget,broadcast};
-    const auto externalView=mergedFilter(changedNetwork,dns);
+    const auto externalView=mergedFilter(changedNetwork,dns,nullptr);
     check(externalView && externalView->first["routes"].toArray().contains(broadcast),"unowned local host route was hidden by remote capture filtering");
     changedDns["nrpt"]=QJsonArray{originalPolicy};
     check(!WindowsNetworkOwnership::capture(configuration,device,network,changedDns),"ineffective owned DNS acquired a read filter");

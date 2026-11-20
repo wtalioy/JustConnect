@@ -38,7 +38,7 @@ CredentialResult ProxyRecoveryJournal::checkpoint(const QByteArray &record)
     } else {
         // A provider can publish before its acknowledgement is lost; retain both possible records.
         pending=record;
-        const auto written=credentials.write(key,record);
+        const auto written=credentials.writePersistent(key,record);
         if (!written.succeeded()) return written;
     }
     const auto actual=credentials.read(key);

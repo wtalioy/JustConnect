@@ -24,12 +24,21 @@ jobs:
         include:
           - {os: windows-2025, qt_host: windows, qt_arch: win64_msvc2022_64}
           - {os: macos-26, qt_host: mac, qt_arch: clang_64}
+          - {os: ubuntu-24.04, qt_host: linux, qt_arch: linux_gcc_64}
     steps:
       - uses: actions/checkout@v7.0.1
 
       - name: Verify local macOS signing without external credentials
         if: runner.os == 'macOS'
         run: python3 tests/macos_signing_smoke.py
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libegl-dev libxkbcommon-dev libfontconfig1-dev \
+            libwebkit2gtk-4.1-dev libssl-dev libx11-dev xvfb xauth
 
       - name: Install Qt
         uses: ./.github/actions/setup-qt
@@ -46,6 +55,20 @@ jobs:
           python scripts/test-corelib.py
           python -m unittest discover -s tests -p '*_test.py'
 
+      - name: Run Linux network helper tests
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+        run: |
+          helper=infrastructure/networkhelper/linux/helper
+          go -C "$helper" test -mod=readonly -count=1 -timeout 120s ./...
+          probe="$RUNNER_TEMP/justconnect-linux-netlink-tests"
+          go -C "$helper" test -mod=readonly -c -o "$probe"
+          sudo unshare --net -- env JC_LINUX_HELPER_NETNS=1 "$probe" -test.run '^TestNetlink.*Runner$' -test.v
+
       - name: Configure
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
@@ -54,7 +77,13 @@ jobs:
         run: cmake --build build --config Release --parallel 3
 
       - name: Run tests
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a ctest --test-dir build --build-config Release --output-on-failure
+          else
+            ctest --test-dir build --build-config Release --output-on-failure
+          fi
         env:
           QT_QPA_PLATFORM: offscreen
 
