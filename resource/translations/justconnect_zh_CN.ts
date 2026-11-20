@@ -2469,8 +2469,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>无法读取 /etc/resolv.conf；自动分流没有受支持的 DNS 机制。</translation>
     </message>
     <message>
-        <source>/etc/resolv.conf is not a plain file; no supported DNS mechanism was found.</source>
-        <translation>/etc/resolv.conf 不是普通文件；未找到受支持的 DNS 机制。</translation>
+        <source>Automatic routing requires the systemd-resolved DNS stub.</source>
+        <translation>自动分流需要使用 systemd-resolved 的本地 DNS 监听地址。</translation>
     </message>
     <message>
         <source>The JustConnect network helper is not installed as a root-owned executable at %1.</source>

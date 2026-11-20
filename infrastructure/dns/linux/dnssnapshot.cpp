@@ -10,6 +10,7 @@
 
 namespace {
 constexpr int MaxSearchDomains = 64, MaxTokenBytes = 255, MaxLinks = 64;
+constexpr auto ResolvedStub = "127.0.0.53";
 
 struct ResolvConf { QStringList nameservers, search; QString domain; };
 
@@ -148,6 +149,13 @@ std::optional<QJsonObject> parseResolvedPerLinkStatus(const QString &status)
     return QJsonObject{{"links", links}};
 }
 
+std::optional<bool> linuxDnsUsesResolvedStub()
+{
+    const auto configuration = parseResolvConf(QStringLiteral("/etc/resolv.conf"));
+    if (!configuration) return std::nullopt;
+    return configuration->nameservers == QStringList{QLatin1String(ResolvedStub)};
+}
+
 DnsSnapshot readLinuxDnsSnapshot()
 {
     using Status = PlatformOperationResult::Status;
@@ -155,7 +163,7 @@ DnsSnapshot readLinuxDnsSnapshot()
     if (!configuration) return {{Status::Failed, "Cannot read /etc/resolv.conf"}, {}};
     auto nameservers = configuration->nameservers;
     // The systemd-resolved stub listener forwards to real upstreams; snapshot those instead.
-    if (nameservers.contains(QStringLiteral("127.0.0.53"))) {
+    if (nameservers.contains(QLatin1String(ResolvedStub))) {
         const auto upstreams = parseResolvConf(QStringLiteral("/run/systemd/resolve/resolv.conf"));
         if (upstreams && !upstreams->nameservers.isEmpty()) nameservers = upstreams->nameservers;
     }

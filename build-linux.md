@@ -4,9 +4,9 @@ Linux supports both routing modes. **Automatic routing** creates a TUN device
 through a privileged helper (`justconnect-network-helper`): once per
 application start, polkit (`pkexec`) asks for the administrator password, and
 the helper installs campus routes plus split DNS for the lifetime of the
-session. Split DNS needs an active systemd-resolved; hosts that resolve names
-another way are reported before connecting and automatic mode stays
-unavailable. **Local proxy only** needs no privileges. See [runtime notes](#runtime-notes) for desktop and keyring requirements.
+session. Split DNS requires an active systemd-resolved and `/etc/resolv.conf`
+pointing to its local DNS stub (`127.0.0.53`). **Local proxy only** needs no
+privileges. See [runtime notes](#runtime-notes) for desktop and keyring requirements.
 
 ## Prerequisites
 
@@ -177,8 +177,9 @@ the extracted tree.
   backend reports unsupported and local proxy keeps working.
 - **Credential storage** uses a Secret Service keyring through libsecret.
   Without a usable keyring, saved sign-ins stay in the running app's memory.
-- **DNS for automatic routing** installs per-link split DNS on an active
-  systemd-resolved only; there is no plain `resolv.conf` fallback.
+- **DNS for automatic routing** uses per-link split DNS. Use
+  `/run/systemd/resolve/stub-resolv.conf` for `/etc/resolv.conf` so applications
+  send their queries through systemd-resolved.
 - **Autostart** writes an XDG autostart entry under `$XDG_CONFIG_HOME`.
 - **SSO sign-in browser** embeds WebKitGTK through X11, so Wayland sessions
   run it via XWayland. It needs `libwebkit2gtk-4.1` at runtime — the Debian

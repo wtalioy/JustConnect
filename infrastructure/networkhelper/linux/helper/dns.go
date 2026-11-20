@@ -27,15 +27,7 @@ import (
 const (
 	dnsModeSkipped  = ""
 	dnsModeResolved = "resolved"
-
-	resolvedStubLine = "nameserver 127.0.0.53"
 )
-
-// Var so tests can relocate the resolved runtime directory.
-var resolvedRunDir = "/run/systemd/resolve"
-
-// Var instead of const so tests can relocate the file.
-var resolvConfPath = "/etc/resolv.conf"
 
 // Var so tests can stub the resolver binary lookup.
 var lookPath = exec.LookPath
@@ -55,27 +47,40 @@ type dnsOwnership struct {
 // detectDNSMode decides which DNS mechanism this host offers, or fails with a
 // user-presentable reason when none is usable.
 func detectDNSMode() (string, error) {
-	return detectDNSModeAt(resolvConfPath)
+	return detectDNSModeAt("/etc/resolv.conf")
 }
 
 func detectDNSModeAt(resolvPath string) (string, error) {
-	real, err := filepath.EvalSymlinks(resolvPath)
+	data, err := os.ReadFile(resolvPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", resolvPath, err)
+		return "", fmt.Errorf("read %s: %w", resolvPath, err)
 	}
-	active := strings.HasPrefix(real, resolvedRunDir+"/")
-	if !active {
-		if data, readErr := os.ReadFile(real); readErr == nil {
-			active = strings.Contains(string(data), resolvedStubLine)
-		}
-	}
-	if !active {
-		return "", fmt.Errorf("%s does not point at an active systemd-resolved; automatic routing has no supported DNS mechanism", resolvPath)
+	if !usesResolvedStub(string(data)) {
+		return "", fmt.Errorf("%s must use the systemd-resolved DNS stub for automatic routing", resolvPath)
 	}
 	if _, err := lookPath("resolvectl"); err != nil {
 		return "", errors.New("systemd-resolved is active but resolvectl is missing")
 	}
 	return dnsModeResolved, nil
+}
+
+func usesResolvedStub(contents string) bool {
+	stub := false
+	for line := range strings.Lines(contents) {
+		if index := strings.IndexAny(line, "#;"); index >= 0 {
+			line = line[:index]
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "nameserver" {
+			continue
+		}
+		// The uplink resolv.conf also lives under /run/systemd/resolve but bypasses split DNS.
+		if len(fields) != 2 || fields[1] != "127.0.0.53" {
+			return false
+		}
+		stub = true
+	}
+	return stub
 }
 
 // applyDNS installs campus DNS from a plan produced by planDNS.

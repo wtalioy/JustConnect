@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/linux/networkhelperavailability.h"
+#include "infrastructure/dns/linux/dnssnapshot.h"
 #include "infrastructure/networkhelper/linux/networkhelperpaths.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -7,8 +8,6 @@
 #include <QStandardPaths>
 
 namespace {
-enum class DnsMechanism { Unavailable, Resolved };
-
 // Directories whose contents only root can place or replace: a helper inside
 // one of them cannot be swapped by an unprivileged archive extraction. The
 // polkit action authorizes exactly the annotated path, so this list keeps the
@@ -20,31 +19,6 @@ bool protectedSystemPath(const QString &path)
         || path.startsWith(QStringLiteral("/usr/local/lib/"))
         || path.startsWith(QStringLiteral("/usr/lib/"))
         || path.startsWith(QStringLiteral("/usr/sbin/"));
-}
-
-DnsMechanism detectDnsMechanism(QString *detail)
-{
-    // Same taxonomy as the privileged helper (infrastructure/networkhelper/linux/dns.go):
-    // automatic routing installs per-link split DNS on an active
-    // systemd-resolved only; there is no plain resolv.conf fallback.
-    const QFileInfo resolv(QStringLiteral("/etc/resolv.conf"));
-    const auto real = resolv.canonicalFilePath();
-    if (real.isEmpty()) {
-        if (detail) *detail = QCoreApplication::translate("LinuxNetworkAvailability",
-            "Cannot read /etc/resolv.conf; automatic routing has no supported DNS mechanism.");
-        return DnsMechanism::Unavailable;
-    }
-    if (real.startsWith(QStringLiteral("/run/systemd/resolve/"))) return DnsMechanism::Resolved;
-    QFile file(real);
-    if (!file.open(QIODevice::ReadOnly)) {
-        if (detail) *detail = QCoreApplication::translate("LinuxNetworkAvailability",
-            "Cannot read /etc/resolv.conf; automatic routing has no supported DNS mechanism.");
-        return DnsMechanism::Unavailable;
-    }
-    if (file.readAll().contains("nameserver 127.0.0.53")) return DnsMechanism::Resolved;
-    if (detail) *detail = QCoreApplication::translate("LinuxNetworkAvailability",
-        "Automatic routing needs an active systemd-resolved; this host resolves names another way.");
-    return DnsMechanism::Unavailable;
 }
 
 bool executableByPkexec(const QFileInfo &info)
@@ -103,10 +77,11 @@ LinuxHelperAvailability linuxNetworkHelperAvailability()
             "Install polkit with your package manager (for example: sudo apt install policykit-1), then reconnect.");
         return report;
     }
-    QString routingDetail;
-    const auto mechanism = detectDnsMechanism(&routingDetail);
-    if (mechanism == DnsMechanism::Unavailable) {
-        report.routingDetail = routingDetail;
+    const auto usesResolvedStub = linuxDnsUsesResolvedStub();
+    if (!usesResolvedStub.value_or(false)) {
+        report.routingDetail = usesResolvedStub.has_value()
+            ? QCoreApplication::translate("LinuxNetworkAvailability", "Automatic routing requires the systemd-resolved DNS stub.")
+            : QCoreApplication::translate("LinuxNetworkAvailability", "Cannot read /etc/resolv.conf; automatic routing has no supported DNS mechanism.");
         report.remedy = QCoreApplication::translate("LinuxNetworkAvailability",
             "Applications only receive split DNS when they query systemd-resolved: point /etc/resolv.conf at "
             "its stub resolver (for example: sudo ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf), "
