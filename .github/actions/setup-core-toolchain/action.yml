@@ -33,7 +33,7 @@ runs:
         Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/$release/$name.zip" `
           -MaximumRetryCount 2 -RetryIntervalSec 2 -OutFile $archive
         if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Compiler SHA-256 mismatch' }
-        [IO.Compression.ZipFile]::ExtractToDirectory($archive, "$env:RUNNER_TEMP/cgo")
+        Expand-Archive $archive "$env:RUNNER_TEMP/cgo"
         "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
         "CC=$hostArch-w64-mingw32-clang" >> $env:GITHUB_ENV
 
