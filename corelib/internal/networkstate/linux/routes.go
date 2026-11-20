@@ -3,14 +3,13 @@
 package networkstate
 
 import (
-	"github.com/wtalioy/JustConnect/corelib/internal/networkstate/model"
 	"net"
 
+	"github.com/wtalioy/JustConnect/corelib/internal/networkstate/model"
 	"golang.org/x/sys/unix"
 )
 
-// DefaultIPv4Interface mirrors the macOS exit selection: the lowest-metric
-// gatewayed default route of the main table decides where new connections go.
+// DefaultIPv4Interface returns an available next hop on the lowest-metric main-table default.
 func DefaultIPv4Interface() string {
 	messages, err := netlinkMessages(unix.RTM_GETROUTE, unix.AF_INET)
 	if err != nil {
@@ -26,14 +25,21 @@ func DefaultIPv4Interface() string {
 			continue
 		}
 		row, err := parseRouteRow(message)
-		if err != nil || row.family != unix.AF_INET || row.destination.Bits() != 0 || row.index <= 0 {
+		if err != nil || row.family != unix.AF_INET || row.destination.Bits() != 0 || row.table != main || row.kind != unix.RTN_UNICAST {
 			continue
 		}
-		if row.table != main || row.gateway.IsUnspecified() {
+		index, gateway := row.index, row.gateway
+		for _, hop := range row.nexthops {
+			if hop.index > 0 && hop.flags&(unix.RTNH_F_DEAD|unix.RTNH_F_LINKDOWN) == 0 && !hop.gateway.IsUnspecified() {
+				index, gateway = hop.index, hop.gateway
+				break
+			}
+		}
+		if index <= 0 || gateway.IsUnspecified() {
 			continue
 		}
 		if best.index == 0 || row.metric < best.metric {
-			best.index, best.metric = row.index, row.metric
+			best.index, best.metric = index, row.metric
 		}
 	}
 	if best.index == 0 {
@@ -66,11 +72,6 @@ func ReadRoutes() ([]model.Route, error) {
 		default:
 			continue
 		}
-		switch row.family {
-		case unix.AF_INET, unix.AF_INET6:
-		default:
-			continue
-		}
 		item := model.Route{
 			Destination:    row.destination.String(),
 			InterfaceIndex: row.index,
@@ -80,7 +81,16 @@ func ReadRoutes() ([]model.Route, error) {
 			Flags:          int(row.flags),
 			Cloned:         row.cloned,
 		}
-		routes = append(routes, item)
+		if len(row.nexthops) == 0 {
+			routes = append(routes, item)
+			continue
+		}
+		for _, hop := range row.nexthops {
+			if hop.index > 0 {
+				item.InterfaceIndex, item.Gateway = hop.index, hop.gateway.String()
+				routes = append(routes, item)
+			}
+		}
 	}
 	return routes, nil
 }

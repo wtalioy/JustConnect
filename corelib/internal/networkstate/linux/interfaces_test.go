@@ -22,15 +22,9 @@ func interfaceAddress(index int, prefix string, local string) syscall.NetlinkMes
 		data[0] = unix.AF_INET
 	}
 	binary.NativeEndian.PutUint32(data[4:], uint32(index))
-	add := func(kind uint16, ip netip.Addr) {
-		size := unix.SizeofRtAttr + ip.BitLen()/8
-		data = binary.NativeEndian.AppendUint16(data, uint16(size))
-		data = binary.NativeEndian.AppendUint16(data, kind)
-		data = append(data, ip.AsSlice()...)
-	}
-	add(unix.IFA_ADDRESS, address.Addr())
+	data = append(data, encodeRouteAttribute(unix.IFA_ADDRESS, address.Addr().AsSlice())...)
 	if local != "" {
-		add(unix.IFA_LOCAL, netip.MustParseAddr(local))
+		data = append(data, encodeRouteAttribute(unix.IFA_LOCAL, netip.MustParseAddr(local).AsSlice())...)
 	}
 	return syscall.NetlinkMessage{Header: syscall.NlMsghdr{Type: unix.RTM_NEWADDR}, Data: data}
 }
