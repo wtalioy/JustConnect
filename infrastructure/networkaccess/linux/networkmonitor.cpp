@@ -12,7 +12,9 @@ namespace {
 // exit (routes, interfaces, addresses) and the resolver snapshot (file edits
 // surface through the file watcher; a resolv.conf replacement also shows up
 // as filesystem activity).
-constexpr unsigned NetlinkGroups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV4_ROUTE;
+constexpr unsigned NetlinkGroups = RTMGRP_LINK
+    | RTMGRP_IPV4_IFADDR | RTMGRP_IPV4_ROUTE
+    | RTMGRP_IPV6_IFADDR | RTMGRP_IPV6_ROUTE;
 
 // Coalesce a burst of kernel events (a DHCP renew, a link flap) into one
 // refresh request.
