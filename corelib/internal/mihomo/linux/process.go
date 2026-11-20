@@ -4,6 +4,7 @@ package linux
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -27,7 +28,7 @@ const (
 
 // procID is one process identity fact kept local to this package.
 type procID struct {
-	pid       int
+	name      []byte
 	uid       uint32
 	startTime uint64
 }
@@ -43,7 +44,7 @@ func readProcID(pid int) (procID, error) {
 	if err != nil {
 		return procID{}, err
 	}
-	startTime, err := procStartTime(stat)
+	name, startTime, err := parseProcStat(stat)
 	if err != nil {
 		return procID{}, err
 	}
@@ -55,24 +56,26 @@ func readProcID(pid int) (procID, error) {
 	if !ok {
 		return procID{}, errors.New("process identity is unavailable")
 	}
-	return procID{pid: pid, uid: stat_t.Uid, startTime: startTime}, nil
+	return procID{name: name, uid: stat_t.Uid, startTime: startTime}, nil
 }
 
-// procStartTime reads field 22 of /proc/<pid>/stat in clock ticks. The command
-// name inside parentheses may contain spaces, so counting resumes after the
-// final closing parenthesis.
-func procStartTime(stat []byte) (uint64, error) {
-	end := strings.LastIndexByte(string(stat), ')')
-	if end < 0 {
-		return 0, errors.New("malformed process stat entry")
+// The parenthesized name may contain spaces and parentheses. Fields 3 onward
+// start after its closing parenthesis, with start time at field 22.
+func parseProcStat(stat []byte) ([]byte, uint64, error) {
+	_, rest, ok := bytes.Cut(stat, []byte(" ("))
+	end := bytes.LastIndexByte(rest, ')')
+	if !ok || end < 0 {
+		return nil, 0, errors.New("malformed process stat entry")
 	}
-	fields := strings.Fields(string(stat[end+1:]))
-	// Fields 3..N follow; start time is field 22, so index 19 after the name.
-	const startTimeIndex = 19
-	if len(fields) <= startTimeIndex {
-		return 0, errors.New("process stat entry is truncated")
+	field := 3
+	for value := range bytes.FieldsSeq(rest[end+1:]) {
+		if field == 22 {
+			startTime, err := strconv.ParseUint(string(value), 10, 64)
+			return rest[:end], startTime, err
+		}
+		field++
 	}
-	return strconv.ParseUint(fields[startTimeIndex], 10, 64)
+	return nil, 0, errors.New("process stat entry is truncated")
 }
 
 // Read enumerates recognized controller processes. Facts stay readable-by-owner:
@@ -84,6 +87,7 @@ func Read(ctx context.Context) ([]model.Process, error) {
 		return nil, err
 	}
 	home, _ := os.UserHomeDir()
+	uid := uint32(os.Getuid())
 	var result []model.Process
 	for _, entry := range entries {
 		if ctx.Err() != nil {
@@ -97,8 +101,8 @@ func Read(ctx context.Context) ([]model.Process, error) {
 		if err != nil {
 			continue
 		}
-		own := current.uid == uint32(os.Getuid())
-		if !recognizedComm(pid) && !(own && recognizedExe(pid)) {
+		own := current.uid == uid
+		if !model.Recognized(string(bytes.TrimRight(current.name, "\n"))) && !(own && recognizedExe(pid)) {
 			continue
 		}
 		p := model.Process{PID: pid, Started: current.startTime, NetworkAdmin: current.uid == 0}
@@ -117,14 +121,6 @@ func Read(ctx context.Context) ([]model.Process, error) {
 		}
 	}
 	return result, nil
-}
-
-func recognizedComm(pid int) bool {
-	data, err := os.ReadFile(commPath(pid))
-	if err != nil {
-		return false
-	}
-	return model.Recognized(strings.TrimRight(string(data), "\n"))
 }
 
 func recognizedExe(pid int) bool {
@@ -235,7 +231,6 @@ func processSocketInodes(pid int) (map[int]bool, error) {
 
 func pidPath(pid int) string                   { return procPath + "/" + strconv.Itoa(pid) }
 func statPath(pid int) string                  { return pidPath(pid) + "/stat" }
-func commPath(pid int) string                  { return pidPath(pid) + "/comm" }
 func cmdlinePath(pid int) string               { return pidPath(pid) + "/cmdline" }
 func cwdPath(pid int) string                   { return pidPath(pid) + "/cwd" }
 func exePath(pid int) string                   { return pidPath(pid) + "/exe" }
