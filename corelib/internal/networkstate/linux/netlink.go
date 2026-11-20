@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// netlinkMessages reads one routing-table dump. The stdlib helper performs the
+// netlinkMessages reads one netlink dump. The stdlib helper performs the
 // socket dance (bind, request, drain until NLMSG_DONE) that the net package
 // itself uses, so no hand-rolled buffer growth is duplicated here.
 func netlinkMessages(message uint16, family int) ([]syscall.NetlinkMessage, error) {
