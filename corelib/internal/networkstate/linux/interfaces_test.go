@@ -22,6 +22,7 @@ func interfaceAddress(index int, prefix string, local string) syscall.NetlinkMes
 		data[0] = unix.AF_INET
 	}
 	binary.NativeEndian.PutUint32(data[4:], uint32(index))
+	data = append(data, encodeRouteAttribute(unix.IFA_LABEL, []byte{'p', '2', 'p', '0', 0})...)
 	data = append(data, encodeRouteAttribute(unix.IFA_ADDRESS, address.Addr().AsSlice())...)
 	if local != "" {
 		data = append(data, encodeRouteAttribute(unix.IFA_LOCAL, netip.MustParseAddr(local).AsSlice())...)
@@ -53,8 +54,11 @@ func TestInterfaceSnapshot(t *testing.T) {
 		t.Fatalf("interfaceSnapshot() = %+v, %v, want %+v", got, err, want)
 	}
 
-	rows[0].Data = rows[0].Data[:4]
-	if got, err := interfaceSnapshot(links, rows); got != nil || err == nil {
-		t.Fatalf("short message should reject the snapshot, got %+v, %v", got, err)
+	for _, length := range []int{4, unix.SizeofIfAddrmsg + 1, len(rows[0].Data) - 1} {
+		truncated := append([]syscall.NetlinkMessage(nil), rows...)
+		truncated[0].Data = truncated[0].Data[:length]
+		if got, err := interfaceSnapshot(links, truncated); got != nil || err == nil {
+			t.Fatalf("message cut to %d bytes should reject the snapshot, got %+v, %v", length, got, err)
+		}
 	}
 }

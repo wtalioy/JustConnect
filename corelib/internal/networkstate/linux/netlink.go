@@ -23,6 +23,18 @@ func netlinkMessages(message uint16, family int) ([]syscall.NetlinkMessage, erro
 	return syscall.ParseNetlinkMessage(rib)
 }
 
+func nextAttribute(data []byte) (kind uint16, value, rest []byte, err error) {
+	if len(data) < unix.SizeofRtAttr {
+		return 0, nil, nil, errors.New("short netlink attribute")
+	}
+	length := int(binary.NativeEndian.Uint16(data))
+	aligned := (length + unix.RTA_ALIGNTO - 1) &^ (unix.RTA_ALIGNTO - 1)
+	if length < unix.SizeofRtAttr || aligned > len(data) {
+		return 0, nil, nil, errors.New("invalid netlink attribute length")
+	}
+	return binary.NativeEndian.Uint16(data[2:]), data[unix.SizeofRtAttr:length], data[aligned:], nil
+}
+
 // struct rtmsg: family, dst_len, src_len, tos, table, protocol, scope, type,
 // then a 32-bit flag word.
 const (
@@ -72,10 +84,6 @@ func parseRouteRow(message syscall.NetlinkMessage) (routeRow, error) {
 		kind:     header[rtFieldType],
 		flags:    netlinkUint32(header[rtFieldFlags : rtFieldFlags+4]),
 	}
-	attributes, err := syscall.ParseNetlinkRouteAttr(&message)
-	if err != nil {
-		return routeRow{}, err
-	}
 	var destination netip.Addr
 	switch row.family {
 	case unix.AF_INET:
@@ -92,20 +100,25 @@ func parseRouteRow(message syscall.NetlinkMessage) (routeRow, error) {
 		return routeRow{}, fmt.Errorf("unsupported route family %d", row.family)
 	}
 	bits := int(header[1])
-	for _, attribute := range attributes {
-		switch attribute.Attr.Type {
+	for attrs := message.Data[unix.SizeofRtMsg:]; len(attrs) > 0; {
+		kind, value, rest, err := nextAttribute(attrs)
+		if err != nil {
+			return routeRow{}, err
+		}
+		attrs = rest
+		switch kind {
 		case unix.RTA_DST:
-			destination = addressOf(attribute.Value)
+			destination = addressOf(value)
 		case unix.RTA_GATEWAY:
-			row.gateway = addressOf(attribute.Value)
+			row.gateway = addressOf(value)
 		case unix.RTA_OIF:
-			row.index = int(netlinkUint32(attribute.Value))
+			row.index = int(netlinkUint32(value))
 		case unix.RTA_PRIORITY:
-			row.metric = netlinkUint32(attribute.Value)
+			row.metric = netlinkUint32(value)
 		case unix.RTA_TABLE:
-			row.table = uint16(netlinkUint32(attribute.Value))
+			row.table = uint16(netlinkUint32(value))
 		case unix.RTA_MULTIPATH:
-			row.nexthops, err = parseNexthops(attribute.Value)
+			row.nexthops, err = parseNexthops(value)
 			if err != nil {
 				return routeRow{}, err
 			}
@@ -139,21 +152,17 @@ func parseNexthops(value []byte) ([]nexthop, error) {
 		hop := nexthop{index: int(int32(binary.NativeEndian.Uint32(value[4:8]))), flags: value[2]}
 		// Gateways are RTA_GATEWAY attributes nested inside each rtnexthop.
 		for attrs := value[unix.SizeofRtNexthop:length]; len(attrs) > 0; {
-			if len(attrs) < unix.SizeofRtAttr {
-				return nil, errors.New("short netlink nexthop attribute")
+			kind, attribute, rest, err := nextAttribute(attrs)
+			if err != nil {
+				return nil, err
 			}
-			size := int(binary.NativeEndian.Uint16(attrs))
-			step := (size + unix.RTA_ALIGNTO - 1) &^ (unix.RTA_ALIGNTO - 1)
-			if size < unix.SizeofRtAttr || step > len(attrs) {
-				return nil, errors.New("invalid netlink nexthop attribute length")
-			}
-			if binary.NativeEndian.Uint16(attrs[2:]) == unix.RTA_GATEWAY {
-				hop.gateway = addressOf(attrs[unix.SizeofRtAttr:size])
+			if kind == unix.RTA_GATEWAY {
+				hop.gateway = addressOf(attribute)
 				if !hop.gateway.IsValid() {
 					return nil, errors.New("invalid netlink nexthop gateway")
 				}
 			}
-			attrs = attrs[step:]
+			attrs = rest
 		}
 		hops = append(hops, hop)
 		value = value[aligned:]

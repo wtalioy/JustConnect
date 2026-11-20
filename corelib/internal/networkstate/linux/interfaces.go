@@ -47,17 +47,18 @@ func interfaceSnapshot(interfaces []net.Interface, messages []syscall.NetlinkMes
 		if !known || (data[0] != unix.AF_INET && data[0] != unix.AF_INET6) {
 			continue
 		}
-		attrs, err := syscall.ParseNetlinkRouteAttr(&message)
-		if err != nil {
-			return nil, err
-		}
 		var address, local []byte
-		for _, attr := range attrs {
-			switch attr.Attr.Type {
+		for attrs := data[unix.SizeofIfAddrmsg:]; len(attrs) > 0; {
+			kind, value, rest, err := nextAttribute(attrs)
+			if err != nil {
+				return nil, err
+			}
+			attrs = rest
+			switch kind {
 			case unix.IFA_ADDRESS:
-				address = attr.Value
+				address = value
 			case unix.IFA_LOCAL:
-				local = attr.Value
+				local = value
 			}
 		}
 		// On a point-to-point link IFA_ADDRESS may identify the remote endpoint.
