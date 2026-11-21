@@ -18,7 +18,7 @@ release_date="${3:-}"
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl git cmake ninja-build g++ dpkg-dev patchelf \
+    ca-certificates curl git cmake ninja-build g++ \
     qt6-base-dev qt6-svg-dev qt6-tools-dev qt6-l10n-tools qt6-translations-l10n \
     libgl1-mesa-dev libegl-dev libxkbcommon-dev libfontconfig1-dev \
     libwebkit2gtk-4.1-dev libssl-dev libx11-dev
