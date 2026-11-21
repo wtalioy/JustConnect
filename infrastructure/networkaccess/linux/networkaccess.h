@@ -10,8 +10,7 @@
 // Automatic (TUN) network access on Linux through the privileged helper:
 // pkexec authorizes one helper process per application launch, the helper
 // owns the TUN device, campus routes and DNS ownership, and hands the raw
-// descriptor to the core over SCM_RIGHTS. Clones the macOS state machine
-// minus original-DNS rewriting, which Linux v1 does not implement.
+// descriptor to the core over SCM_RIGHTS.
 class LinuxNetworkAccess final : public NetworkAccess
 {
 public:
@@ -38,6 +37,8 @@ private:
     QUuid attempt;
     QString generation, localDNS;
     QJsonObject changingPolicy, originalExit;
+    std::optional<LinuxHelperConfiguration> pendingConfiguration;
+    QJsonArray activeDnsFallbacks;
     QStringList nextCapture;
     Stage stage = Stage::Idle;
     bool preparing = false, attaching = false, automaticPolicy = false;

@@ -77,7 +77,7 @@ std::optional<QJsonObject> parseResolvedPerLinkStatus(const QString &status)
     QString interface;
     QJsonArray servers, domains;
     QString continuation;
-    bool overflow = false, defaultRoute = false, valid = true;
+    bool overflow = false, defaultRoute = false, plainDns = false, valid = true;
     const auto appendToken = [](QJsonArray &list, const QString &token, bool *overflow) {
         if (list.contains(token)) return;
         if (list.size() >= MaxSearchDomains || token.size() > MaxTokenBytes || token.contains(QChar(0))) {
@@ -89,7 +89,8 @@ std::optional<QJsonObject> parseResolvedPerLinkStatus(const QString &status)
         if (index >= 0 && (overflow || !servers.isEmpty() || !domains.isEmpty())) {
             if (overflow || links.size() >= MaxLinks) valid = false;
             else links.append(QJsonObject{{"index", index}, {"interface", interface},
-                {"servers", servers}, {"domains", domains}, {"default_route", index == 0 || defaultRoute}});
+                {"servers", servers}, {"domains", domains}, {"default_route", index == 0 || defaultRoute},
+                {"plain_dns", plainDns}});
         }
         index = -1;
         interface.clear();
@@ -98,6 +99,7 @@ std::optional<QJsonObject> parseResolvedPerLinkStatus(const QString &status)
         continuation.clear();
         overflow = false;
         defaultRoute = false;
+        plainDns = false;
     };
     const auto accept = [&](const QString &key, const QString &value) {
         if (key == QStringLiteral("DNS Servers")) {
@@ -110,9 +112,12 @@ std::optional<QJsonObject> parseResolvedPerLinkStatus(const QString &status)
                 appendToken(domains, token, &overflow);
         } else {
             continuation.clear();
-            if (key == QStringLiteral("Protocols"))
-                defaultRoute = value.split(' ', Qt::SkipEmptyParts).contains(QStringLiteral("+DefaultRoute"));
-            else if (key == QStringLiteral("Default Route")) defaultRoute = value == QStringLiteral("yes");
+            if (key == QStringLiteral("Protocols")) {
+                const auto protocols = value.split(' ', Qt::SkipEmptyParts);
+                defaultRoute = protocols.contains(QStringLiteral("+DefaultRoute"));
+                plainDns = protocols.contains(QStringLiteral("-DNSOverTLS"))
+                    && protocols.contains(QStringLiteral("DNSSEC=no/unsupported"));
+            } else if (key == QStringLiteral("Default Route")) defaultRoute = value == QStringLiteral("yes");
         }
     };
     for (auto line : status.split('\n')) {

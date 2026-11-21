@@ -320,6 +320,33 @@ static void preparationChecks()
             .arg(prepared.result.detail, prepared.configuration.capturePrefixes.join(QChar(','))));
     const auto unchanged = updatedLinuxCapturePrefixes(resources, protection, prepared.configuration, dns);
     check(unchanged && *unchanged == prepared.configuration.capturePrefixes, QStringLiteral("Unchanged scope drifted"));
+    auto exactResources = resources;
+    exactResources["domain_dns_names"] = QJsonArray{"portal.example.test", "inside.campus.test"};
+    const auto resolvedDns = [](const char *server, bool plain) {
+        return QJsonObject{{"resolved", QJsonObject{{"links", QJsonArray{QJsonObject{
+            {"default_route", true}, {"plain_dns", plain}, {"domains", QJsonArray{}},
+            {"servers", QJsonArray{server}}}}}}}};
+    };
+    const auto plainDns = resolvedDns("203.0.113.9", true);
+    const auto exact = prepareLinuxNetworkHelper(exactResources, protection, network, plainDns, "10.0.0.3:53", 1400);
+    check(exact.result.succeeded() && exact.configuration.dnsDomains == QStringList{"campus.test", "portal.example.test"}
+        && exact.configuration.capturePrefixes == QStringList{"203.0.113.8/32", "203.0.113.53/32"}
+        && exact.dnsFallbacks.size() == 1 && exact.dnsFallbacks.at(0).toObject() == QJsonObject{
+            {"name", QJsonObject{{"kind", "suffix"}, {"value", "portal.example.test"}}},
+            {"servers", QJsonArray{"203.0.113.9:53"}}, {"supplemental_fallback", true}},
+        QStringLiteral("An exact override needs a route-only scope and an uncaptured original DNS fallback"));
+    check(updatedLinuxCapturePrefixes(exactResources, protection, exact.configuration, plainDns, exact.dnsFallbacks)
+        == exact.configuration.capturePrefixes
+        && !updatedLinuxCapturePrefixes(exactResources, protection, exact.configuration, resolvedDns("203.0.113.7", true), exact.dnsFallbacks),
+        QStringLiteral("A DNS fallback change must invalidate the capture plan"));
+    const auto encrypted = prepareLinuxNetworkHelper(exactResources, protection, network, resolvedDns("203.0.113.9", false), "10.0.0.3:53", 1400);
+    check(encrypted.result.succeeded() && encrypted.configuration.dnsDomains == QStringList{"campus.test"}
+        && encrypted.dnsFallbacks.isEmpty(), QStringLiteral("Installing an exact override downgraded the system's DNS"));
+    auto splitProtection = protection;
+    splitProtection["protected_names"] = QJsonArray{QJsonObject{{"kind", "suffix"}, {"value", "child.portal.example.test"}}};
+    const auto protectedExact = prepareLinuxNetworkHelper(exactResources, splitProtection, network, plainDns, "10.0.0.3:53", 1400);
+    check(protectedExact.result.succeeded() && protectedExact.configuration.dnsDomains == QStringList{"campus.test"}
+        && protectedExact.dnsFallbacks.isEmpty(), QStringLiteral("An exact override shadowed a protected DNS scope"));
     auto drifted = resources; drifted["campus_dns"] = QStringLiteral("203.0.113.99");
     const auto updated = updatedLinuxCapturePrefixes(drifted, protection, prepared.configuration, dns);
     check(updated && updated->contains(QStringLiteral("203.0.113.99/32")) && *updated != prepared.configuration.capturePrefixes,

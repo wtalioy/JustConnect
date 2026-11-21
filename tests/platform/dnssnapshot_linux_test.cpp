@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
         "\n"
         "Link 2 (enp3s0)\n"
         "    Current Scopes: DNS\n"
-        "         Protocols: +DefaultRoute -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported\n"
+        "         Protocols: +DefaultRoute -LLMNR -mDNS +DNSOverTLS DNSSEC=yes/supported\n"
         "Current DNS Server: 180.168.255.18\n"
         "       DNS Servers: 116.228.111.118 180.168.255.18\n"
         "                    240e:58:c000:1600:180:168:255:118\n"
@@ -57,6 +57,8 @@ int main(int argc, char **argv) {
     check(wan["domains"].toArray().isEmpty(), "an absent DNS Domain label invented domains");
     const auto tun = links.at(2).toObject();
     check(tun["interface"] == "jctun0" && tun["index"] == 42, "the owned tunnel identity was misread");
+    check(global["plain_dns"] == true && wan["plain_dns"] == false && tun["plain_dns"] == true,
+        "per-link DNS transport security was lost");
     check(tun["servers"].toArray().contains("10.8.0.1"), "the owned tunnel's servers were dropped");
     const auto domains = tun["domains"].toArray();
     check(domains.contains("~fudan.edu.cn") && domains.contains("~zb.fudan.edu.cn")

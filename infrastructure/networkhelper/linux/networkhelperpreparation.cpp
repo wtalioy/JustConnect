@@ -23,12 +23,13 @@ QStringList linuxOriginalDnsEndpoints(const QJsonArray &nameservers)
     return endpoints;
 }
 
-QStringList resolvedEndpoints(const QJsonArray &links, const QJsonObject &rule)
+QStringList resolvedEndpoints(const QJsonArray &links, const QJsonObject &rule, bool onlyPlain = false)
 {
     const auto kind = rule["kind"].toString();
     const auto name = rule["value"].toString();
     QStringList endpoints;
     qsizetype best = -1;
+    bool safe = true;
     for (const auto &entry : links) {
         const auto link = entry.toObject();
         qsizetype match = link["default_route"].toBool() && kind != "single_label" ? 0 : -1;
@@ -47,13 +48,20 @@ QStringList resolvedEndpoints(const QJsonArray &links, const QJsonObject &rule)
                 match = std::max(match, scope.size() + 1);
         }
         if (match < 0 || match < best) continue;
-        const auto servers = linuxOriginalDnsEndpoints(link["servers"].toArray());
-        if (match > best) endpoints.clear();
+        const auto nativeServers = link["servers"].toArray();
+        if (nativeServers.isEmpty()) continue;
+        const auto servers = linuxOriginalDnsEndpoints(nativeServers);
+        if (match > best) {
+            endpoints.clear();
+            safe = true;
+        }
+        if (onlyPlain && (link["plain_dns"] != true || servers.size() != nativeServers.size()
+            || servers.contains("127.0.0.53:53") || servers.contains("127.0.0.54:53"))) safe = false;
         endpoints += servers;
         best = match;
     }
     endpoints.removeDuplicates();
-    return endpoints;
+    return safe ? endpoints : QStringList{};
 }
 }
 
@@ -75,30 +83,63 @@ std::optional<QJsonArray> linuxOriginalDnsSources(const QJsonObject &dns, const 
     return sources;
 }
 
+namespace {
+struct LinuxDnsCapture {
+    QStringList gatewayDomains, domains;
+    QJsonArray originalSources, fallbacks;
+};
+
+std::optional<LinuxDnsCapture> linuxDnsCapture(const QJsonObject &resources, const QJsonObject &policy, const QJsonObject &dns)
+{
+    auto gatewayDomains = campusDnsDomains(resources);
+    const auto exact = domainDnsOverrideNames(resources);
+    if (!gatewayDomains || !exact) return {};
+    const auto required = requiredOriginalDnsNames(*gatewayDomains, policy);
+    if (!required) return {};
+    auto sources = linuxOriginalDnsSources(dns, *required);
+    if (!sources) return {};
+    auto domains = campusDnsDomainsToInstall(*gatewayDomains, *sources);
+    LinuxDnsCapture capture{std::move(*gatewayDomains), std::move(domains), std::move(*sources), {}};
+    if (exact->isEmpty()) return capture;
+
+    const auto links = dns["resolved"].toObject()["links"].toArray();
+    const auto protectedNames = policy["protected_names"].toArray();
+    const auto covers = [](const QString &scope, const QString &host) { return host == scope || host.endsWith('.' + scope); };
+    for (const auto &host : *exact) {
+        if (std::any_of(capture.domains.begin(), capture.domains.end(), [&](const auto &scope) { return covers(scope, host); })) continue;
+        // A resolved route-only domain also catches descendants, so keep native split DNS in place.
+        if (covers("local", host) || covers("in-addr.arpa", host) || covers("ip6.arpa", host)) continue;
+        if (std::any_of(protectedNames.begin(), protectedNames.end(), [&](const auto &entry) {
+            const auto rule = entry.toObject();
+            const auto kind = rule["kind"].toString(), scope = rule["value"].toString();
+            return kind == "prefix" || ((kind == "exact" || kind == "suffix") && covers(host, scope))
+                || (kind == "suffix" && covers(scope, host));
+        })) continue;
+        const QJsonObject rule{{"kind", "suffix"}, {"value", host}};
+        const auto servers = resolvedEndpoints(links, rule, true);
+        if (servers.isEmpty()) continue;
+        const QJsonObject source{{"name", rule}, {"servers", QJsonArray::fromStringList(servers)}, {"supplemental_fallback", true}};
+        capture.fallbacks.append(source);
+        capture.originalSources.append(source);
+        capture.domains.append(host);
+    }
+    capture.domains.sort();
+    return capture;
+}
+}
+
 LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &protection,
     const QJsonObject &network, const QJsonObject &dns, const QString &localDNS, int mtu,
     const QStringList &dynamicAddresses)
 {
     using Status = PlatformOperationResult::Status;
-    // Names the policy protects from campus capture must keep resolving via
-    // the original resolvers: the rows prove those sources exist, reserve
-    // their addresses outside the capture and drop every campus scope they
-    // cover from the installed set, so the core refuses those names and
-    // glibc-class resolvers fall through to the original servers.
-    const auto required = requiredOriginalDnsNames(resources, protection);
-    if (!required) return {{Status::Unsupported, QStringLiteral("Cannot determine complete original DNS requirements.")}, {}};
-    QJsonArray originalSources;
-    if (!required->isEmpty()) {
-        const auto sources = linuxOriginalDnsSources(dns, *required);
-        if (!sources)
-            return {{Status::Unsupported, QStringLiteral("The original Linux DNS source cannot be confirmed for protected names.")}, {}};
-        originalSources = *sources;
-    }
+    const auto dnsCapture = linuxDnsCapture(resources, protection, dns);
+    if (!dnsCapture)
+        return {{Status::Unsupported, QStringLiteral("Cannot confirm the original Linux DNS sources for campus capture.")}, {}};
     QString captureDiagnostic;
-    const auto targets = campusCaptureTargets(resources, protection, dynamicAddresses, originalSources, &captureDiagnostic);
+    const auto targets = campusCaptureTargets(resources, protection, dynamicAddresses, dnsCapture->originalSources, &captureDiagnostic);
     if (!targets) return {{Status::Unsupported, captureDiagnostic}, {}};
-    const auto installable = campusDnsDomainsToInstall(targets->dnsDomains, originalSources);
-    if (targets->ipv4Prefixes.isEmpty() && installable.isEmpty())
+    if (targets->ipv4Prefixes.isEmpty() && dnsCapture->domains.isEmpty())
         return {{Status::Unsupported, captureDiagnostic}, {}};
     const auto capture = prepareCampusTunCapture(*targets, network, dns, localDNS);
     if (!capture.result.succeeded()) return {capture.result, {}};
@@ -110,28 +151,17 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
         if (!actual.isValid() || !(actual.flags() & QNetworkInterface::IsUp))
             return {{Status::Failed, QStringLiteral("The confirmed underlay interface is no longer available.")}, {}};
     }
-    LinuxHelperConfiguration result{capture.address, capture.peer, mtu, capture.prefixes, installable};
+    LinuxHelperConfiguration result{capture.address, capture.peer, mtu, capture.prefixes, dnsCapture->domains};
     if (!validLinuxHelperRequest(linuxHelperApplyRequest(QUuid::createUuid(), QUuid::createUuid(), result)))
         return {{Status::Failed, QStringLiteral("Invalid or unsupported Linux capture configuration.")}, {}};
-    return {{}, result};
+    return {{}, result, dnsCapture->fallbacks};
 }
 
 std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const LinuxHelperConfiguration &configuration, const QJsonObject &dns)
+    const LinuxHelperConfiguration &configuration, const QJsonObject &dns, const QJsonArray &activeFallbacks)
 {
-    const auto domains = campusDnsDomains(resources);
-    if (!domains) return {};
-    // The protected-name forwarding plan must still be derivable from the
-    // live DNS snapshot; losing the original resolvers ends the session.
-    const auto required = requiredOriginalDnsNames(resources, policy);
-    if (!required) return {};
-    QJsonArray originalSources;
-    if (!required->isEmpty()) {
-        const auto sources = linuxOriginalDnsSources(dns, *required);
-        if (!sources) return {};
-        originalSources = *sources;
-    }
-    if (campusDnsDomainsToInstall(*domains, originalSources) != configuration.dnsDomains) return {};
-    return updatedCampusCapturePrefixes(resources, policy, *domains, originalSources,
+    const auto dnsCapture = linuxDnsCapture(resources, policy, dns);
+    if (!dnsCapture || dnsCapture->domains != configuration.dnsDomains || dnsCapture->fallbacks != activeFallbacks) return {};
+    return updatedCampusCapturePrefixes(resources, policy, dnsCapture->gatewayDomains, dnsCapture->originalSources,
         {configuration.address, configuration.peer});
 }

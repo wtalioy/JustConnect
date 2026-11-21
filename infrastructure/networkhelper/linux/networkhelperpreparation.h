@@ -6,6 +6,7 @@
 struct LinuxHelperPreparation {
     PlatformOperationResult result;
     LinuxHelperConfiguration configuration;
+    QJsonArray dnsFallbacks;
 };
 
 // Rows proving every policy-required protected name keeps its original
@@ -16,10 +17,8 @@ struct LinuxHelperPreparation {
 std::optional<QJsonArray> linuxOriginalDnsSources(const QJsonObject &dns, const QJsonArray &required);
 
 // Plans the privileged capture for one connection. Linux split DNS is
-// installed through the helper only: the core answers campus names and
-// refuses protected ones, so glibc-class resolvers fall through to the
-// original servers. Required rows reserve those servers outside the capture
-// and drop the campus scopes they cover from the installed set.
+// installed through the helper. Extra route-only domains for exact overrides
+// also need the core to forward their ordinary child lookups.
 LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &protection,
     const QJsonObject &network, const QJsonObject &dns, const QString &localDNS, int mtu,
     const QStringList &dynamicAddresses = {});
@@ -27,4 +26,4 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
 // Re-derives the live capture prefix set from authoritative resources; nullopt
 // when the DNS or campus scope drifted and the session must be restored.
 std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const LinuxHelperConfiguration &configuration, const QJsonObject &dns);
+    const LinuxHelperConfiguration &configuration, const QJsonObject &dns, const QJsonArray &activeFallbacks = {});

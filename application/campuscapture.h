@@ -22,6 +22,7 @@ struct CampusTunCapture {
 std::optional<QStringList> campusDnsDomains(const QJsonObject &resources);
 std::optional<QStringList> domainDnsOverrideNames(const QJsonObject &resources);
 std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources, const QJsonObject &policy);
+std::optional<QJsonArray> requiredOriginalDnsNames(const QStringList &domains, const QJsonObject &policy);
 // A native original listener already dispatches campus choices inside its namespace.
 QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArray &originalSources);
 

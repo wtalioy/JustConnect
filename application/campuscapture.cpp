@@ -136,8 +136,7 @@ std::optional<QStringList> campusDnsDomains(const QJsonObject &resources)
     return result;
 }
 
-namespace {
-std::optional<QJsonArray> originalDnsRequirements(const QStringList &domains, const QJsonObject &policy)
+std::optional<QJsonArray> requiredOriginalDnsNames(const QStringList &domains, const QJsonObject &policy)
 {
     if (!policy["protected_names"].isArray() || !policy["campus_names"].isArray()
         || policy["protected_names"].toArray().size() > MaxModelItems || policy["campus_names"].toArray().size() > MaxModelItems) return {};
@@ -176,12 +175,11 @@ std::optional<QJsonArray> originalDnsRequirements(const QStringList &domains, co
     }
     return result;
 }
-}
 
 std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources, const QJsonObject &policy)
 {
     const auto domains = campusDnsDomains(resources);
-    return domains ? originalDnsRequirements(*domains, policy) : std::nullopt;
+    return domains ? requiredOriginalDnsNames(*domains, policy) : std::nullopt;
 }
 
 std::optional<QStringList> domainDnsOverrideNames(const QJsonObject &resources)
@@ -235,7 +233,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         if (size > MaxModelItems) return fail(QStringLiteral("Campus capture input exceeds the rule limit (%1 > %2).").arg(size).arg(MaxModelItems));
     auto dnsDomains = campusDnsDomains(resources);
     if (!dnsDomains) return {};
-    const auto required = originalDnsRequirements(*dnsDomains,policy);
+    const auto required = requiredOriginalDnsNames(*dnsDomains,policy);
     const auto exact = domainDnsOverrideNames(resources);
     if (!required || !exact || originalDNS.size() > MaxModelItems) return {};
     QJsonArray forwarded;

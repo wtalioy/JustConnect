@@ -45,7 +45,25 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (!value.result.succeeded()) {
             stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, value.result); return;
         }
-        helper.apply(attempt, value.configuration);
+        activeDnsFallbacks = value.dnsFallbacks;
+        if (activeDnsFallbacks.isEmpty()) {
+            helper.apply(attempt, value.configuration);
+        } else {
+            pendingConfiguration = value.configuration;
+            this->core->prepareOriginalDNS(generation, activeDnsFallbacks);
+        }
+    });
+    connect(core, &CoreEngine::originalDNSPrepared, this, [this](const QString &id, const QJsonObject &, CoreEngine::RequestStatus status) {
+        if (stage != Stage::Activating || id != generation || !pendingConfiguration) return;
+        const auto configuration = std::move(*pendingConfiguration);
+        pendingConfiguration.reset();
+        if (status == CoreEngine::RequestStatus::Success) {
+            helper.apply(attempt, configuration);
+        } else {
+            stage = Stage::Prepared;
+            this->policy->setNetworkBusy(generation, false);
+            emit ready(attempt, {Status::Failed, QStringLiteral("Core could not prepare original DNS for exact overrides.")});
+        }
     });
     connect(core, &CoreEngine::tunAttached, this, [this](const QString &id, CoreEngine::RequestStatus status) {
         if (stage != Stage::Activating || !attaching || id != generation) return;
@@ -115,7 +133,7 @@ void LinuxNetworkAccess::activate(const QUuid &id, const ConnectionOptions &conn
 
 void LinuxNetworkAccess::prepareConfiguration()
 {
-    if (stage != Stage::Activating || preparing || attaching || helper.state() != HelperState::Idle) return;
+    if (stage != Stage::Activating || preparing || pendingConfiguration || attaching || helper.state() != HelperState::Idle) return;
     if (policy->isBusy() || policy->status() == CoreEngine::RequestStatus::Pending) return;
     if (policy->status() != CoreEngine::RequestStatus::Success || policy->currentGeneration() != generation || policy->confirmedProtection().isEmpty()) {
         stage = Stage::Prepared; emit ready(attempt, {Status::Failed, QStringLiteral("Cannot obtain a complete confirmed original-network protection policy.")}); return;
@@ -186,7 +204,7 @@ void LinuxNetworkAccess::observeModel()
         stage = Stage::Prepared; emit restartRequired(attempt, QStringLiteral("Original network exit changed; restoring before reconnecting.")); return;
     }
     const auto update = owned ? updatedLinuxCapturePrefixes(model["resources"].toObject(), policy->confirmedProtection(), *owned,
-        model["dns"].toObject()) : std::nullopt;
+        model["dns"].toObject(), activeDnsFallbacks) : std::nullopt;
     if (!update) { stage = Stage::Prepared; emit restartRequired(attempt, QStringLiteral("Original DNS or campus scope changed; restoring before reconnecting.")); return; }
     auto actual = owned->capturePrefixes, expected = *update; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*update); return; }
@@ -204,7 +222,7 @@ void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
     const auto owned = helper.ownedConfiguration();
     const auto model = policy->model();
     const auto update = owned ? updatedLinuxCapturePrefixes(model["resources"].toObject(), value, *owned,
-        model["dns"].toObject()) : std::nullopt;
+        model["dns"].toObject(), activeDnsFallbacks) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !update) {
         const bool automatic = automaticPolicy; automaticPolicy = false;
         policy->completePolicy(value["generation"].toString(), value["revision"].toString(), CoreEngine::RequestStatus::Unavailable);
@@ -231,6 +249,8 @@ void LinuxNetworkAccess::stop(const QUuid &id)
     if (id != attempt) { emit stopped(id, {Status::Failed, QStringLiteral("Recovery request does not belong to the current connection."), true}); return; }
     if (stage == Stage::Stopping) return;
     monitor.reset();
+    pendingConfiguration.reset();
+    activeDnsFallbacks = {};
     stage = Stage::Stopping; driveStop();
 }
 
