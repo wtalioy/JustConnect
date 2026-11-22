@@ -224,7 +224,15 @@ jobs:
           mkdir dmg-root
           mv "$TARGET_NAME.app" dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
+          # macOS runners can briefly keep the disk-image device busy.
+          if output=$(hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg" 2>&1); then
+            printf '%s\n' "$output"
+          else
+            status=$?
+            printf '%s\n' "$output" >&2
+            [[ "$output" == *'hdiutil: create failed - Resource busy'* ]] || exit "$status"
+            hdiutil create -ov -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
+          fi
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
