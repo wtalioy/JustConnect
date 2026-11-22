@@ -116,7 +116,7 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	g.resourceIP.Store("198.18.0.6")
 	g.nativeDNS.Store(true)
 	g.probeDNS.Store(true)
-	g.originalDNSName.Store(t.Name() == "TestNativeWindowsSessionOriginalDNS")
+	g.addCampusDomain.Store(t.Name() == "TestNativeWindowsSessionOriginalDNS")
 	enableNativeSSH(t, g)
 	var original *nativeOriginalPeer
 	if policy {

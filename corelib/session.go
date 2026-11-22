@@ -307,7 +307,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if observer.Resources != nil && options.LocalProxy {
 		scoped, _ := dialer.CaptureIPResources()
 		scoped = appendProxyExportTargets(scoped, dialer, options.ProxyExportTargets)
-		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: proxyExportDomainDNS(ctx, dialer, ips, options.DomainDNS),
+		permissions := proxyExportDomainDNS(ctx, resolver, ips, dialer.OriginalAuthentication.Address)
+		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: permissions,
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
 	} else if observer.Resources != nil {
 		var domainDNSNames []string

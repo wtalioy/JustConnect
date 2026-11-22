@@ -61,7 +61,7 @@ type gateway struct {
 	nativeDNSQueries atomic.Int32
 	dnsUDPPackets    atomic.Int32
 	dnsQuestions     sync.Map
-	originalDNSName  atomic.Bool
+	addCampusDomain  atomic.Bool
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 	resourceIP       atomic.Value
@@ -198,7 +198,7 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.nativeDNS.Load() {
 				addresses = fmt.Sprintf(`{"protocol":"udp","port":"0-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
 			}
-			if g.originalDNSName.Load() {
+			if g.addCampusDomain.Load() {
 				addresses += `,{"protocol":"tcp","port":"80","host":"host.campus.test"}`
 			}
 			if g.exportDNS.Load() {

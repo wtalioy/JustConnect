@@ -33,11 +33,12 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	g := newGateway(t)
 	g.probeDNS.Store(true)
 	g.exportDNS.Store(true)
+	g.addCampusDomain.Store(true)
 	e := New(RunProtocol)
 	h := create(t, e)
 	c := g.config(t)
 	c.LocalProxy = true
-	c.Network.DomainDNSRules = "alias.test\nunauthorized.test"
+	c.Network.DomainDNSRules = "alias.test\nunauthorized.test\nhost.campus.test"
 	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +82,7 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
 		snapshot.Resources.Listeners.HTTP != c.Listeners.HTTP ||
 		len(snapshot.Resources.Domains["campus.test"]) == 0 || len(snapshot.Resources.IPs) == 0 ||
+		len(snapshot.Resources.Domains["host.campus.test"]) == 0 ||
 		len(snapshot.Resources.DNSRecords) != 0 || len(snapshot.Resources.PrivateIPRanges) != 0 {
 		t.Fatal("local mode must publish its listener and export grants, without system capture data", status)
 	}
@@ -90,18 +92,24 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 		permissions[1] != (resourcePermission{Protocol: "udp", PortMin: 1053, PortMax: 1053}) {
 		t.Fatal("DNS aliases must inherit only the exact port and protocol grants for their answer", aliases)
 	}
+	if count := g.dnsUDPPackets.Load(); count != 2 {
+		t.Fatalf("expected DNS queries only for names without gateway domain grants, got %d: %v", count, g.observedDNSQuestions())
+	}
 	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "host.campus.test:80")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer connection.Close()
 	echo(t, connection)
+	if count := g.dnsUDPPackets.Load(); count != 3 {
+		t.Fatalf("expected the first SOCKS request to use the configured DNS, got %d queries: %v", count, g.observedDNSQuestions())
+	}
 	for _, denied := range []string{c.Listeners.SOCKS, "192.0.2.99:80"} {
 		if rejected, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", denied); err == nil {
 			rejected.Close()
