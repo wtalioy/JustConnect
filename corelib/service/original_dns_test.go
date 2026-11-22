@@ -568,13 +568,15 @@ func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idle.Close()
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	result := make(chan bool, 1)
-	go func() {
-		answer, _, err := (&dns.Client{Timeout: 5 * time.Second}).ExchangeContext(ctx, new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA), endpoint)
-		result <- err == nil && answer.Rcode == dns.RcodeSuccess
-	}()
+	pending, err := (&dns.Client{}).Dial(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pending.Close()
+	request := new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA)
+	if err := pending.WriteMsg(request); err != nil {
+		t.Fatal(err)
+	}
 	until := time.Now().Add(5 * time.Second)
 	for len(p.dnsWorkers) != 2 && time.Now().Before(until) {
 		runtime.Gosched()
@@ -589,7 +591,7 @@ func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 	defer flood.Close()
 	until = time.Now().Add(5 * time.Second)
 	_ = flood.SetWriteDeadline(until)
-	packet, err := new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA).Pack()
+	packet, err := request.Pack()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,8 +616,14 @@ func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("DNS shutdown did not interrupt idle and pre-TUN requests")
 	}
-	cancel()
-	if success := <-result; success || len(p.OriginalDNSListeners()) != 0 {
-		t.Fatal("closed preparation returned usable DNS state")
+	// Close has joined the DNS workers, so only a reply already sent on loopback can arrive.
+	if err := pending.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if answer, err := pending.ReadMsg(); err == nil && answer.Rcode == dns.RcodeSuccess {
+		t.Fatal("pending DNS request received a successful reply during shutdown")
+	}
+	if len(p.OriginalDNSListeners()) != 0 {
+		t.Fatal("closed preparation still reports active DNS listeners")
 	}
 }
