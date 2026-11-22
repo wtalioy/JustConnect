@@ -173,16 +173,20 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if err != nil {
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
+	address, _ := netip.ParseAddr(ip)
+	return d.dialResolvedIP(ctx, network, address, portStr, ipAddr)
+}
+
+func (d *Dialer) dialResolvedIP(ctx context.Context, network string, address netip.Addr, portStr, target string) (net.Conn, error) {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		return nil, errors.New("Invalid port in address: " + ipAddr)
+		return nil, errors.New("Invalid port in address: " + target)
 	}
-	address, err := netip.ParseAddr(ip)
-	if err != nil {
+	if !address.IsValid() {
 		if d.alwaysUseVPN {
 			return nil, ErrACLDenied
 		}
-		return nil, errors.New("Invalid address: " + ipAddr)
+		return nil, errors.New("Invalid address: " + target)
 	}
 	return d.dialIP(ctx, network, netip.AddrPortFrom(address, uint16(port)))
 }
@@ -342,6 +346,9 @@ func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network st
 }
 
 func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Conn, error) {
+	if d.alwaysUseVPN && network != "tcp" && network != "udp" {
+		return nil, ErrACLDenied
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		if d.alwaysUseVPN {
@@ -350,8 +357,8 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		return d.dialOrdinary(ctx, network, addr)
 	}
 
-	if _, err := netip.ParseAddr(host); err == nil {
-		return d.DialIPPort(ctx, network, addr)
+	if address, err := netip.ParseAddr(host); err == nil {
+		return d.dialResolvedIP(ctx, network, address, port, addr)
 	}
 	if d.resolver == nil {
 		if d.alwaysUseVPN {
@@ -374,7 +381,8 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		return nil, err
 	}
 
-	return d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), port))
+	address, _ := netip.AddrFromSlice(ip)
+	return d.dialResolvedIP(ctx, network, address, port, addr)
 }
 
 func (d *Dialer) CaptureIPResources() ([]client.IPResource, [][2]netip.Addr) {

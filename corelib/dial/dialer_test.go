@@ -643,6 +643,29 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 	}
 }
 
+func TestLocalProxyDialKeepsAddressAndPortValidation(t *testing.T) {
+	ip := net.ParseIP("203.0.113.7")
+	resolver := resolve.NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"campus.test": {ip}}, false)
+	defer resolver.Close()
+	stack := &capturingStack{}
+	dialer := NewDialer(stack, resolver, []client.IPResource{{
+		IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "campus",
+	}}, true)
+	for _, host := range []string{"campus.test", "203.0.113.7", "::ffff:203.0.113.7"} {
+		if _, err := dialer.Dial(t.Context(), "tcp", net.JoinHostPort(host, "443")); err != nil || stack.ipResource.AppID != "campus" {
+			t.Fatalf("%s lost its IPv4 grant: %v", host, err)
+		}
+		for _, port := range []string{"0", "65536", "https"} {
+			if _, err := dialer.Dial(t.Context(), "tcp", net.JoinHostPort(host, port)); err == nil {
+				t.Fatalf("%s accepted invalid port %q", host, port)
+			}
+		}
+	}
+	if _, err := dialer.Dial(t.Context(), "icmp", "campus.test:443"); !errors.Is(err, ErrACLDenied) || stack.tcpCalls != 3 || stack.udpCalls != 0 {
+		t.Fatalf("invalid destinations escaped validation: err=%v, TCP=%d, UDP=%d", err, stack.tcpCalls, stack.udpCalls)
+	}
+}
+
 func BenchmarkDialIPPortOrdinary(b *testing.B) {
 	dialer := NewDialer(nil, nil, []client.IPResource{
 		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 1), PortMin: 443, PortMax: 443, Protocol: "tcp"},
