@@ -32,8 +32,10 @@
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
 
 static void check(bool ok,const char *message) {
     if (!ok) {std::cerr<<message<<'\n';std::exit(1);}
@@ -240,17 +242,32 @@ static void textContextMenus()
 }
 
 int main(int argc,char **argv) {
+    const bool checkboxOnly = std::find(argv, argv + argc, std::string_view("--checkbox-only")) != argv + argc;
+    if (checkboxOnly)
+        std::cerr << "Initializing Qt for the checkbox checks\n";
     QApplication app(argc,argv);
+    if (checkboxOnly)
+        std::cerr << "Installing the application appearance\n";
     ApplicationAppearance::install();
-    if (app.arguments().contains("--checkbox-only")) {
-        checkboxAlignment(QStringLiteral("Launch at sign-in"), false);
-        checkboxAlignment(QStringLiteral("后台启动"), false);
-        checkboxAlignment(QStringLiteral("Remember authentication"));
-        checkboxAlignment(QStringLiteral("Check for updates at startup"));
-        checkboxAlignment(QStringLiteral("Start in the background"));
-        checkboxAlignment(QStringLiteral("Skip tunnel verification"));
-        checkboxAlignment(QStringLiteral("验证服务器证书"));
-        checkboxAlignment(QStringLiteral("记住登录"));
+    if (checkboxOnly) {
+        const struct {
+            QString caption;
+            bool checked;
+        } cases[] = {
+            {QStringLiteral("Launch at sign-in"), false},
+            {QStringLiteral("后台启动"), false},
+            {QStringLiteral("Remember authentication"), true},
+            {QStringLiteral("Check for updates at startup"), true},
+            {QStringLiteral("Start in the background"), true},
+            {QStringLiteral("Skip tunnel verification"), true},
+            {QStringLiteral("验证服务器证书"), true},
+            {QStringLiteral("记住登录"), true},
+        };
+        for (const auto &[caption, checked] : cases) {
+            std::cerr << "Rendering checkbox: " << caption.toStdString() << '\n';
+            checkboxAlignment(caption, checked);
+        }
+        std::cerr << "Finished checkbox rendering checks\n";
         return 0;
     }
     QWidget promptParent;
