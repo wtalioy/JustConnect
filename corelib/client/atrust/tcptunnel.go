@@ -245,7 +245,7 @@ func waitForTCPConnectReply(ctx context.Context, conn net.Conn, reader *bufio.Re
 	case 0x01:
 		return false, fmt.Errorf("tcp tunnel server failure")
 	case 0x02:
-		return false, fmt.Errorf("tcp tunnel connection not allowed")
+		return false, client.ErrTCPTunnelDenied
 	case 0x03:
 		return false, fmt.Errorf("network is unreachable")
 	case 0x04:
@@ -454,6 +454,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		}
 		addrPretend = resource.AddrPretend
 	}
+	domainGrant := appID != ""
 	if appID == "" {
 		resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource)
 		if !ok {
@@ -475,6 +476,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 
 	c.BestNodesRWMutex.RLock()
 	nodeAddr := c.BestNodes[nodeGroupID]
+	defaultNode := nodeAddr == "" && nodeGroupID != c.MajorNodeGroup
 	if nodeAddr == "" {
 		nodeAddr = c.BestNodes[c.MajorNodeGroup]
 	}
@@ -542,6 +544,16 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		}
 		if ctx.Err() != nil {
 			waitErr = ctx.Err()
+		}
+		if c.diagnostic != nil && errors.Is(waitErr, client.ErrTCPTunnelDenied) {
+			code := "tcp_tunnel_ip_denied"
+			if domainGrant {
+				code = "tcp_tunnel_domain_denied"
+			}
+			if defaultNode {
+				code += "_default_node"
+			}
+			c.diagnostic(code)
 		}
 		_ = conn.Close()
 		return nil, waitErr

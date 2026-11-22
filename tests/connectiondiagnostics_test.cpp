@@ -187,6 +187,9 @@ try
         && report.contains("Local entry: HTTP 127.0.0.1:11081 · SOCKS 127.0.0.1:11080")
         && report.contains("Campus exit: Campus tunnel"),
         "local proxy diagnostics name both entry points beside Local entry while the session runs");
+    emit connection.diagnostic("tcp_tunnel_domain_denied_default_node");
+    check(diagnostics.report().contains("Diagnostic code: tcp_tunnel_domain_denied_default_node"),
+          "copied diagnostics identify a node refusal after a domain grant used the default node");
     connection.stop();
     check(diagnostics.report().contains("Local entry: Not active"),
         "stopping the session hides the local entry points again");

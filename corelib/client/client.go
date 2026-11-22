@@ -9,6 +9,7 @@ import (
 
 var ErrResourceNotFound = errors.New("resource not found")
 var ErrTCPNodeConnect = errors.New("cannot connect to campus TCP tunnel node")
+var ErrTCPTunnelDenied = errors.New("tcp tunnel connection not allowed")
 
 type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 

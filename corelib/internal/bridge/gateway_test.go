@@ -41,6 +41,8 @@ type gateway struct {
 	udpCount         atomic.Int32
 	delay            atomic.Int64
 	tcpCount         atomic.Int32
+	rejectTCP        atomic.Bool
+	missingNodeGroup atomic.Bool
 	sshCount         atomic.Int32
 	sshHandler       atomic.Value
 	authCount        atomic.Int32
@@ -204,7 +206,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.exportDNS.Load() {
 				addresses += `,{"protocol":"tcp","port":"8443-8450","host":"192.0.2.17"},{"protocol":"udp","port":"1053","host":"192.0.2.17"}`
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, addresses, extraResource, g.node.Addr().String(), extraNode)
+			group := "fixture-group"
+			if g.missingNodeGroup.Load() {
+				group = "private-missing-group"
+			}
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, group, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -316,6 +322,10 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 		payload = []byte(`{"code":10000004,"message":"private-gateway-detail"}`)
 	}
 	response := append([]byte{5, 0x81, 0x53, 0, byte(len(payload) >> 8), byte(len(payload))}, payload...)
+	if g.rejectTCP.Load() {
+		_, _ = conn.Write(append(response, 5, 0x02, 0, 1))
+		return
+	}
 	response = append(response, 5, 0, 0, 1, 10, 0, 0, 2, 0, 80)
 	time.Sleep(time.Duration(g.delay.Load()))
 	if _, err := conn.Write(response); err != nil {

@@ -54,6 +54,8 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                                          "local_controller_unavailable",   "coexistence_refresh_failed",
                                          "socks_dns_failed", "socks_destination_denied", "socks_tunnel_node_unreachable", "socks_campus_dial_failed",
                                          "http_dns_failed", "http_destination_denied", "http_tunnel_node_unreachable", "http_dial_failed",
+                                         "tcp_tunnel_domain_denied", "tcp_tunnel_ip_denied",
+                                         "tcp_tunnel_domain_denied_default_node", "tcp_tunnel_ip_denied_default_node",
                                          "campus_dns_unreachable", "campus_dns_unconfigured", "l3_dns_destination_unauthorized",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
                                          "tls_authentication_failed",      "persistence_failed",

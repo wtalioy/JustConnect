@@ -111,7 +111,7 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		if p.diagnostic != nil {
+		if p.diagnostic != nil && !errors.Is(err, client.ErrTCPTunnelDenied) {
 			p.diagnostic(httpDialDiagnostic(err))
 		}
 		w.WriteHeader(500)
@@ -148,7 +148,7 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 
 	targetConn, err := p.dialContext(req.Context(), "tcp", req.Host)
 	if err != nil {
-		if p.diagnostic != nil {
+		if p.diagnostic != nil && !errors.Is(err, client.ErrTCPTunnelDenied) {
 			p.diagnostic(httpDialDiagnostic(err))
 		}
 		w.WriteHeader(http.StatusInternalServerError)

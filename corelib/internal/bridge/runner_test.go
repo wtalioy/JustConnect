@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -162,6 +163,70 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 		t.Fatal("local export remained accessible after disconnect", status)
 	}
 	awaitClosed(t, connection)
+}
+
+func TestProxyDenialDiagnostics(t *testing.T) {
+	t.Run("assigned_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, false, "") })
+	t.Run("default_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, true, "_default_node") })
+}
+
+func checkProxyDenialDiagnostics(t *testing.T, missingNodeGroup bool, suffix string) {
+	t.Helper()
+	g := newGateway(t)
+	g.rejectTCP.Store(true)
+	g.missingNodeGroup.Store(missingNodeGroup)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	proxyURL := &url.URL{Scheme: "http", Host: c.Listeners.HTTP}
+	httpProxy := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 5 * time.Second}
+	defer httpProxy.CloseIdleConnections()
+	for _, target := range []string{"192.0.2.99:80", "campus.test:80"} {
+		response, err := httpProxy.Get("http://" + target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("HTTP proxy accepted %s: %d", target, response.StatusCode)
+		}
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "192.0.2.10:80"); err == nil {
+		conn.Close()
+		t.Fatal("SOCKS accepted the node's refusal")
+	}
+	if g.tcpCount.Load() != 2 || e.Stop(h, 3000) != OK {
+		t.Fatal("unexpected tunnel attempt or failed stop", g.tcpCount.Load())
+	}
+	var codes []string
+	for {
+		data, _, status := e.Read(h, MaxOutput, 0)
+		if status == End {
+			break
+		}
+		var message event
+		if status != OK || json.Unmarshal(data, &message) != nil || strings.Contains(string(data), "private-") {
+			t.Fatalf("diagnostic event = %s, %v", data, status)
+		}
+		if message.Type == "diagnostic" {
+			codes = append(codes, message.Code)
+		}
+	}
+	if want := []string{"http_destination_denied", "tcp_tunnel_domain_denied" + suffix, "tcp_tunnel_ip_denied" + suffix}; !slices.Equal(codes, want) {
+		t.Fatalf("proxy diagnostics = %v, want %v", codes, want)
+	}
 }
 
 func (p *hostLogProbe) Write(data []byte) (int, error) {
