@@ -36,6 +36,7 @@ function Test-InstalledApp($App, $Options, $StartMenu) {
     if ((Test-Path -LiteralPath $App) -or (Test-Path -LiteralPath $shortcut)) { throw 'Installer smoke test requires a clean user profile' }
     Invoke-Setup $installer "$silent $Options"
     $exe = Join-Path $App 'JustConnect.exe'
+    $uninstallLog = Join-Path $env:RUNNER_TEMP "justconnect-uninstall-$StartMenu.log"
     try {
         if ((Test-Path -LiteralPath $shortcut) -ne $StartMenu) { throw 'Start menu shortcut did not match the selected task' }
         foreach ($file in Get-ChildItem -LiteralPath $payloadRoot -Recurse -File) {
@@ -50,10 +51,12 @@ function Test-InstalledApp($App, $Options, $StartMenu) {
             throw 'Installed application failed its version and core self-test'
         }
     } finally {
-        Invoke-Setup (Join-Path $App 'unins000.exe') $silent
+        Invoke-Setup (Join-Path $App 'unins000.exe') "$silent /LOG=`"$uninstallLog`""
     }
-    if ((Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $shortcut)) {
-        throw 'Uninstall left the application or shortcut installed'
+    $remaining = @($exe, $shortcut) | Where-Object { Test-Path -LiteralPath $_ }
+    if ($remaining) {
+        Get-Content -LiteralPath $uninstallLog -ErrorAction Continue | Write-Host
+        throw "Uninstall left installed files: $($remaining -join ', ')"
     }
 }
 Test-InstalledApp (Join-Path $env:LOCALAPPDATA 'Programs\JustConnect') '' $true
