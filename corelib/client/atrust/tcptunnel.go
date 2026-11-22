@@ -101,15 +101,6 @@ func marshalTCPTunnelAuthRequest(request tcpTunnelAuthRequest, signKey []byte) (
 	return signed, nil
 }
 
-func encodeTCPTunnelAuthLength(length int) ([2]byte, error) {
-	var encoded [2]byte
-	if length > 0xFFFF {
-		return encoded, fmt.Errorf("tcp tunnel auth request too large: %d bytes", length)
-	}
-	binary.BigEndian.PutUint16(encoded[:], uint16(length))
-	return encoded, nil
-}
-
 func writeTCPTunnelHandshakeMessage(writer io.Writer, data []byte) error {
 	n, err := writer.Write(data)
 	if err != nil {
@@ -121,22 +112,29 @@ func writeTCPTunnelHandshakeMessage(writer io.Writer, data []byte) error {
 	return nil
 }
 
-func writeTCPTunnelInitialMessages(writer io.Writer, initMsg, destMsg []byte) error {
-	message := make([]byte, 0, len(initMsg)+len(destMsg))
-	message = append(message, initMsg...)
-	message = append(message, destMsg...)
+func writeTCPTunnelRequest(writer io.Writer, auth []byte, host string, port int, zeroRTT bool) error {
+	if len(auth) > 0xFFFF {
+		return fmt.Errorf("tcp tunnel auth request too large: %d bytes", len(auth))
+	}
+	header := [...]byte{0x05, 0x01, 0x81, 0x53, 0x03}
+	destinationCapacity := 6 + max(net.IPv6len, 1+len(host))
+	message := make([]byte, 0, len(header)+2+len(auth)+destinationCapacity)
+	message = append(message, header[:]...)
+	message = binary.BigEndian.AppendUint16(message, uint16(len(auth)))
+	message = append(message, auth...)
+	message = appendTCPTunnelDestination(message, host, port, zeroRTT)
 	if err := writeTCPTunnelHandshakeMessage(writer, message); err != nil {
 		return fmt.Errorf("failed to send tcp tunnel handshake: %w", err)
 	}
 	return nil
 }
 
-func encodeTCPTunnelDestination(host string, port int, zeroRTT bool) ([]byte, error) {
+func appendTCPTunnelDestination(msg []byte, host string, port int, zeroRTT bool) []byte {
 	rsv := byte(0)
 	if zeroRTT {
 		rsv = 1
 	}
-	msg := []byte{0x05, 0x01, rsv}
+	msg = append(msg, 0x05, 0x01, rsv)
 	if ip := net.ParseIP(host); ip != nil {
 		if ipv4 := ip.To4(); ipv4 != nil {
 			msg = append(msg, 0x01)
@@ -149,7 +147,7 @@ func encodeTCPTunnelDestination(host string, port int, zeroRTT bool) ([]byte, er
 		msg = append(msg, 0x03, byte(len(host)))
 		msg = append(msg, host...)
 	}
-	return binary.BigEndian.AppendUint16(msg, uint16(port)), nil
+	return binary.BigEndian.AppendUint16(msg, uint16(port))
 }
 
 func parseTCPTunnelAuthResponse(data string) error {
@@ -526,21 +524,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		_ = conn.Close()
 		return nil, err
 	}
-	lenBytes, err := encodeTCPTunnelAuthLength(len(msgBytes))
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	initHeader := []byte{0x05, 0x01, 0x81, 0x53, 0x03}
-	initMsg := append(initHeader, lenBytes[:]...)
-	initMsg = append(initMsg, msgBytes...)
-	destMsg, err := encodeTCPTunnelDestination(realDstHost, addr.Port, c.tcpTunnelZeroRTT)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-
-	if err := writeTCPTunnelInitialMessages(conn, initMsg, destMsg); err != nil {
+	if err := writeTCPTunnelRequest(conn, msgBytes, realDstHost, addr.Port, c.tcpTunnelZeroRTT); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}

@@ -511,19 +511,6 @@ func TestTCPTunnelAuthRequestOmitsEmptyDestIP(t *testing.T) {
 	}
 }
 
-func TestEncodeTCPTunnelAuthLengthRejectsOverflow(t *testing.T) {
-	encoded, err := encodeTCPTunnelAuthLength(0xFFFF)
-	if err != nil {
-		t.Fatalf("encodeTCPTunnelAuthLength() error = %v", err)
-	}
-	if got := binary.BigEndian.Uint16(encoded[:]); got != 0xFFFF {
-		t.Fatalf("encoded length = %d, want %d", got, 0xFFFF)
-	}
-	if _, err := encodeTCPTunnelAuthLength(0x10000); err == nil {
-		t.Fatal("encodeTCPTunnelAuthLength() accepted an overflowing length")
-	}
-}
-
 type shortWriter struct{}
 
 func (shortWriter) Write(data []byte) (int, error) {
@@ -537,15 +524,25 @@ func TestWriteTCPTunnelHandshakeMessageRejectsShortWrite(t *testing.T) {
 	}
 }
 
-func TestWriteTCPTunnelInitialMessagesSelectsWireHandshake(t *testing.T) {
-	initMsg := []byte("init")
-	destMsg := []byte("dest")
+func TestWriteTCPTunnelRequest(t *testing.T) {
 	var got bytes.Buffer
-	if err := writeTCPTunnelInitialMessages(&got, initMsg, destMsg); err != nil {
+	if err := writeTCPTunnelRequest(&got, []byte("{}"), "10.75.11.237", 443, true); err != nil {
 		t.Fatal(err)
 	}
-	if got.String() != "initdest" {
-		t.Fatalf("wire handshake = %q, want initdest", got.String())
+	want := []byte{0x05, 0x01, 0x81, 0x53, 0x03, 0x00, 0x02, '{', '}', 0x05, 0x01, 0x01, 0x01, 10, 75, 11, 237, 0x01, 0xBB}
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Fatalf("wire handshake = % x, want % x", got.Bytes(), want)
+	}
+	got.Reset()
+	if err := writeTCPTunnelRequest(&got, make([]byte, 0xFFFF), "10.75.11.237", 443, false); err != nil {
+		t.Fatal(err)
+	}
+	if size := binary.BigEndian.Uint16(got.Bytes()[5:7]); size != 0xFFFF {
+		t.Fatalf("encoded length = %d, want %d", size, 0xFFFF)
+	}
+	got.Reset()
+	if err := writeTCPTunnelRequest(&got, make([]byte, 0x10000), "10.75.11.237", 443, false); err == nil || got.Len() != 0 {
+		t.Fatalf("oversized auth request wrote %d bytes, err = %v", got.Len(), err)
 	}
 }
 
@@ -560,10 +557,7 @@ func TestEncodeTCPTunnelDestinationCopiesZeroRTTToRSV(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			want := []byte{0x05, 0x01, test.rsv, 0x01, 10, 75, 11, 237, 0x00, 0x50}
-			got, err := encodeTCPTunnelDestination("10.75.11.237", 80, test.zeroRTT)
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := appendTCPTunnelDestination(nil, "10.75.11.237", 80, test.zeroRTT)
 			if !bytes.Equal(got, want) {
 				t.Fatalf("destination = % x, want % x", got, want)
 			}
@@ -582,10 +576,7 @@ func TestEncodeTCPTunnelDestinationDetectsHostType(t *testing.T) {
 		{name: "domain", host: "service.internal", want: append(append([]byte{0x05, 0x01, 0x00, 0x03, 16}, "service.internal"...), 0x01, 0xBB)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := encodeTCPTunnelDestination(test.host, 443, false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := appendTCPTunnelDestination(nil, test.host, 443, false)
 			if !bytes.Equal(got, test.want) {
 				t.Fatalf("destination = % x, want % x", got, test.want)
 			}
@@ -595,10 +586,7 @@ func TestEncodeTCPTunnelDestinationDetectsHostType(t *testing.T) {
 
 func TestEncodeTCPTunnelDestinationTruncatesDomainLengthByte(t *testing.T) {
 	host := strings.Repeat("a", 300)
-	got, err := encodeTCPTunnelDestination(host, 80, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := appendTCPTunnelDestination(nil, host, 80, false)
 	if got[3] != 0x03 || got[4] != byte(len(host)) {
 		t.Fatalf("domain header = % x, want ATYP 03 and truncated length %02x", got[3:5], byte(len(host)))
 	}
