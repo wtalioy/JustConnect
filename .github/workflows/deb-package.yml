@@ -12,6 +12,11 @@ on:
       - 'corelib/**/*_test.go'
       - 'scripts/package-windows-installer.ps1'
       - 'scripts/windows-installer.iss'
+      # Debian installs its own toolchain and system Qt inside the container.
+      - '.github/actions/setup-core-toolchain/action.yml'
+      - '.github/actions/setup-qt/action.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/coreabi.yml'
   push:
     branches: [develop]
     paths-ignore: *non_package_changes
