@@ -23,15 +23,16 @@ import (
 )
 
 type tcpTunnelConn struct {
-	tlsConn    net.Conn
-	reader     *bufio.Reader
-	readMu     sync.Mutex
-	writeMu    sync.Mutex
-	readHeader [4]byte
-	readBuf    []byte
-	writeBuf   []byte
-	reuse      bool
-	raw        bool
+	tlsConn     net.Conn
+	reader      *bufio.Reader
+	readMu      sync.Mutex
+	writeMu     sync.Mutex
+	readHeader  [4]byte
+	readBuf     []byte
+	readPending int
+	writeBuf    []byte
+	reuse       bool
+	raw         bool
 
 	owner          *Client
 	closeOnce      sync.Once
@@ -273,9 +274,9 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 	if c.raw {
 		return c.reader.Read(b)
 	}
-	if len(c.readBuf) > 0 {
-		n := copy(b, c.readBuf)
-		c.readBuf = c.readBuf[n:]
+	if c.readPending > 0 {
+		n := copy(b, c.readBuf[len(c.readBuf)-c.readPending:])
+		c.readPending -= n
 		return n, nil
 	}
 
@@ -297,13 +298,16 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 				return length, nil
 			}
 
-			payload := make([]byte, length)
-			if _, err := io.ReadFull(c.reader, payload); err != nil {
+			if cap(c.readBuf) < length {
+				c.readBuf = make([]byte, length)
+			}
+			c.readBuf = c.readBuf[:length]
+			if _, err := io.ReadFull(c.reader, c.readBuf); err != nil {
 				return 0, err
 			}
 
-			n := copy(b, payload)
-			c.readBuf = payload[n:]
+			n := copy(b, c.readBuf)
+			c.readPending = length - n
 			return n, nil
 		case header[0] == 0x01 && header[1] == 0x01:
 			return 0, io.EOF
