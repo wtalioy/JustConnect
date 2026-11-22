@@ -9,6 +9,7 @@ on:
       - '.github/screenshots/**'
       - 'docs/releases/**'
       - 'tests/**'
+      - 'corelib/**/*_test.go'
       - 'scripts/package-windows-installer.ps1'
       - 'scripts/windows-installer.iss'
   push:
