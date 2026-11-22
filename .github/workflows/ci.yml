@@ -70,9 +70,8 @@ jobs:
           GOWORK: 'off'
         run: |
           helper=infrastructure/networkhelper/linux/helper
-          go -C "$helper" test -mod=readonly -count=1 -timeout 120s ./...
           probe="$RUNNER_TEMP/justconnect-linux-netlink-tests"
-          go -C "$helper" test -mod=readonly -c -o "$probe"
+          go -C "$helper" test -mod=readonly -count=1 -timeout 120s -o "$probe" ./...
           sudo unshare --net -- env JC_LINUX_HELPER_NETNS=1 "$probe" -test.run '^TestNetlink.*Runner$' -test.v
 
       - name: Configure
