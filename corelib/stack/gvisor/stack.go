@@ -65,10 +65,23 @@ func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (written int, resu
 		}
 	}()
 	for _, packet := range list.AsSlice() {
-		view = packet.ToView()
-		_, err := ep.l3Conn.Write(view.AsSlice())
-		view.Release()
-		view = nil
+		var data []byte
+		if packet.Data().Size() == 0 {
+			views, offset := packet.AsViewList()
+			if first := views.Front(); first != nil && first.Next() == nil {
+				// The writer may borrow this read-only view until Write returns.
+				data = first.AsSlice()[offset:]
+			}
+		}
+		if data == nil {
+			view = packet.ToView()
+			data = view.AsSlice()
+		}
+		_, err := ep.l3Conn.Write(data)
+		if view != nil {
+			view.Release()
+			view = nil
+		}
 		if err != nil {
 			if errors.Is(err, clientpkg.ErrResourceNotFound) {
 				written++

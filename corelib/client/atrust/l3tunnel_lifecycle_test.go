@@ -1489,6 +1489,12 @@ func TestPendingPacketCacheMatchesBinaryLimitAndAuthTimeoutRetries(t *testing.T)
 			t.Fatalf("cachePacket(%d) error = %v", i, err)
 		}
 	}
+	packet[0] = 0xff
+	for i, cached := range ct.pending {
+		if cached[0] != byte(i) {
+			t.Fatalf("pending packet %d changed after the caller reused the buffer", i)
+		}
+	}
 	if _, err := manager.cachePacket(ct, meta, []byte{0xff}); !errors.Is(err, errPendingPacketCacheFull) {
 		t.Fatalf("cachePacket() error = %v, want cache full", err)
 	}
