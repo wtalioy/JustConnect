@@ -9,6 +9,8 @@ on:
       - '.github/screenshots/**'
       - 'docs/releases/**'
       - 'tests/**'
+      - 'scripts/package-windows-installer.ps1'
+      - 'scripts/windows-installer.iss'
   push:
     branches: [develop]
     paths-ignore: *non_package_changes
