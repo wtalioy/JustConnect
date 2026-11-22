@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 	"testing"
 
@@ -52,11 +52,11 @@ func TestPacketMetadataRejectsMalformedHeaders(t *testing.T) {
 func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 	for _, family := range []int{4, 6} {
 		meta := packetMeta{atype: family, proto: 17,
-			srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
-		other := net.ParseIP("192.0.2.3")
+			srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: 12345, dstPort: 53}
+		other := netip.MustParseAddr("192.0.2.3")
 		if family == 6 {
-			meta.srcIP, meta.dstIP = net.ParseIP("2001:db8::1"), net.ParseIP("2001:db8::2")
-			other = net.ParseIP("2001:db9::1")
+			meta.srcIP, meta.dstIP = netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("2001:db8::2")
+			other = netip.MustParseAddr("2001:db9::1")
 		}
 		key := makeConntrackKey(meta)
 		variants := []packetMeta{meta, meta, meta, meta, meta, meta}
@@ -75,7 +75,7 @@ func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 			seen[value] = true
 		}
 		if family == 4 {
-			meta.srcIP, meta.dstIP = meta.srcIP.To4(), meta.dstIP.To4()
+			meta.srcIP, meta.dstIP = netip.AddrFrom16(meta.srcIP.As16()), netip.AddrFrom16(meta.dstIP.As16())
 			if makeConntrackKey(meta) != key {
 				t.Fatal("equivalent IPv4 representations changed the conntrack key")
 			}
@@ -85,7 +85,7 @@ func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 
 func BenchmarkConnTrackKey(b *testing.B) {
 	meta := packetMeta{atype: 4, proto: 17,
-		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
+		srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: 12345, dstPort: 53}
 	b.ReportAllocs()
 	for b.Loop() {
 		conntrackKeySink = makeConntrackKey(meta)

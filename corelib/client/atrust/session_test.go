@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"reflect"
 	"sync"
 	"testing"
@@ -100,7 +100,7 @@ func TestExistingL3InfoUsesCurrentSIDAndSignsIt(t *testing.T) {
 	c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}})
 	defer c.Close()
 	info := clientInfo{sid: "old", sidProvider: c.sessionSID}
-	meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 1234, dstPort: 53}
+	meta := packetMeta{atype: 4, proto: 17, srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: 1234, dstPort: 53}
 	for _, sid := range []string{"first", "second"} {
 		c.setSessionSID(sid, nil)
 		data, err := buildAuthRequest(info, []byte("key"), meta, &conntrack{appID: "app", authID: 1})

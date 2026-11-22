@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1199,7 +1200,7 @@ func TestPendingPacketsFlushInOrderAfterAuthentication(t *testing.T) {
 	}
 	meta := packetMeta{
 		atype: 4, proto: 17,
-		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 1),
+		srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.1"),
 		srcPort: 12345, dstPort: 53, key: testConntrackKey("flow"),
 	}
 	first := makeUDPPacket(12345, 53)
@@ -1252,7 +1253,7 @@ func TestBuildAuthRequestMatchesOfficialFieldOrderAndSignature(t *testing.T) {
 	info := clientInfo{sid: "sid", deviceID: "device", connectionID: "connection"}
 	meta := packetMeta{
 		atype: 4, proto: 17,
-		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2),
+		srcIP: netip.MustParseAddr("::ffff:192.0.2.1"), dstIP: netip.MustParseAddr("::ffff:198.51.100.2"),
 		srcPort: 12345, dstPort: 53,
 	}
 	ct := &conntrack{appID: "app", authID: 42}
@@ -1265,6 +1266,9 @@ func TestBuildAuthRequestMatchesOfficialFieldOrderAndSignature(t *testing.T) {
 	var signed authRequestIP
 	if err := json.Unmarshal(encoded, &signed); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if signed.URL != "udp:198.51.100.2:53" || signed.IP.SrcAddr != "192.0.2.1" || signed.IP.DestAddr != "198.51.100.2" {
+		t.Fatalf("mapped IPv4 addresses changed the wire request: %s", encoded)
 	}
 	signature := signed.XRequestSig
 	signed.XRequestSig = ""
@@ -1370,23 +1374,32 @@ func TestAuthResponseIgnoresJSONCode(t *testing.T) {
 
 func TestAuthResponseFallsBackOnlyToACompleteTuple(t *testing.T) {
 	for _, test := range []struct {
-		name                                    string
-		protocol                                int
-		staleHash, invalidSource, invalidFamily bool
-		authenticated                           bool
+		name                     string
+		protocol                 int
+		staleHash, invalidFamily bool
+		ipv6                     bool
+		source                   string
+		authenticated            bool
 	}{
 		{name: "complete tuple", protocol: 17, authenticated: true},
+		{name: "mapped IPv4 source", protocol: 17, source: "::ffff:192.0.2.1", authenticated: true},
+		{name: "global IPv6 addresses", protocol: 17, ipv6: true, authenticated: true},
+		{name: "scoped IPv6 source", protocol: 17, ipv6: true, source: "2001:db8::1%en0"},
 		{name: "wrong protocol", protocol: 6},
 		{name: "missing protocol"},
 		{name: "wrapped protocol", protocol: 273},
 		{name: "stale explicit ID", protocol: 17, staleHash: true},
-		{name: "invalid source", protocol: 17, invalidSource: true},
+		{name: "invalid source", protocol: 17, source: "invalid"},
 		{name: "invalid family", protocol: 17, invalidFamily: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manager := newConntrackMgr()
 			conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager, writeFrameHook: func([]byte) error { return nil }}
-			meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
+			meta := packetMeta{atype: 4, proto: 17, srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: 12345, dstPort: 53}
+			if test.ipv6 {
+				meta.atype = 6
+				meta.srcIP, meta.dstIP = netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("2001:db8::2")
+			}
 			meta.key = makeConntrackKey(meta)
 			ct := manager.getOrCreate(meta.key, "app", "group")
 			if _, err := manager.cachePacket(ct, meta, nil); err != nil {
@@ -1396,8 +1409,8 @@ func TestAuthResponseFallsBackOnlyToACompleteTuple(t *testing.T) {
 			if test.staleHash {
 				data.ConntrackHash = ct.authID + 1
 			}
-			if test.invalidSource {
-				data.IP.SrcAddr = "invalid"
+			if test.source != "" {
+				data.IP.SrcAddr = test.source
 			}
 			if test.invalidFamily {
 				data.IP.Atype = 0
@@ -1815,8 +1828,8 @@ func TestIncomingPacketRefreshesReverseConntrack(t *testing.T) {
 	now = now.Add(time.Minute)
 
 	incoming := zctcpip.IPv4Packet(makeUDPPacket(53, 12345))
-	copy(incoming[12:16], meta.dstIP.To4())
-	copy(incoming[16:20], meta.srcIP.To4())
+	copy(incoming[12:16], meta.dstIP.AsSlice())
+	copy(incoming[16:20], meta.srcIP.AsSlice())
 	conn := &l3TunnelConn{conntrackMgr: manager}
 	conn.refreshIncomingConntrack(incoming)
 
@@ -2153,7 +2166,7 @@ func BenchmarkAuthResponseTupleLookup(b *testing.B) {
 	manager := newConntrackMgr()
 	var response authIP
 	for i := 0; i < 1024; i++ {
-		meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: uint16(10000 + i), dstPort: 53}
+		meta := packetMeta{atype: 4, proto: 17, srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: uint16(10000 + i), dstPort: 53}
 		meta.key = makeConntrackKey(meta)
 		ct := manager.getOrCreate(meta.key, "app", "group")
 		if _, err := manager.cachePacket(ct, meta, nil); err != nil {
@@ -2171,7 +2184,7 @@ func BenchmarkAuthResponseTupleLookup(b *testing.B) {
 
 func BenchmarkBuildL3AuthRequest(b *testing.B) {
 	info := clientInfo{sid: "sid", deviceID: "device", connectionID: "connection"}
-	meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
+	meta := packetMeta{atype: 4, proto: 17, srcIP: netip.MustParseAddr("192.0.2.1"), dstIP: netip.MustParseAddr("198.51.100.2"), srcPort: 12345, dstPort: 53}
 	ct := &conntrack{appID: "app", authID: 42}
 	key := []byte("signing-key")
 	b.ReportAllocs()

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
@@ -148,8 +149,8 @@ type authResponseSID struct {
 type packetMeta struct {
 	atype   int
 	proto   int
-	srcIP   net.IP
-	dstIP   net.IP
+	srcIP   netip.Addr
+	dstIP   netip.Addr
 	srcPort uint16
 	dstPort uint16
 	key     conntrackKey
@@ -621,7 +622,7 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 	if err != nil {
 		return nil, err
 	}
-	destAddr := meta.dstIP.String()
+	destAddr := meta.dstIP.Unmap().String()
 
 	req := authRequestIP{
 		Sid:           sid,
@@ -637,7 +638,7 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 			Protocol: meta.proto,
 			DestAddr: destAddr,
 			DestPort: meta.dstPort,
-			SrcAddr:  meta.srcIP.String(),
+			SrcAddr:  meta.srcIP.Unmap().String(),
 			SrcPort:  meta.srcPort,
 		},
 		ProcHash:    l3TrustEnv.Application.Runtime.Process.Fingerprint,
