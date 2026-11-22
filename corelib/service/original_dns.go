@@ -97,9 +97,14 @@ func (p *Listeners) prepareOriginalDNS(original *resolve.OriginalDNS, startup bo
 					continue
 				}
 				owned, err := p.own(conn)
-				if err == nil && !p.startDNS(func() { defer owned.Close(); p.serveOriginalDNS(owned, entry.source) }) {
-					_ = owned.Close()
+				if err != nil {
+					continue
 				}
+				if !p.beginDNS() {
+					_ = owned.Close()
+					continue
+				}
+				go p.runDNS(func() { defer owned.Close(); p.serveOriginalDNS(owned, entry.source) })
 			}
 		})
 	}
@@ -159,23 +164,24 @@ func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSList
 // A listener on an interface address must not become a LAN DNS server.
 func localDNSPeer(peer, local netip.Addr) bool { return peer.IsLoopback() || peer == local }
 
-func (p *Listeners) startDNS(work func()) bool {
+func (p *Listeners) beginDNS() bool {
 	select {
 	case p.dnsWorkers <- struct{}{}:
 	default:
 		return false
 	}
-	if !p.begin() {
-		<-p.dnsWorkers
-		return false
+	if p.begin() {
+		return true
 	}
-	go func() {
-		defer p.workers.Done()
-		defer p.recoverWorker()
-		defer func() { <-p.dnsWorkers }()
-		work()
-	}()
-	return true
+	<-p.dnsWorkers
+	return false
+}
+
+func (p *Listeners) runDNS(work func()) {
+	defer p.workers.Done()
+	defer p.recoverWorker()
+	defer func() { <-p.dnsWorkers }()
+	work()
 }
 
 func (p *Listeners) readOriginalDNS(socket *net.UDPConn, source string, local netip.Addr) {
@@ -188,11 +194,12 @@ func (p *Listeners) readOriginalDNS(socket *net.UDPConn, source string, local ne
 			}
 			return
 		}
-		if !localDNSPeer(peer.Addr().Unmap(), local) {
+		if !localDNSPeer(peer.Addr().Unmap(), local) || !p.beginDNS() {
 			continue
 		}
+		// Only admitted workers need a copy of the reused receive buffer.
 		packet := bytes.Clone(buffer[:n])
-		p.startDNS(func() {
+		go p.runDNS(func() {
 			request := new(dns.Msg)
 			if request.Unpack(packet) != nil {
 				return

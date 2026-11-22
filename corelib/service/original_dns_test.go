@@ -616,6 +616,9 @@ func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("DNS shutdown did not interrupt idle and pre-TUN requests")
 	}
+	if active := len(p.dnsWorkers); active != 0 {
+		t.Fatalf("DNS shutdown left %d worker slots reserved", active)
+	}
 	// Close has joined the DNS workers, so only a reply already sent on loopback can arrive.
 	if err := pending.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatal(err)
