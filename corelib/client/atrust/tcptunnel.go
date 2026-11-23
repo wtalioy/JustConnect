@@ -51,16 +51,16 @@ func tcpTunnelHandshakeDeadline(ctx context.Context, now time.Time) time.Time {
 	return deadline
 }
 
-func readTCPProtocolResponse(reader *bufio.Reader) (string, error) {
+func readTCPProtocolResponse(reader *bufio.Reader) ([]byte, error) {
 	lengthBytes := make([]byte, 2)
 	if _, err := io.ReadFull(reader, lengthBytes); err != nil {
-		return "", err
+		return nil, err
 	}
 	data := make([]byte, binary.BigEndian.Uint16(lengthBytes))
 	if _, err := io.ReadFull(reader, data); err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(data), nil
+	return data, nil
 }
 
 type tcpTunnelAuthResponse struct {
@@ -151,9 +151,9 @@ func appendTCPTunnelDestination(msg []byte, host string, port int, zeroRTT bool)
 	return binary.BigEndian.AppendUint16(msg, uint16(port))
 }
 
-func parseTCPTunnelAuthResponse(data string) error {
+func parseTCPTunnelAuthResponse(data []byte) error {
 	var response tcpTunnelAuthResponse
-	if err := json.Unmarshal([]byte(data), &response); err != nil {
+	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to parse tcp tunnel auth response: %w", err)
 	}
 	if response.Code != 0 {
@@ -185,7 +185,7 @@ func readSOCKS5ConnectReply(reader *bufio.Reader) (status byte, reuse bool, err 
 	default:
 		return 0, false, fmt.Errorf("unexpected tcp tunnel bind address type: 0x%02X", header[3])
 	}
-	if _, err := io.CopyN(io.Discard, reader, int64(addressLength+2)); err != nil {
+	if _, err := reader.Discard(addressLength + 2); err != nil {
 		return 0, false, fmt.Errorf("failed to read tcp tunnel bind address: %w", err)
 	}
 	return 0, header[2] == 0x01, nil

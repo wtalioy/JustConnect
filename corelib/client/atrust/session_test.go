@@ -151,7 +151,7 @@ func TestSessionInvalidReturnsToOwner(t *testing.T) {
 		payload := []byte(fmt.Sprintf(`{"code":%d,"message":"private gateway detail"}`, code))
 		for _, parse := range []func() error{
 			func() error { return parseIPAuthResponse(payload) },
-			func() error { return parseTCPTunnelAuthResponse(string(payload)) },
+			func() error { return parseTCPTunnelAuthResponse(payload) },
 		} {
 			if err := parse(); !errors.Is(err, auth.ErrSessionInvalid) {
 				t.Fatalf("invalid session = %v", err)

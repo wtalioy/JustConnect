@@ -164,26 +164,25 @@ func TestWaitForTCPConnectPreservesBufferedDownstreamData(t *testing.T) {
 	}
 }
 
-func TestReadSOCKS5ConnectReplyReturnsReuseFlag(t *testing.T) {
-	reply := []byte{0x05, 0x00, 0x01, 0x01, 10, 249, 8, 102, 0x01, 0xBB}
-	status, reuse, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(reply)))
-	if err != nil {
-		t.Fatalf("readSOCKS5ConnectReply() error = %v", err)
-	}
-	if status != 0x00 {
-		t.Fatalf("readSOCKS5ConnectReply() status = 0x%02X, want 0x00", status)
-	}
-	if !reuse {
-		t.Fatal("readSOCKS5ConnectReply() reuse = false, want true")
-	}
-
-	reply[2] = 0x00
-	_, reuse, err = readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(reply)))
-	if err != nil {
-		t.Fatalf("readSOCKS5ConnectReply(non-reuse) error = %v", err)
-	}
-	if reuse {
-		t.Fatal("readSOCKS5ConnectReply() reuse = true, want false")
+func TestReadSOCKS5ConnectReply(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		reply []byte
+		reuse bool
+	}{
+		{"IPv4", []byte{5, 0, 0, 1, 10, 249, 8, 102, 1, 0xbb}, false},
+		{"IPv6 reuse", append([]byte{5, 0, 1, 4}, make([]byte, 18)...), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status, reuse, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(test.reply)))
+			if status != 0 || reuse != test.reuse || err != nil {
+				t.Fatalf("reply = (%d, %t, %v), want (0, %t, nil)", status, reuse, err, test.reuse)
+			}
+			short := test.reply[:len(test.reply)-1]
+			if _, _, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(short))); !errors.Is(err, io.EOF) {
+				t.Fatalf("truncated bind address error = %v, want EOF", err)
+			}
+		})
 	}
 }
 
@@ -429,7 +428,7 @@ func TestParseTCPTunnelAuthResponse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := parseTCPTunnelAuthResponse(test.response)
+			err := parseTCPTunnelAuthResponse([]byte(test.response))
 			if test.wantErrMsg == "" {
 				if err != nil {
 					t.Fatalf("parseTCPTunnelAuthResponse() error = %v", err)
