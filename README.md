@@ -71,6 +71,8 @@ The default. Click **Connect** and follow the sign-in and network permission pro
 
 Select **Local proxy only**, then click **Connect** and sign in. Point your proxy app at `127.0.0.1` and the Local SOCKS5 port in your connection settings. Your proxy app handles routing; JustConnect leaves system routes, DNS, and proxy settings alone and needs no privileged network helper.
 
+Send campus hostnames through the proxy so JustConnect can resolve them with campus DNS. If Firefox connects directly to JustConnect over SOCKS5, enable **Proxy DNS when using SOCKS v5**.
+
 **Using Clash Verge Rev?** Once connected, choose **Copy Clash Extend Script** from JustConnect’s connection menu. In [Extend Script](https://www.clashverge.dev/guide/script.html) for your active profile:
 
 - **New script:** Paste the whole script.
