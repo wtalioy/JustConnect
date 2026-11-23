@@ -95,6 +95,7 @@ func (c *Client) parseResource(resource []byte) error {
 			if appItem.AccessModel != "L3VPN" {
 				continue
 			}
+			addrPretend := resourceAddrPretend(appItem.AddrPretend)
 			for _, address := range appItem.AddressList {
 				if address.Protocol != "tcp" && address.Protocol != "udp" && address.Protocol != "all" {
 					continue
@@ -159,8 +160,11 @@ func (c *Client) parseResource(resource []byte) error {
 				c.domainResources[domain] = append(c.domainResources[domain], client.DomainResource{
 					PortMin: portMin, PortMax: portMax, Protocol: address.Protocol,
 					AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID, EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-					AddrPretend: resourceAddrPretend(appItem.AddrPretend),
+					AddrPretend: addrPretend,
 				})
+				if !addrPretend && !strings.HasPrefix(domain, ".") {
+					resource.AuthDomain = domain
+				}
 				for _, address := range address.IP {
 					if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
 						c.dnsResource[host] = append(c.dnsResource[host], ip)

@@ -471,7 +471,8 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 			}
 			appID = resource.AppID
 			nodeGroupID = resource.NodeGroupID
-			domain = ""
+			domain = resource.AuthDomain
+			addrPretend = false
 		}
 	}
 	if appID == "" {

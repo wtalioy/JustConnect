@@ -43,6 +43,7 @@ type gateway struct {
 	tcpCount         atomic.Int32
 	rejectTCP        atomic.Bool
 	requireZeroRTT   atomic.Bool
+	publishedDomain  atomic.Bool
 	missingNodeGroup atomic.Bool
 	sshCount         atomic.Int32
 	sshHandler       atomic.Value
@@ -211,11 +212,16 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.exportDNS.Load() {
 				addresses += `,{"protocol":"tcp","port":"8443-8450","host":"192.0.2.17"},{"protocol":"udp","port":"1053","host":"192.0.2.17"}`
 			}
+			domainOptions := ""
+			if g.publishedDomain.Load() {
+				domainOptions = `,"addrPretend":false`
+				addresses += `,{"protocol":"tcp","port":"8443","host":"published.campus.test","IP":["192.0.2.17"]}`
+			}
 			group := "fixture-group"
 			if g.missingNodeGroup.Load() {
 				group = "private-missing-group"
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, group, addresses, extraResource, g.node.Addr().String(), extraNode)
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN"%s,"addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, group, domainOptions, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -296,7 +302,8 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 	default:
 		return
 	}
-	if _, err := io.CopyN(io.Discard, conn, int64(length)); err != nil {
+	var endpoint [257]byte
+	if _, err := io.ReadFull(conn, endpoint[:length]); err != nil {
 		return
 	}
 
@@ -331,7 +338,8 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 	if g.requireZeroRTT.Load() {
 		framed = 1
 	}
-	if g.rejectTCP.Load() || destination[2] != framed {
+	if g.rejectTCP.Load() || destination[2] != framed ||
+		g.publishedDomain.Load() && !validResolvedDomainRequest(auth, destination[3], endpoint[:length]) {
 		_, _ = conn.Write(append(response, 5, 0x02, 0, 1))
 		return
 	}
@@ -382,6 +390,18 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 			return
 		}
 	}
+}
+
+func validResolvedDomainRequest(auth []byte, addressType byte, endpoint []byte) bool {
+	const resource = "published.campus.test:8443"
+	const ip = "192.0.2.17"
+	var request struct {
+		AppID, URL, DestAddr, DestIP string
+	}
+	return addressType == 1 && net.IP(endpoint[:4]).String() == ip &&
+		binary.BigEndian.Uint16(endpoint[4:]) == 8443 &&
+		json.Unmarshal(auth, &request) == nil && request.AppID == "fixture-app" &&
+		request.DestAddr == resource && request.DestIP == ip && request.URL == "tcp://"+resource
 }
 func (g *gateway) config(t *testing.T) Config {
 	t.Helper()
@@ -556,7 +576,7 @@ func (g *gateway) serveL3(conn net.Conn) {
 						}
 						reply := new(dns.Msg)
 						reply.SetReply(request)
-						if g.exportDNS.Load() && len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeA {
+						if (g.exportDNS.Load() || g.publishedDomain.Load()) && len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeA {
 							name := request.Question[0].Name
 							address := "192.0.2.99"
 							if name == "alias.test." {

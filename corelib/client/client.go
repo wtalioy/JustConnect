@@ -29,6 +29,7 @@ type IPResource struct {
 	Protocol        string
 	AppID           string
 	NodeGroupID     string
+	AuthDomain      string // Exact gateway domain published with this IPv4 and no address masquerading.
 	EnableTCPPrefL3 bool
 }
 

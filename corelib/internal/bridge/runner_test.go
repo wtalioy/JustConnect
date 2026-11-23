@@ -194,6 +194,54 @@ func TestLocalProxyNegotiatesAdvertisedTCPFraming(t *testing.T) {
 	}
 }
 
+func TestLocalProxyAuthenticatesPublishedIPAsGatewayDomain(t *testing.T) {
+	g := newGateway(t)
+	g.publishedDomain.Store(true)
+	g.probeDNS.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Network.DomainDNSRules = "alias.test"
+	c.Listeners.SOCKS = freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialer := socks.(proxy.ContextDialer)
+	for _, target := range []string{"alias.test:8443", "192.0.2.17:8443"} {
+		t.Run(target, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			conn, err := dialer.DialContext(ctx, "tcp", target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			echo(t, conn)
+		})
+	}
+	for _, target := range []string{"192.0.2.17:8444", "192.0.2.18:8443"} {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		conn, err := dialer.DialContext(ctx, "tcp", target)
+		cancel()
+		if err == nil {
+			conn.Close()
+			t.Errorf("opened a tunnel outside the grant: %s", target)
+		}
+	}
+	if got := g.tcpCount.Load(); got != 2 {
+		t.Errorf("tunnel attempts = %d, want two authorized targets", got)
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("local proxy did not stop")
+	}
+}
+
 func TestProxyDenialDiagnostics(t *testing.T) {
 	t.Run("assigned_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, false, "") })
 	t.Run("default_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, true, "_default_node") })
