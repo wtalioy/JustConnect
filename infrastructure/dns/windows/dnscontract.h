@@ -25,6 +25,11 @@ inline constexpr unsigned SnapshotTimeoutMs=10000;
 inline constexpr unsigned ConsistencyPollMs=50;
 // DNS uses port 53 when IP Helper's server sockaddr leaves the port unspecified.
 inline constexpr unsigned ServerPort=53;
+// IF_OPER_STATUS values that identify a disconnected adapter, rather than an unknown state.
+inline constexpr bool adapterDisconnected(std::uint64_t status)
+{
+    return status==2 || status==6 || status==7;
+}
 // netioapi.h DNS_SETTINGS2::SettingFlags; capabilities alone do not select an encrypted server.
 inline constexpr std::uint64_t EnableDoh=0x1, EncryptionNotConfigured=0x4, EncryptionDisabled=0x8, EnableDot=0x80;
 inline constexpr bool plainGlobalPolicy(std::uint64_t flags)

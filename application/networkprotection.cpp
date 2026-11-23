@@ -1,5 +1,6 @@
 #include "networkprotection.h"
 #include "networkmodel_p.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include <QHostAddress>
 #include <QMap>
 #include <QSet>
@@ -272,6 +273,15 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
     if (dns.contains("dynamic_store") && !dns.contains("macos_resolvers")) return std::nullopt;
     const auto namespaces = originalDnsNamespaces(dns);
     if (!namespaces) return std::nullopt;
+    QSet<qint64> disconnected, otherAdapters;
+    for (const auto &value : dns["adapters"].toArray()) {
+        const auto adapter = value.toObject();
+        auto &indices = WindowsDNS::adapterDisconnected(adapter["OperStatus"].toInteger()) ? disconnected : otherAdapters;
+        for (const auto &index : {adapter["InterfaceIndex"].toInteger(), adapter["Ipv6IfIndex"].toInteger()})
+            if (index > 0) indices.insert(index);
+    }
+    disconnected.subtract(otherAdapters);
+    const auto clients = dns["clients"].toArray();
     QMap<std::pair<QString, QString>, QJsonArray> rules;
     auto add = [&](const QString &kind, const QString &value, const QJsonObject &source) {
         const auto key = std::make_pair(kind, value);
@@ -286,6 +296,10 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
         // Interface/service-only resolvers do not claim ordinary unscoped queries.
         if (provider == "macos_resolver" && origin["scope"] != "unscoped") continue;
         if (provider == "dynamic_store") continue; // These are inputs; the native merged view owns macOS routing/search semantics.
+        if (provider == "clients" && !disconnected.isEmpty()) {
+            const auto row = origin["row"].toInt();
+            if (disconnected.contains(clients.at(row).toObject()["InterfaceIndex"].toInteger())) continue;
+        }
         const bool search = role == "search";
         const QJsonObject source{{"kind", "namespace"}, {"index", i}};
         auto text = item["name"].toString();

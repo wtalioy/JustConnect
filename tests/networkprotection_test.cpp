@@ -216,6 +216,31 @@ static void captureTargets()
     QJsonObject nativeDNS{{"nrpt",QJsonArray{QJsonObject{{"Namespace",rawSource["namespaces"]},{"NameServers",QJsonArray{"192.168.25.1","192.168.25.2"}}}}},
         {"nrpt_sources",QJsonArray{rawSource}},{"native_global",QJsonObject{{"Status",0},{"Value",QJsonObject{{"SettingFlags","129"}}}}},
         {"configured_encryption",QJsonArray{}},{"doh_supported",true},{"doh",QJsonArray{}}};
+    auto legacyDNS=nativeDNS;
+    legacyDNS["native_global"]=QJsonObject{{"Status",87},{"Value",QJsonValue::Null}};
+    const auto legacyNRPT=prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,legacyDNS,{},1400);
+    check(!legacyNRPT.result.succeeded() && legacyNRPT.result.detail.contains("Windows error 87")
+        && legacyNRPT.configuration.isEmpty(),"Unknown Windows DNS transport policy permitted native DNS changes");
+    legacyDNS["nrpt"]=legacyDNS["nrpt_sources"]=QJsonArray{};
+    legacyDNS["global"]=QJsonObject{{"SuffixSearchList",QJsonArray{"campus.test"}}};
+    const auto legacySearch=prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,legacyDNS,{},1400);
+    check(!legacySearch.result.succeeded() && legacySearch.result.detail.contains("DNS search suffix")
+        && legacySearch.configuration.isEmpty(),"A search suffix conflict was reported as an unreadable transport policy");
+    check(prepareWindowsNetworkHelper(resources,policy,nativeNetwork,legacyDNS,{},1400).result.succeeded(),
+        "Windows DNS transport policy blocked a connection with no protected scope to redirect");
+    legacyDNS["global"]=QJsonObject{{"SuffixSearchList",QJsonArray{}}};
+    legacyDNS["clients"]=QJsonArray{QJsonObject{{"InterfaceIndex",7},{"ConnectionSpecificSuffix","campus.test"}}};
+    for (const int status : {1, 2, 4, 6, 7}) {
+        legacyDNS["adapters"]=QJsonArray{QJsonObject{{"InterfaceIndex",7},{"OperStatus",status}}};
+        const auto names=originalDnsProtection(legacyDNS);
+        check(names.has_value() && names->value("namespaces").toArray().size()==1,
+              "The Windows DNS model discarded the disconnected adapter's provenance");
+        auto projected=policy;
+        projected["protected_names"]=protectionConfiguration({},names->value("targets").toArray())["protected_names"];
+        const auto prepared=prepareWindowsNetworkHelper(resources,projected,nativeNetwork,legacyDNS,{},1400);
+        check(prepared.result.succeeded()==(status==2 || status==6 || status==7),
+              "Windows DNS preparation must reject active or unknown overlaps but ignore disconnected adapters");
+    }
     const auto native=prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,nativeDNS,{},1400);
     check(native.result.succeeded() && native.originalSources.size()==1 && native.configuration["dns_domains"].toArray().isEmpty(),
         "Native NRPT source was not prepared without a competing campus namespace");
