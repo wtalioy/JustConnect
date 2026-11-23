@@ -55,6 +55,8 @@ type gateway struct {
 	expireCookies    atomic.Bool
 	manifestFails    atomic.Bool
 	authConfigFails  atomic.Bool
+	onlineInfoStatus atomic.Int32
+	omitOnlineUser   atomic.Bool
 	resourceHTTP     atomic.Int32
 	resourceCode     atomic.Int32
 	invalidIP        atomic.Bool
@@ -171,6 +173,13 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/controller/v1/public/reportEnv":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/user/onlineInfo":
+			if status := g.onlineInfoStatus.Load(); status != 0 {
+				w.WriteHeader(int(status))
+			}
+			if g.omitOnlineUser.Load() {
+				fmt.Fprint(w, `{"code":0,"data":{}}`)
+				return
+			}
 			username := "fixture-user"
 			if g.resumeCookies.Load() {
 				if cookie, err := r.Cookie("sid"); err == nil {

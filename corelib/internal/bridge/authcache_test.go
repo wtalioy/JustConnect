@@ -215,10 +215,26 @@ func TestClientDataNetworkFailureDoesNotInvalidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := bytes.Clone(encoded)
-	g.authConfigFails.Store(true)
-	_, challenges, invalidated, err := setupWithCache(t, g, encoded)
-	if err == nil || challenges != 0 || invalidated != 0 || g.authCount.Load() != 1 || !bytes.Equal(original, encoded) {
-		t.Fatalf("network failure destroyed or replayed cache: challenges=%d invalidations=%d authentications=%d err=%v", challenges, invalidated, g.authCount.Load(), err)
+	for _, tt := range []struct {
+		name           string
+		authConfigFail bool
+		accountStatus  int32
+		omitAccount    bool
+	}{
+		{name: "auth_config_unavailable", authConfigFail: true},
+		{name: "account_http_error", accountStatus: http.StatusServiceUnavailable},
+		{name: "account_missing", omitAccount: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g.authConfigFails.Store(tt.authConfigFail)
+			g.onlineInfoStatus.Store(tt.accountStatus)
+			g.omitOnlineUser.Store(tt.omitAccount)
+			_, challenges, invalidated, err := setupWithCache(t, g, encoded)
+			if err == nil || challenges != 0 || invalidated != 0 || g.authCount.Load() != 1 || !bytes.Equal(original, encoded) {
+				t.Fatalf("failed restore: challenges=%d invalidations=%d authentications=%d err=%v",
+					challenges, invalidated, g.authCount.Load(), err)
+			}
+		})
 	}
 }
 

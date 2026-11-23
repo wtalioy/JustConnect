@@ -620,6 +620,9 @@ func (s *Session) onlineInfo() (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("onlineInfo HTTP %d", resp.StatusCode)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -638,8 +641,10 @@ func (s *Session) onlineInfo() (string, error) {
 	}
 
 	if re.Code != 0 {
-
 		return "", fmt.Errorf("onlineInfo failed with code %d", re.Code)
+	}
+	if re.Data.Username == "" {
+		return "", fmt.Errorf("onlineInfo response is missing the account name")
 	}
 
 	return re.Data.Username, nil
