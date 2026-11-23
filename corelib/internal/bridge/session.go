@@ -296,6 +296,8 @@ func (s *Session) Diagnostic(code string) Status {
 		"tcp_tunnel_domain_denied", "tcp_tunnel_ip_denied", "tcp_tunnel_domain_denied_default_node", "tcp_tunnel_ip_denied_default_node",
 		"campus_dns_unreachable", "campus_dns_unconfigured", "l3_dns_destination_unauthorized",
 		"transport_connected", "authentication_started", "keepalive_retry", "anti_mitm_failed", "persistence_failed", "manifest_cached", "auth_detail_unavailable",
+		"setup_manifest_failed", "setup_restore_failed", "setup_authentication_failed",
+		"setup_resources_failed", "setup_node_probe_failed", "setup_ip_tunnel_failed",
 		"tls_authentication_failed", "tls_resources_failed", "tls_node_probe_failed", "tls_ip_tunnel_failed",
 		"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "tls_certificate_invalid",
 		"tls_peer_chain_leaf_only", "tls_peer_self_signed", "tls_node_verification_disabled":

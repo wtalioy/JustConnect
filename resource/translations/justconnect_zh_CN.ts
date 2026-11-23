@@ -515,8 +515,7 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="385"/>
         <source>Connection failed. Check your network and server settings.</source>
-        <translation>连接失败！
-可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。</translation>
+        <translation>连接失败。请检查网络和服务器设置。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="388"/>

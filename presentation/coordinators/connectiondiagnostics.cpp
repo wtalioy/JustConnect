@@ -57,6 +57,8 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                                          "tcp_tunnel_domain_denied", "tcp_tunnel_ip_denied",
                                          "tcp_tunnel_domain_denied_default_node", "tcp_tunnel_ip_denied_default_node",
                                          "campus_dns_unreachable", "campus_dns_unconfigured", "l3_dns_destination_unauthorized",
+                                         "setup_manifest_failed", "setup_restore_failed", "setup_authentication_failed",
+                                         "setup_resources_failed", "setup_node_probe_failed", "setup_ip_tunnel_failed",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
                                          "tls_authentication_failed",      "persistence_failed",
                                          "browser_proxy_changed_externally", "browser_proxy_observation_unavailable",

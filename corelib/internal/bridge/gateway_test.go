@@ -53,7 +53,10 @@ type gateway struct {
 	ipStarted        chan struct{}
 	resumeCookies    atomic.Bool
 	expireCookies    atomic.Bool
+	manifestFails    atomic.Bool
 	authConfigFails  atomic.Bool
+	resourceHTTP     atomic.Int32
+	resourceCode     atomic.Int32
 	invalidIP        atomic.Bool
 	cacheProbes      atomic.Int32
 	sessions         sync.Map
@@ -102,6 +105,10 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/favicon.ico":
 			w.WriteHeader(http.StatusNoContent)
 		case "/public/manifest":
+			if g.manifestFails.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			if g.requireZeroRTT.Load() {
 				fmt.Fprint(w, `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`)
 			} else {
@@ -174,6 +181,9 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			}
 			fmt.Fprintf(w, `{"code":0,"data":{"username":%q}}`, username)
 		case "/controller/v1/user/clientResource":
+			if status := g.resourceHTTP.Load(); status != 0 {
+				w.WriteHeader(int(status))
+			}
 			if g.rotateSID.Load() {
 				http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-resource-sid", Path: "/"})
 				g.sessions.Store("private-resource-sid", "fixture-user")
@@ -221,7 +231,7 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.missingNodeGroup.Load() {
 				group = "private-missing-group"
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN"%s,"addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, group, domainOptions, addresses, extraResource, g.node.Addr().String(), extraNode)
+			fmt.Fprintf(w, `{"code":%d,"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN"%s,"addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, g.resourceCode.Load(), dnsPolicy, group, domainOptions, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

@@ -2,6 +2,7 @@ package atrust
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 )
 
 type ClientResource struct {
+	Code int
 	Data struct {
 		AppList struct {
 			Data struct {
@@ -84,6 +86,9 @@ func (c *Client) parseResource(resource []byte) error {
 	err := json.Unmarshal(resource, &clientResource)
 	if err != nil {
 		return err
+	}
+	if clientResource.Code != 0 {
+		return fmt.Errorf("aTrust clientResource failed with code %d", clientResource.Code)
 	}
 
 	c.ipResources = make([]client.IPResource, 0)

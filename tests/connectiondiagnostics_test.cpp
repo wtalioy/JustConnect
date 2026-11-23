@@ -190,6 +190,9 @@ try
     emit connection.diagnostic("tcp_tunnel_domain_denied_default_node");
     check(diagnostics.report().contains("Diagnostic code: tcp_tunnel_domain_denied_default_node"),
           "copied diagnostics identify a node refusal after a domain grant used the default node");
+    emit connection.diagnostic("setup_restore_failed");
+    check(diagnostics.report().contains("Diagnostic code: setup_restore_failed"),
+          "copied diagnostics identify a failed setup stage");
     connection.stop();
     check(diagnostics.report().contains("Local entry: Not active"),
         "stopping the session hides the local entry points again");

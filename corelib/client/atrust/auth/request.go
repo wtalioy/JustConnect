@@ -671,6 +671,9 @@ func (s *Session) ClientResource() ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("aTrust clientResource returned HTTP status %d", resp.StatusCode)
+	}
 	return io.ReadAll(resp.Body)
 }
 
