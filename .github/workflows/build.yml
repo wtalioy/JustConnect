@@ -63,11 +63,9 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libegl-dev libxkbcommon-dev libfontconfig1-dev \
-            libwebkit2gtk-4.1-dev libssl-dev libx11-dev xvfb xauth patchelf
+        uses: ./.github/actions/setup-linux-apt
+        with:
+          portable-package: 'true'
 
       - name: Install Qt
         uses: ./.github/actions/setup-qt
