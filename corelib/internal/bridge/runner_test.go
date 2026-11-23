@@ -165,6 +165,35 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	awaitClosed(t, connection)
 }
 
+func TestLocalProxyNegotiatesAdvertisedTCPFraming(t *testing.T) {
+	g := newGateway(t)
+	g.requireZeroRTT.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.SOCKS = freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	echo(t, conn)
+	if g.tcpCount.Load() != 1 || e.Stop(h, 3000) != OK {
+		t.Fatal("expected one framed tunnel and successful cleanup")
+	}
+}
+
 func TestProxyDenialDiagnostics(t *testing.T) {
 	t.Run("assigned_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, false, "") })
 	t.Run("default_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, true, "_default_node") })

@@ -42,6 +42,7 @@ type gateway struct {
 	delay            atomic.Int64
 	tcpCount         atomic.Int32
 	rejectTCP        atomic.Bool
+	requireZeroRTT   atomic.Bool
 	missingNodeGroup atomic.Bool
 	sshCount         atomic.Int32
 	sshHandler       atomic.Value
@@ -100,7 +101,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/favicon.ico":
 			w.WriteHeader(http.StatusNoContent)
 		case "/public/manifest":
-			fmt.Fprint(w, `{"code":0,"data":{}}`)
+			if g.requireZeroRTT.Load() {
+				fmt.Fprint(w, `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`)
+			} else {
+				fmt.Fprint(w, `{"code":0,"data":{}}`)
+			}
 		case "/passport/v1/public/authConfig":
 			if r.URL.Query().Get("needTicket") == "0" {
 				g.renewals.Add(1)
@@ -322,17 +327,35 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 		payload = []byte(`{"code":10000004,"message":"private-gateway-detail"}`)
 	}
 	response := append([]byte{5, 0x81, 0x53, 0, byte(len(payload) >> 8), byte(len(payload))}, payload...)
-	if g.rejectTCP.Load() {
+	var framed byte
+	if g.requireZeroRTT.Load() {
+		framed = 1
+	}
+	if g.rejectTCP.Load() || destination[2] != framed {
 		_, _ = conn.Write(append(response, 5, 0x02, 0, 1))
 		return
 	}
-	response = append(response, 5, 0, 0, 1, 10, 0, 0, 2, 0, 80)
+	response = append(response, 5, 0, framed, 1, 10, 0, 0, 2, 0, 80)
 	time.Sleep(time.Duration(g.delay.Load()))
 	if _, err := conn.Write(response); err != nil {
 		return
 	}
 	if g.invalid.Load() {
 		return
+	}
+	if framed != 0 {
+		for {
+			var frame [4]byte
+			if _, err := io.ReadFull(conn, frame[:]); err != nil || frame[0] != 1 || frame[1] != 0 {
+				return
+			}
+			if _, err := conn.Write(frame[:]); err != nil {
+				return
+			}
+			if _, err := io.CopyN(conn, conn, int64(binary.BigEndian.Uint16(frame[2:]))); err != nil {
+				return
+			}
+		}
 	}
 	buf := make([]byte, 64<<10)
 	first := true

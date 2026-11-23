@@ -81,9 +81,9 @@ type ServerVersionInfo struct {
 	Code int `json:"code"`
 	Data struct {
 		Capacities struct {
-			ZeroRTT struct {
+			Tun0RTT struct {
 				Version string `json:"version"`
-			} `json:"zeroRTT"`
+			} `json:"tun0rtt"`
 		} `json:"capacities"`
 		Options struct {
 			Tun0RTT struct {
@@ -105,7 +105,7 @@ func ParseServerVersionInfo(data []byte) (ServerVersionInfo, error) {
 }
 
 func (i ServerVersionInfo) TCPTunnelZeroRTT() bool {
-	return i.Data.Capacities.ZeroRTT.Version != "" && i.Data.Options.Tun0RTT.Enable
+	return i.Data.Capacities.Tun0RTT.Version != "" && i.Data.Options.Tun0RTT.Enable
 }
 
 type Session struct {
