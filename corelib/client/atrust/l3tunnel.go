@@ -81,6 +81,7 @@ const (
 func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 	t := &L3Tunnel{
 		client:            aTrustClient,
+		resourceIndex:     aTrustClient.resourceIndex,
 		conns:             make(map[string]*l3TunnelConn),
 		connecting:        make(map[string]*l3TunnelConnectCall),
 		conntrackMgrs:     make(map[string]*conntrackMgr),
@@ -99,12 +100,6 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 		}
 		return newL3TunnelConn(ctx, aTrustClient.dialTunnelTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
 	}
-
-	ipResources, err := aTrustClient.IPResources()
-	if ipResources == nil {
-		ipResources = []client.IPResource{}
-	}
-	t.resourceIndex = ipresource.New(ipResources)
 
 	ip, err := aTrustClient.IP()
 	if err != nil {
