@@ -35,11 +35,13 @@ QMap<QString,WinState> states;
 QStringList rasNames{"fixture connection"};
 bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
 int writes=0,failAt=0,queries=0,setCalls=0;
+int unavailableQueries=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
 DWORD ignoreOption=0;
 std::function<void()> beforeProxySet;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     ++queries;
+    if(unavailableQueries>0){--unavailableQueries;SetLastError(RPC_S_SERVER_UNAVAILABLE);return FALSE;}
     if(denyQuery){SetLastError(queryError);return FALSE;}
     auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
     const auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
@@ -83,6 +85,18 @@ static void backendTests() {
     states[""]=original;states["fixture connection"]={PROXY_TYPE_DIRECT,"socks=old.invalid:1080","ras.invalid",{}};
     PlatformSystemProxyBackend backend(WindowsProxyApi{query,set,entries});
     check(backend.clear().succeeded() && writes==0,"unknown LAN and RAS settings must not be cleared");
+    unavailableQueries=1;
+    const auto beforeRetry=queries;
+    const auto recovered=backend.inspect();
+    check(recovered.result.succeeded() && recovered.conflict && queries==beforeRetry+3 && setCalls==0,
+        "A temporarily unavailable WinINet query should retry and still read both native connections");
+    unavailableQueries=10;
+    const auto beforeUnavailable=queries;
+    const auto stillUnavailable=backend.apply(config);
+    check(stillUnavailable.status==Status::Failed && stillUnavailable.detail.contains("1722")
+        && queries==beforeUnavailable+4 && setCalls==0,
+        "Persistent WinINet unavailability should stop before writing proxy settings");
+    unavailableQueries=0;
     denyQuery=true;
     check(backend.check(config).result.status==Status::PermissionDenied,"query denial propagated");
     check(!backend.apply(config).succeeded() && writes==0,"failed query prevents writes");

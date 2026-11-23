@@ -39,25 +39,35 @@ Result connections(const WindowsProxyApi &api, QStringList &names) {
 }
 struct State { DWORD flags = 0; QString server, bypass, pac; };
 Result query(const WindowsProxyApi &api, const QString &name, State &state) {
-    INTERNET_PER_CONN_OPTIONW options[4]{};
-    options[0].dwOption = INTERNET_PER_CONN_FLAGS_UI;
-    options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
-    options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
-    options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
-    INTERNET_PER_CONN_OPTION_LISTW list{};
-    list.dwSize = sizeof(list);
-    list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
-    list.dwOptionCount = 4; list.pOptions = options;
-    DWORD bytes = sizeof(list);
-    const BOOL success = api.query(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &bytes);
-    const DWORD code = success ? ERROR_SUCCESS : GetLastError();
-    state.flags = options[0].Value.dwValue;
-    QString *strings[] = {&state.server, &state.bypass, &state.pac};
-    for (int i=1; i<4; ++i) {
-        *strings[i-1] = QString::fromWCharArray(options[i].Value.pszValue ? options[i].Value.pszValue : L"");
-        if (options[i].Value.pszValue) GlobalFree(options[i].Value.pszValue);
+    DWORD code = ERROR_SUCCESS;
+    // WinINet may briefly lose its RPC endpoint after Windows resumes.
+    for (const DWORD delay : {0u, 100u, 300u, 600u}) {
+        if (delay) Sleep(delay);
+        INTERNET_PER_CONN_OPTIONW options[4]{};
+        options[0].dwOption = INTERNET_PER_CONN_FLAGS_UI;
+        options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+        options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+        options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
+        INTERNET_PER_CONN_OPTION_LISTW list{};
+        list.dwSize = sizeof(list);
+        list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
+        list.dwOptionCount = 4; list.pOptions = options;
+        DWORD bytes = sizeof(list);
+        const BOOL success = api.query(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &bytes);
+        code = success ? ERROR_SUCCESS : GetLastError();
+        QString *strings[] = {&state.server, &state.bypass, &state.pac};
+        for (int i=1; i<4; ++i) {
+            const auto value = options[i].Value.pszValue;
+            if (success) *strings[i-1] = QString::fromWCharArray(value ? value : L"");
+            if (value) GlobalFree(value);
+        }
+        if (success) {
+            state.flags = options[0].Value.dwValue;
+            return {};
+        }
+        if (code != RPC_S_SERVER_UNAVAILABLE) break;
     }
-    return success ? Result{} : error("Query WinINet proxy", code);
+    return error("Query WinINet proxy", code);
 }
 QString server(const SystemProxyConfig &config) {
     const auto http = "127.0.0.1:" + QString::number(config.httpPort);
