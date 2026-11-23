@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -290,10 +289,9 @@ func newDomainTunnel(t *testing.T, backend *httptest.Server, pretend bool) *doma
 					t.Error("relay lost the original TLS name", httpRequest.Host, name)
 					return
 				}
-				const body = "campus-course"
-				reply := http.Response{StatusCode: http.StatusOK, ProtoMajor: 1, ProtoMinor: 1, Close: true,
-					ContentLength: int64(len(body)), Body: io.NopCloser(strings.NewReader(body))}
-				if err := reply.Write(target); err != nil {
+				// Send the fixed reply in one TLS write so the packet fixture does not schedule separate header and body records.
+				const reply = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 13\r\n\r\ncampus-course"
+				if _, err := io.WriteString(target, reply); err != nil {
 					t.Errorf("write campus response: %v", err)
 				}
 			})
