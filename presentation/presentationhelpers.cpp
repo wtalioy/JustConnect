@@ -150,12 +150,11 @@ void PresentationHelpers::showMessage(QWidget *parent,const QString &title,const
 
 PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     : QDialog(parent), heading(new QLabel(tr("Downloading update"),this)),
-      status(new QLabel(this)), progress(new QProgressBar(this)), actions(new QWidget(this))
+      status(new QLabel(this)), progress(new QProgressBar(this))
 {
     setWindowTitle(QApplication::applicationDisplayName());
     setAccessibleName(heading->text());
     setWindowFlag(Qt::WindowContextHelpButtonHint,false);
-    setWindowFlag(Qt::WindowCloseButtonHint,false);
     setFixedWidth(qMin(472,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(24,22,24,22);
@@ -184,14 +183,6 @@ PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     layout->addSpacing(8);
     layout->addLayout(row);
 
-    auto *cancel = new QPushButton(tr("Cancel"),actions);
-    cancel->setProperty("promptPrimary",false);
-    cancel->setAutoDefault(false);
-    connect(cancel,&QPushButton::clicked,this,&UpdateProgressDialog::reject);
-    auto *buttons = new QHBoxLayout(actions);
-    buttons->setContentsMargins(0,8,0,0);
-    buttons->addWidget(cancel,0,Qt::AlignRight);
-    layout->addWidget(actions);
     setDownloadProgress(0);
 }
 
@@ -208,13 +199,11 @@ void PresentationHelpers::UpdateProgressDialog::prepareToInstall()
     progress->setAccessibleName(heading->text());
     progress->setRange(0,0);
     status->setText(tr("Preparing…"));
-    actions->hide();
-    adjustSize();
 }
 
 void PresentationHelpers::UpdateProgressDialog::reject()
 {
-    if (!actions->isHidden()) QDialog::reject();
+    if (progress->maximum()>0) QDialog::reject();
 }
 
 bool PresentationHelpers::setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows)

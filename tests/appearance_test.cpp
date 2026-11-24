@@ -138,11 +138,11 @@ static void updateProgressLayout(QWidget &parent)
 {
     PresentationHelpers::UpdateProgressDialog dialog(&parent);
     auto *progress=dialog.findChild<QProgressBar *>();
-    auto *cancel=dialog.findChild<QPushButton *>();
     auto *heading=dialog.findChild<QLabel *>("promptHeading");
     auto *status=dialog.findChild<QLabel *>("updateProgressStatus");
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
-    dialog.open();
+    dialog.setModal(true);
+    dialog.show();
     dialog.setDownloadProgress(37);
     QCoreApplication::processEvents();
     const auto track=progress->grab().toImage();
@@ -152,22 +152,24 @@ static void updateProgressLayout(QWidget &parent)
     check(progress->value()==37 && progress->height()==8 && filled.blue()>filled.red()+60 && empty.red()>210
         && status->text()==progress->text() && !status->text().isEmpty()
         && status->alignment().testFlag(Qt::AlignLeft) && status->x()-progress->geometry().right()<=13
-        && dialog.rect().contains(progress->geometry()) && cancel->isVisible()
-        && cancel->mapTo(&dialog,QPoint()).y()-progress->geometry().bottom()>16,
-        "download progress renders as a thin accent track with a cancel action");
+        && dialog.rect().contains(progress->geometry()) && !dialog.findChild<QPushButton *>(),
+        "download progress renders as a thin accent track with adjacent text and no button row");
     if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-downloading.png")),"save download progress screenshot");
-    cancel->click();
-    check(!dialog.isVisible() && dialog.result()==QDialog::Rejected,"Cancel closes the download and signals rejection");
+    check(dialog.close() && dialog.result()==QDialog::Rejected,"closing the progress window cancels the pending download");
 
-    dialog.open();
+    dialog.show();
+    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+    QCoreApplication::sendEvent(&dialog,&escape);
+    check(!dialog.isVisible() && dialog.result()==QDialog::Rejected,"Escape cancels the pending download");
+
+    dialog.show();
     dialog.prepareToInstall();
     QCoreApplication::processEvents();
     check(heading->text()=="Installing update" && status->text()=="Preparing…"
-        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && !cancel->isVisible(),
-        "installer preparation uses a busy indicator without a download cancel action");
-    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth,
+        "installer preparation switches the track to a busy indicator at the same width");
     QCoreApplication::sendEvent(&dialog,&escape);
-    check(dialog.isVisible(),"Escape cannot dismiss installer preparation");
+    check(dialog.isVisible() && !dialog.close(),"installer preparation stays visible on Escape or window close");
     if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-preparing.png")),"save installer preparation screenshot");
     dialog.accept();
 }

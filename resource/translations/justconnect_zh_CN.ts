@@ -2010,10 +2010,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>正在下载更新</translation>
     </message>
     <message>
-        <source>Cancel</source>
-        <translation>取消</translation>
-    </message>
-    <message>
         <source>JustConnect will restart when installation finishes.</source>
         <translation>安装完成后，JustConnect 将重新启动。</translation>
     </message>

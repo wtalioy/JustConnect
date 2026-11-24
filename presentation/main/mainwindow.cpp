@@ -324,6 +324,7 @@ void MainWindow::installUpdate()
     if (!updateChecker->canInstall()) return;
     auto *progress=new PresentationHelpers::UpdateProgressDialog(this);
     progress->setAttribute(Qt::WA_DeleteOnClose);
+    progress->setModal(true);
     connect(progress,&QDialog::rejected,updateChecker,&UpdateChecker::cancelDownload);
     connect(updateChecker,&UpdateChecker::updateProgress,progress,[progress](qint64 received,qint64 total) {
         progress->setDownloadProgress(int(received*100/total));
@@ -338,7 +339,7 @@ void MainWindow::installUpdate()
         PresentationHelpers::showMessage(this,tr("Update download failed"),
             tr("The download could not be completed or verified. Check for updates to try again."),PromptDialog::Tone::Warning);
     });
-    progress->open();
+    progress->show();
     updateChecker->download();
 }
 

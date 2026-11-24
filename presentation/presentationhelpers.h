@@ -53,7 +53,6 @@ private:
     QLabel *heading;
     QLabel *status;
     QProgressBar *progress;
-    QWidget *actions;
 };
 
 QString credentialOperationMessage(CredentialStatus status);
