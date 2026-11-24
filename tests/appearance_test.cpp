@@ -76,18 +76,14 @@ static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QSt
         auto *action=dialog->primaryButton();
         auto *cancel=dialog->dismissButton();
         const bool update=tone==PromptDialog::Tone::Update;
-        const bool updateResult=tone==PromptDialog::Tone::UpdateResult;
         check(dialog->accessibleName()==title && heading->text()==title && text->text()==body
             && heading->font().pointSizeF()>text->font().pointSizeF()
             && heading->geometry().bottom()<text->geometry().top(),"the heading and wrapped body form a clear hierarchy");
-        check(icon->size()==QSize(44,44) && !icon->pixmap().isNull()
-            && (updateResult ? icon->x()==heading->x() && icon->geometry().bottom()<heading->y() : icon->y()==heading->y()),
-            "the icon aligns with the heading in both layouts");
-        check(dialog->width()==qMin(updateResult ? 360 : 504,dialog->screen()->availableGeometry().width()-32)
+        check(icon->size()==QSize(44,44) && !icon->pixmap().isNull() && icon->y()==heading->y(),
+            "the icon starts at the same inset as the heading");
+        check(dialog->width()==qMin(504,dialog->screen()->availableGeometry().width()-32)
             && text->height()>=text->heightForWidth(text->width())
             && dialog->rect().contains(action->geometry()),"the copy and action fit within the dialog");
-        if (updateResult) check(action->x()==heading->x() && action->width()==heading->width(),
-            "the update result has one full-width acknowledgment");
         if (cancel) check(action->height()==cancel->height() && dialog->rect().contains(cancel->geometry())
             && (cancel->geometry().right()<action->geometry().left() || cancel->geometry().bottom()<action->geometry().top())
             && cancel->isDefault()!=update && action->isDefault()==update && !cancel->property("promptPrimary").toBool(),
@@ -338,8 +334,6 @@ int main(int argc,char **argv) {
     promptParent.show();
     actionPromptLayout(promptParent,PromptDialog::Tone::Update,"Update available",
         "Version 0.0.3 is available. You’re using 0.0.2.","Open release page","update-prompt.png");
-    actionPromptLayout(promptParent,PromptDialog::Tone::UpdateResult,"You’re up to date!",
-        "JustConnect 0.0.2 is the latest stable release.",{},"update-current.png");
     actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear authentication cache",
         "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
         "Clear","cache-prompt.png");

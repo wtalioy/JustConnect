@@ -83,6 +83,10 @@ private:
     );
 
     void updateVersionInfo();
+    void showUpdateInformation(const QString &title,const QString &description);
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+    bool showNativeUpdateInformation(const QString &title,const QString &description);
+#endif
     void installUpdate();
 
     void setupTrayIcon();

@@ -24,7 +24,7 @@ namespace PresentationHelpers
 class PromptDialog : public QDialog {
     Q_OBJECT
 public:
-    enum class Tone { Information, Question, Warning, Critical, Update, UpdateResult };
+    enum class Tone { Information, Question, Warning, Critical, Update };
     PromptDialog(QWidget *parent,const QString &title,const QString &body,Tone tone,
         const QString &primaryText={},bool cancellable=false);
     void setContent(const QString &title,const QString &body,const QString &primaryText={});

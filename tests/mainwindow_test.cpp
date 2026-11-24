@@ -16,7 +16,7 @@
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/savedconnectionstore.h"
 #include "infrastructure/update/updatechecker.h"
-#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
+#ifdef Q_OS_WIN
 #include <windows.h>
 #endif
 
@@ -59,6 +59,7 @@
 #include <QStyleOption>
 #include <QLocale>
 #include <QNetworkReply>
+#include <QMessageBox>
 #include <QFile>
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -73,7 +74,43 @@ static void check(bool ok,const char *message) {
     if (!ok) {std::cerr << message << '\n';std::exit(1);}
 }
 
-static void updatePromptUsesTheSharedLayout(MainWindow &window)
+#ifdef Q_OS_MACOS
+bool acknowledgeMacUpdateInformation(QWidget &owner);
+bool macUpdateInformationIsOpen(QWidget &owner);
+#endif
+
+static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,const QString &description)
+{
+    bool acknowledged=false;
+    UiWait::until(__FILE__,__LINE__,[&] {
+        if (acknowledged) return true;
+#ifdef Q_OS_MACOS
+        acknowledged=acknowledgeMacUpdateInformation(owner);
+#elif defined(Q_OS_WIN)
+        const auto dialog=FindWindowW(L"#32770",title.toStdWString().c_str());
+        if (!dialog || GetWindow(dialog,GW_OWNER)!=reinterpret_cast<HWND>(owner.winId())) return false;
+        const auto button=GetDlgItem(dialog,IDOK);
+        check(button && !GetDlgItem(dialog,IDCANCEL),"the Windows message box has a single acknowledgment");
+        check(FindWindowExW(dialog,nullptr,L"Static",description.toStdWString().c_str()),
+            "the Windows message box describes the current and latest versions");
+        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(IDOK,BN_CLICKED),reinterpret_cast<LPARAM>(button));
+        acknowledged=true;
+#else
+        auto *dialog=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!dialog) return false;
+        check(dialog->parentWidget()==&owner && dialog->windowTitle()==title && dialog->text()==description
+            && dialog->standardButtons()==QMessageBox::Ok,"the desktop message box presents the update result");
+        dialog->button(QMessageBox::Ok)->click();
+        acknowledged=true;
+#endif
+        return acknowledged;
+    });
+#ifdef Q_OS_MACOS
+    UiWait::until(__FILE__,__LINE__,[&] { return !macUpdateInformationIsOpen(owner); });
+#endif
+}
+
+static void updateNotices(MainWindow &window)
 {
     using Result = UpdateChecker::CheckResult;
     using Mode = UpdateChecker::CheckMode;
@@ -93,32 +130,23 @@ static void updatePromptUsesTheSharedLayout(MainWindow &window)
     emit checker->checkFinished(Result::ReleaseInfo,Mode::Automatic,"0.0.2");
     emit checker->checkFinished(Result::Failed,Mode::Automatic,{});
     check(!QApplication::activeModalWidget(),"background checks leave non-updates quiet");
-    const auto acknowledge = [](PromptDialog::Tone tone,const QString &title,const QString &reportName={}) {
-        auto *prompt=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
-        check(prompt && prompt->tone()==tone && prompt->accessibleName()==title
-            && prompt->primaryButton()->text()=="OK" && !prompt->dismissButton(),
-            "manual check displays its result with a single acknowledgment");
-        if (tone==PromptDialog::Tone::UpdateResult)
-            check(prompt->text().contains(QApplication::applicationVersion()) && prompt->text().contains("0.0.2"),
-                "manual check states the current build and latest stable version");
-        const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
-        if (!report.isEmpty() && !reportName.isEmpty())
-            check(prompt->grab().save(QDir(report).filePath(reportName)),"save the actual update result prompt");
-        prompt->primaryButton()->click();
-    };
     emit checker->checkFinished(Result::UpToDate,Mode::Manual,"0.0.2");
-    acknowledge(PromptDialog::Tone::UpdateResult,"You’re up to date!");
+    acknowledgeUpdateInformation(window,"You’re up to date!","JustConnect 0.0.2 is the latest stable release.");
 
     QApplication::setApplicationVersion("8961409-nightly");
     emit checker->checkFinished(Result::ReleaseInfo,Mode::Manual,"0.0.2");
-    acknowledge(PromptDialog::Tone::UpdateResult,"Latest stable release","update-nightly.png");
+    acknowledgeUpdateInformation(window,"Latest stable release",
+        "You’re using JustConnect 8961409-nightly. The latest stable release is 0.0.2.");
     QApplication::setApplicationVersion(version);
 
     window.findChild<QAction *>("checkUpdateAction")->trigger();
     auto *reply=checker->findChild<QNetworkReply *>();
     check(reply,"the manual update action initiates a check");
     reply->abort();
-    acknowledge(PromptDialog::Tone::Warning,"Could not check for updates");
+    auto *failure=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+    check(failure && failure->tone()==PromptDialog::Tone::Warning && failure->accessibleName()=="Could not check for updates"
+        && failure->primaryButton()->text()=="OK" && !failure->dismissButton(),"the failed check has one acknowledgment");
+    failure->primaryButton()->click();
 }
 
 class RecoveryNetwork : public NetworkAccess {
@@ -975,7 +1003,7 @@ int main(int argc,char **argv) {
 #endif
             nativeHome(window, logger);
             languagePreferences(window);
-            updatePromptUsesTheSharedLayout(window);
+            updateNotices(window);
             profileMenusKeepTheirActions(window,menuProfile);
         }
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");

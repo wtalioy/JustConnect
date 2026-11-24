@@ -57,23 +57,22 @@ PresentationHelpers::PromptDialog::PromptDialog(QWidget *parent,const QString &t
     setObjectName("actionPrompt");
     setWindowTitle(QApplication::applicationDisplayName());
     setWindowFlag(Qt::WindowContextHelpButtonHint,false);
-    const bool updateResult = tone==Tone::UpdateResult;
-    setFixedWidth(qMin(updateResult ? 360 : 504,screen()->availableGeometry().width()-32));
+    setFixedWidth(qMin(504,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(26,24,26,24);
     layout->setSpacing(22);
 
-    auto *row = new QBoxLayout(updateResult ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    auto *row = new QHBoxLayout;
     row->setSpacing(16);
     auto *icon = new QLabel(this);
     icon->setObjectName("promptIcon");
     icon->setFixedSize(44,44);
-    const auto artwork = tone==Tone::Update || updateResult ? ":/resource/app-icon.svg"
+    const auto artwork = tone==Tone::Update ? ":/resource/app-icon.svg"
         : tone==Tone::Question ? ":/resource/prompt-question.svg"
         : tone==Tone::Warning || tone==Tone::Critical ? ":/resource/prompt-warning.svg"
         : ":/resource/prompt-info.svg";
     icon->setPixmap(QIcon(artwork).pixmap(icon->size(),devicePixelRatioF()));
-    row->addWidget(icon,0,Qt::AlignTop | Qt::AlignLeft);
+    row->addWidget(icon,0,Qt::AlignTop);
 
     auto *copy = new QVBoxLayout;
     copy->setSpacing(6);
@@ -89,7 +88,7 @@ PresentationHelpers::PromptDialog::PromptDialog(QWidget *parent,const QString &t
     layout->addLayout(row);
 
     buttons->setSpacing(8);
-    if (!updateResult) buttons->addStretch();
+    buttons->addStretch();
     const auto addButton = [this](QPushButton *button,bool emphasized) {
         button->setProperty("promptPrimary",emphasized);
         button->setAutoDefault(false);

@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
+#include <QMessageBox>
 #include <QScreen>
 #include <QHBoxLayout>
 #include <QHash>
@@ -150,14 +151,13 @@ MainWindow::MainWindow(
                 if (!available && mode!=CheckMode::Manual) return;
                 const auto currentVersion = QApplication::applicationVersion();
                 QString title,description,action;
-                auto tone = PromptDialog::Tone::UpdateResult;
+                auto tone = PromptDialog::Tone::Update;
                 const bool install = available && updateChecker->canInstall();
                 if (available) {
                     title=tr("Update available");
                     description=tr("Version %1 is available. You’re using %2.").arg(latestVersion,currentVersion);
                     if (install) description+="\n\n"+tr("JustConnect will restart to finish installing the update.");
                     action=install ? tr("Install update") : tr("Open release page");
-                    tone=PromptDialog::Tone::Update;
                 } else if (result==CheckResult::Failed) {
                     title=tr("Could not check for updates");
                     description=tr("JustConnect couldn’t get the latest release information. Try again later.");
@@ -167,6 +167,9 @@ MainWindow::MainWindow(
                     description=currentVersion==latestVersion
                         ? tr("JustConnect %1 is the latest stable release.").arg(currentVersion)
                         : tr("You’re using JustConnect %1. The latest stable release is %2.").arg(currentVersion,latestVersion);
+                    // Some system dialogs run a modal loop. Leave the network reply callback first.
+                    QTimer::singleShot(0,this,[this,title,description] { showUpdateInformation(title,description); });
+                    return;
                 }
                 // A network reply can finish while aborting. Do not start a nested event loop from its callback.
                 auto *prompt=new PromptDialog(this,title,description,tone,action,available);
@@ -341,6 +344,18 @@ MainWindow::MainWindow(
         show();
 
     }
+}
+
+void MainWindow::showUpdateInformation(const QString &title,const QString &description)
+{
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+    if (showNativeUpdateInformation(title,description)) return;
+#endif
+    auto *dialog = new QMessageBox(QMessageBox::Information,title,description,QMessageBox::Ok,this);
+    dialog->setTextFormat(Qt::PlainText);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setModal(true);
+    dialog->show();
 }
 
 void MainWindow::installUpdate()
