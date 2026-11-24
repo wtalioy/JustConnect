@@ -59,6 +59,10 @@ macOS builds are not notarized. If macOS blocks the first launch, confirm you do
 
 See [Building on Linux](docs/build-linux.md) for source builds and Debian packaging.
 
+### Update
+
+Choose **Check for updates → Install update** to download, verify, and install a new release. JustConnect disconnects cleanly before installation and reopens afterward. The Windows installer, a writable macOS app bundle, and the Linux Debian package support in-app updates. Linux asks for system authorization when installing. For portable builds, use the release page to get the new package.
+
 ### Connect
 
 Use the built-in Fudan University profile or add one for your aTrust gateway. Both modes are available under **Edit connection → Routing mode**.

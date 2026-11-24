@@ -6,6 +6,7 @@
 #include <cstring>
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include <QSessionManager>
+#include <QTimer>
 #include "infrastructure/process/applicationinstancelock.h"
 #include "infrastructure/process/terminationrequests.h"
 
@@ -13,6 +14,7 @@
 #include "application/applicationconstants.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/storage/applicationpaths.h"
+#include "infrastructure/update/updateinstaller.h"
 #include "presentation/main/mainwindow.h"
 #if defined(Q_OS_MACOS)
 #include <Security/Security.h>
@@ -24,6 +26,14 @@
 
 int main(int argc, char *argv[])
 {
+#if !defined(Q_OS_WIN)
+    if (argc>1 && std::strcmp(argv[1],UpdateInstaller::WorkerOption)==0) {
+        QCoreApplication app(argc,argv);
+        QCoreApplication::setApplicationName(ApplicationConstants::ApplicationName);
+        QCoreApplication::setApplicationVersion(PROJ_VER);
+        return UpdateInstaller::installAfterExit(app.arguments());
+    }
+#endif
     if (argc == 2 && std::strcmp(argv[1], "--core-self-test") == 0) {
         QCoreApplication app(argc, argv);
         auto report = EmbeddedCoreEngine::selfTest();
@@ -66,6 +76,11 @@ int main(int argc, char *argv[])
     );
 
     MainWindow mainWindow(&applicationLogger, &applicationLogFile);
+#if defined(Q_OS_WIN)
+    const auto arguments=app.arguments();
+    if (arguments.size()==3 && arguments[1]==UpdateInstaller::CleanupOption)
+        QTimer::singleShot(5000,&app,[path=arguments[2]] { UpdateInstaller::removeStagedInstaller(path); });
+#endif
 
     TerminationRequests termination;
     QObject::connect(&termination,&TerminationRequests::requested,&mainWindow,&MainWindow::gracefullyQuit);

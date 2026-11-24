@@ -6,7 +6,7 @@
 class ApplicationInstanceLock
 {
 public:
-    ApplicationInstanceLock();
+    explicit ApplicationInstanceLock(int waitMs=0);
     QLockFile::LockError error() const;
 
 private:

@@ -14,6 +14,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QPushButton>
+#include <QProgressDialog>
 #include <QLabel>
 #include <QScreen>
 #include <QHBoxLayout>
@@ -40,6 +41,7 @@
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
 #include "infrastructure/update/updatechecker.h"
+#include "infrastructure/update/updateinstaller.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/presentationhelpers.h"
@@ -144,17 +146,14 @@ MainWindow::MainWindow(
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
             {
-                if (PresentationHelpers::actionPrompt(this,tr("Update available"),
-                    tr("Version %1 is available. You’re using %2.").arg(latestVersion,QApplication::applicationVersion()),
-                    tr("Open release page"),PresentationHelpers::PromptDialog::Tone::Update))
+                const bool install=updateChecker->canInstall();
+                auto description=tr("Version %1 is available. You’re using %2.").arg(latestVersion,QApplication::applicationVersion());
+                if (install) description+="\n\n"+tr("JustConnect will restart to finish installing the update.");
+                if (PresentationHelpers::actionPrompt(this,tr("Update available"),description,
+                    install ? tr("Install update") : tr("Open release page"),PromptDialog::Tone::Update))
                 {
-                    QDesktopServices::openUrl(
-                        QUrl(
-                            "https://github.com/" +
-                            ApplicationConstants::RepositoryName +
-                            "/releases/latest"
-                        )
-                    );
+                    if (install) installUpdate();
+                    else QDesktopServices::openUrl(QUrl("https://github.com/"+ApplicationConstants::RepositoryName+"/releases/latest"));
                 }
             });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
@@ -269,6 +268,11 @@ MainWindow::MainWindow(
     QApplication::setQuitOnLastWindowClosed(false);
     connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
         exitReady=true;
+        settings->sync();
+        if (!property("systemShutdown").toBool() && updateChecker->hasStagedUpdate()
+            && !updateChecker->launchStagedUpdate())
+            PresentationHelpers::showMessage(this,tr("Could not start the installer"),
+                tr("JustConnect will close. Reopen it to try the update again."),PromptDialog::Tone::Warning);
         emit shutdownSettled(true);
         QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
     });
@@ -299,7 +303,12 @@ MainWindow::MainWindow(
         connectionUiController->enableCampusAccess();
     }
 
-    if (settings->value("Common/CheckUpdateAfterStart").toBool())
+    const bool updateFailed=qApp->arguments().contains(UpdateInstaller::FailedOption);
+    if (updateFailed) QTimer::singleShot(0,this,[this] {
+        PresentationHelpers::showMessage(this,tr("Update incomplete"),
+            tr("The update could not be installed. Check for updates to try again."),PromptDialog::Tone::Warning);
+    });
+    else if (settings->value("Common/CheckUpdateAfterStart").toBool())
     {
         updateChecker->check();
     }
@@ -309,6 +318,32 @@ MainWindow::MainWindow(
         show();
 
     }
+}
+
+void MainWindow::installUpdate()
+{
+    if (!updateChecker->canInstall()) return;
+    auto *progress=new QProgressDialog(tr("Downloading the update…"),tr("Cancel"),0,100,this);
+    progress->setWindowTitle(tr("Install update"));
+    progress->setMinimumWidth(360);
+    progress->setAttribute(Qt::WA_DeleteOnClose);
+    progress->setAutoClose(false);
+    progress->setAutoReset(false);
+    connect(progress,&QProgressDialog::canceled,updateChecker,&UpdateChecker::cancelDownload);
+    connect(updateChecker,&UpdateChecker::updateProgress,progress,[progress](qint64 received,qint64 total) {
+        progress->setValue(int(received*100/total));
+    });
+    connect(updateChecker,&UpdateChecker::updateDownloaded,progress,[this,progress] {
+        progress->close();
+        gracefullyQuit();
+    });
+    connect(updateChecker,&UpdateChecker::updateDownloadFailed,progress,[this,progress] {
+        progress->close();
+        PresentationHelpers::showMessage(this,tr("Update download failed"),
+            tr("The download could not be completed or verified. Check for updates to try again."),PromptDialog::Tone::Warning);
+    });
+    progress->show();
+    updateChecker->download();
 }
 
 void MainWindow::changeEvent(QEvent *event)

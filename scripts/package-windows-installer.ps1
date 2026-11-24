@@ -50,6 +50,21 @@ function Test-InstalledApp($App, $Options, $StartMenu) {
         if (!$result.ok -or $result.application_version -ne $Version -or $result.core.build.revision -ne $env:GITHUB_SHA) {
             throw 'Installed application failed its version and core self-test'
         }
+        if (!$StartMenu) {
+            # Exercise the updater switch in a disposable runner without an active tunnel.
+            $blocker = Start-Process -FilePath $env:ComSpec -ArgumentList '/c ping -n 4 127.0.0.1 > nul' -PassThru -WindowStyle Hidden
+            $upgrade = Start-Process -FilePath $installer -ArgumentList "$silent /NOCLOSEAPPLICATIONS /JCUPDATEPID=$($blocker.Id)" -PassThru
+            if (!$upgrade.WaitForExit(45000) -or $upgrade.ExitCode -ne 0) { throw 'In-app update installer did not complete' }
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                $relaunched = Get-Process JustConnect -ErrorAction SilentlyContinue | Where-Object Path -eq $exe
+                if (!$relaunched) { Start-Sleep -Milliseconds 100 }
+            } until ($relaunched -or [DateTime]::UtcNow -ge $deadline)
+            if (!$relaunched) { throw 'In-app update did not relaunch the application in its previous location' }
+            Stop-Process -InputObject $relaunched
+            $relaunched | Wait-Process -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $shortcut) { throw 'In-app update changed the saved shortcut task' }
+        }
     } finally {
         Invoke-Setup (Join-Path $App 'unins000.exe') "$silent /LOG=`"$uninstallLog`""
     }

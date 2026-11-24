@@ -15,11 +15,11 @@ QString instanceLockPath()
 }
 }
 
-ApplicationInstanceLock::ApplicationInstanceLock() : lock(instanceLockPath())
+ApplicationInstanceLock::ApplicationInstanceLock(int waitMs) : lock(instanceLockPath())
 {
     if (lock.fileName().isEmpty()) return;
     lock.setStaleLockTime(0);
-    lock.tryLock();
+    lock.tryLock(waitMs);
 }
 
 QLockFile::LockError ApplicationInstanceLock::error() const

@@ -65,6 +65,19 @@ install(FILES "${CORE}/internal/ping/LICENSE"
     DESTINATION "${CORE_DATA_DESTINATION}/licenses" RENAME LICENSE.ping COMPONENT CoreRuntime)
 
 include(cmake/UiResources.cmake)
+set(justconnect_update_sources
+    infrastructure/update/updatechecker.cpp
+    infrastructure/update/updatepackage.cpp)
+if(WIN32)
+    list(APPEND justconnect_update_sources infrastructure/update/windows/installer.cpp)
+else()
+    list(APPEND justconnect_update_sources infrastructure/update/updateinstaller.cpp)
+    if(APPLE)
+        list(APPEND justconnect_update_sources infrastructure/update/macos/installer.cpp)
+    else()
+        list(APPEND justconnect_update_sources infrastructure/update/linux/installer.cpp)
+    endif()
+endif()
 add_library(justconnect_desktop OBJECT
     infrastructure/process/applicationinstancelock.cpp
     infrastructure/process/terminationrequests.cpp
@@ -77,7 +90,7 @@ add_library(justconnect_desktop OBJECT
     presentation/dialogs/connectiondetailsdialog.cpp
     presentation/dialogs/connectiondetailsdialog.ui
     infrastructure/logging/applicationlogfile.cpp
-    infrastructure/update/updatechecker.cpp
+    ${justconnect_update_sources}
     presentation/dialogs/settingwindow/settingwindow.ui
     presentation/dialogs/loginwindow/loginwindow.ui
     presentation/dialogs/ssologinwebview/ssologinwebview.ui
@@ -353,7 +366,8 @@ if(BUILD_TESTING)
 
     add_executable(updatechecker_test
         tests/updatechecker_test.cpp
-        infrastructure/update/updatechecker.cpp)
+        infrastructure/process/applicationinstancelock.cpp
+        ${justconnect_update_sources})
     target_include_directories(updatechecker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(updatechecker_test Qt::Core Qt::Network)
     add_test(NAME updatechecker_test COMMAND updatechecker_test)

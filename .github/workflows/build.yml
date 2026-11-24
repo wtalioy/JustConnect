@@ -249,6 +249,14 @@ jobs:
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
           python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" --browser-probe "build/signinbrowser_test"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
+          fixture="$RUNNER_TEMP/update-fixture/$TARGET_NAME.app"
+          mkdir -p "$fixture/Contents/MacOS"
+          cp "dmg-root/$TARGET_NAME.app/Contents/Info.plist" "$fixture/Contents/Info.plist"
+          cp build/updatechecker_test "$fixture/Contents/MacOS/$TARGET_NAME"
+          bundle_version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$fixture/Contents/Info.plist")
+          "$fixture/Contents/MacOS/$TARGET_NAME" --test-macos-dmg-update "$PWD/$ARCHIVE_NAME.dmg" "$bundle_version"
+          codesign --verify --deep --strict "$fixture"
+          "$fixture/Contents/MacOS/$TARGET_NAME" --core-self-test | python -c 'import json, os, sys; r=json.load(sys.stdin); assert r["ok"] and r["core"]["build"]["revision"] == os.environ["GITHUB_SHA"]'
 
       - name: Package Linux
         if: runner.os == 'Linux'

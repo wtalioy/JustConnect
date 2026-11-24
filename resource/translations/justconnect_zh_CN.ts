@@ -1478,6 +1478,42 @@ Complete the legacy credential migration first, or add a new connection.</source
         <source>Retry</source>
         <translation>重试</translation>
     </message>
+    <message>
+        <source>JustConnect will restart to finish installing the update.</source>
+        <translation>JustConnect 将重新启动以完成更新。</translation>
+    </message>
+    <message>
+        <source>Install update</source>
+        <translation>安装更新</translation>
+    </message>
+    <message>
+        <source>Could not start the installer</source>
+        <translation>无法启动安装程序</translation>
+    </message>
+    <message>
+        <source>JustConnect will close. Reopen it to try the update again.</source>
+        <translation>JustConnect 即将关闭。请重新打开并重试更新。</translation>
+    </message>
+    <message>
+        <source>Update incomplete</source>
+        <translation>更新未完成</translation>
+    </message>
+    <message>
+        <source>The update could not be installed. Check for updates to try again.</source>
+        <translation>无法安装更新。请重新检查更新后重试。</translation>
+    </message>
+    <message>
+        <source>Downloading the update…</source>
+        <translation>正在下载更新…</translation>
+    </message>
+    <message>
+        <source>Update download failed</source>
+        <translation>更新下载失败</translation>
+    </message>
+    <message>
+        <source>The download could not be completed or verified. Check for updates to try again.</source>
+        <translation>无法完成下载或验证更新。请检查更新后重试。</translation>
+    </message>
 </context>
 <context>
     <name>NetworkPolicyWindow</name>

@@ -83,6 +83,7 @@ private:
     );
 
     void updateVersionInfo();
+    void installUpdate();
 
     void setupTrayIcon();
 
