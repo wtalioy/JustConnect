@@ -151,7 +151,9 @@ static void updateProgressLayout(QWidget &parent)
     const auto trackWidth=progress->width();
     check(progress->value()==37 && progress->height()==8 && filled.blue()>filled.red()+60 && empty.red()>210
         && status->text()==progress->text() && !status->text().isEmpty()
-        && dialog.rect().contains(progress->geometry()) && cancel->isVisible(),
+        && status->alignment().testFlag(Qt::AlignLeft) && status->x()-progress->geometry().right()<=13
+        && dialog.rect().contains(progress->geometry()) && cancel->isVisible()
+        && cancel->mapTo(&dialog,QPoint()).y()-progress->geometry().bottom()>16,
         "download progress renders as a thin accent track with a cancel action");
     if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-downloading.png")),"save download progress screenshot");
     cancel->click();
@@ -161,7 +163,7 @@ static void updateProgressLayout(QWidget &parent)
     dialog.prepareToInstall();
     QCoreApplication::processEvents();
     check(heading->text()=="Installing update" && status->text()=="Preparing…"
-        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && cancel->isHidden(),
+        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && !cancel->isVisible(),
         "installer preparation uses a busy indicator without a download cancel action");
     QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
     QCoreApplication::sendEvent(&dialog,&escape);

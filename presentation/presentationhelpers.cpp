@@ -150,7 +150,7 @@ void PresentationHelpers::showMessage(QWidget *parent,const QString &title,const
 
 PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     : QDialog(parent), heading(new QLabel(tr("Downloading update"),this)),
-      status(new QLabel(this)), progress(new QProgressBar(this)), cancel(new QPushButton(tr("Cancel"),this))
+      status(new QLabel(this)), progress(new QProgressBar(this)), actions(new QWidget(this))
 {
     setWindowTitle(QApplication::applicationDisplayName());
     setAccessibleName(heading->text());
@@ -174,7 +174,7 @@ PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     progress->setTextVisible(false);
     progress->setFixedHeight(8);
     status->setObjectName("updateProgressStatus");
-    status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    status->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     status->setText(tr("Preparing…"));
     status->setMinimumWidth(status->sizeHint().width());
     auto *row = new QHBoxLayout;
@@ -184,10 +184,14 @@ PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     layout->addSpacing(8);
     layout->addLayout(row);
 
+    auto *cancel = new QPushButton(tr("Cancel"),actions);
     cancel->setProperty("promptPrimary",false);
     cancel->setAutoDefault(false);
     connect(cancel,&QPushButton::clicked,this,&UpdateProgressDialog::reject);
-    layout->addWidget(cancel,0,Qt::AlignRight);
+    auto *buttons = new QHBoxLayout(actions);
+    buttons->setContentsMargins(0,8,0,0);
+    buttons->addWidget(cancel,0,Qt::AlignRight);
+    layout->addWidget(actions);
     setDownloadProgress(0);
 }
 
@@ -204,13 +208,13 @@ void PresentationHelpers::UpdateProgressDialog::prepareToInstall()
     progress->setAccessibleName(heading->text());
     progress->setRange(0,0);
     status->setText(tr("Preparing…"));
-    cancel->hide();
+    actions->hide();
     adjustSize();
 }
 
 void PresentationHelpers::UpdateProgressDialog::reject()
 {
-    if (!cancel->isHidden()) QDialog::reject();
+    if (!actions->isHidden()) QDialog::reject();
 }
 
 bool PresentationHelpers::setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows)
