@@ -145,34 +145,38 @@ MainWindow::MainWindow(
     using CheckResult = UpdateChecker::CheckResult;
     using CheckMode = UpdateChecker::CheckMode;
     connect(updateChecker, &UpdateChecker::checkFinished, this,
-            [this](CheckResult result,CheckMode mode,const QString &latestVersion)
-            {
-                if (result!=CheckResult::UpdateAvailable) {
-                    if (mode!=CheckMode::Manual) return;
-                    if (result==CheckResult::Failed) {
-                        PresentationHelpers::showMessage(this,tr("Could not check for updates"),
-                            tr("JustConnect couldn’t get the latest release information. Try again later."),
-                            PromptDialog::Tone::Warning);
-                        return;
-                    }
-                    const auto title = result==CheckResult::UpToDate
-                        ? tr("You’re up to date!") : tr("Latest stable release");
-                    const auto currentVersion = QApplication::applicationVersion();
-                    const auto description = currentVersion==latestVersion
+            [this](CheckResult result,CheckMode mode,const QString &latestVersion) {
+                const bool available = result==CheckResult::UpdateAvailable;
+                if (!available && mode!=CheckMode::Manual) return;
+                const auto currentVersion = QApplication::applicationVersion();
+                QString title,description,action;
+                auto tone = PromptDialog::Tone::UpdateResult;
+                const bool install = available && updateChecker->canInstall();
+                if (available) {
+                    title=tr("Update available");
+                    description=tr("Version %1 is available. You’re using %2.").arg(latestVersion,currentVersion);
+                    if (install) description+="\n\n"+tr("JustConnect will restart to finish installing the update.");
+                    action=install ? tr("Install update") : tr("Open release page");
+                    tone=PromptDialog::Tone::Update;
+                } else if (result==CheckResult::Failed) {
+                    title=tr("Could not check for updates");
+                    description=tr("JustConnect couldn’t get the latest release information. Try again later.");
+                    tone=PromptDialog::Tone::Warning;
+                } else {
+                    title=result==CheckResult::UpToDate ? tr("You’re up to date!") : tr("Latest stable release");
+                    description=currentVersion==latestVersion
                         ? tr("JustConnect %1 is the latest stable release.").arg(currentVersion)
                         : tr("You’re using JustConnect %1. The latest stable release is %2.").arg(currentVersion,latestVersion);
-                    PresentationHelpers::showMessage(this,title,description,PromptDialog::Tone::UpdateResult);
-                    return;
                 }
-                const bool install=updateChecker->canInstall();
-                auto description=tr("Version %1 is available. You’re using %2.").arg(latestVersion,QApplication::applicationVersion());
-                if (install) description+="\n\n"+tr("JustConnect will restart to finish installing the update.");
-                if (PresentationHelpers::actionPrompt(this,tr("Update available"),description,
-                    install ? tr("Install update") : tr("Open release page"),PromptDialog::Tone::Update))
-                {
+                // A network reply can finish while aborting. Do not start a nested event loop from its callback.
+                auto *prompt=new PromptDialog(this,title,description,tone,action,available);
+                if (available) connect(prompt,&QDialog::accepted,this,[this,install] {
                     if (install) installUpdate();
                     else QDesktopServices::openUrl(QUrl("https://github.com/"+ApplicationConstants::RepositoryName+"/releases/latest"));
-                }
+                });
+                prompt->setAttribute(Qt::WA_DeleteOnClose);
+                prompt->setModal(true);
+                prompt->show();
             });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
         updateConnectionState(connectionSession->state());
