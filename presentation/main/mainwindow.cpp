@@ -142,9 +142,28 @@ MainWindow::MainWindow(
     });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
             [this](const VersionInfo &) { updateVersionInfo(); });
-    connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
-            [this](const QString &latestVersion)
+    using CheckResult = UpdateChecker::CheckResult;
+    using CheckMode = UpdateChecker::CheckMode;
+    connect(updateChecker, &UpdateChecker::checkFinished, this,
+            [this](CheckResult result,CheckMode mode,const QString &latestVersion)
             {
+                if (result!=CheckResult::UpdateAvailable) {
+                    if (mode!=CheckMode::Manual) return;
+                    if (result==CheckResult::Failed) {
+                        PresentationHelpers::showMessage(this,tr("Could not check for updates"),
+                            tr("JustConnect couldn’t get the latest release information. Try again later."),
+                            PromptDialog::Tone::Warning);
+                        return;
+                    }
+                    const auto title = result==CheckResult::UpToDate
+                        ? tr("You’re up to date!") : tr("Latest stable release");
+                    const auto currentVersion = QApplication::applicationVersion();
+                    const auto description = currentVersion==latestVersion
+                        ? tr("JustConnect %1 is the latest stable release.").arg(currentVersion)
+                        : tr("You’re using JustConnect %1. The latest stable release is %2.").arg(currentVersion,latestVersion);
+                    PresentationHelpers::showMessage(this,title,description,PromptDialog::Tone::UpdateResult);
+                    return;
+                }
                 const bool install=updateChecker->canInstall();
                 auto description=tr("Version %1 is available. You’re using %2.").arg(latestVersion,QApplication::applicationVersion());
                 if (install) description+="\n\n"+tr("JustConnect will restart to finish installing the update.");
@@ -222,8 +241,9 @@ MainWindow::MainWindow(
     });
 
     // 帮助-检查更新
-    connect(ui->checkUpdateAction, &QAction::triggered,
-            updateChecker, &UpdateChecker::check);
+    connect(ui->checkUpdateAction,&QAction::triggered,this,[this] {
+        updateChecker->check(CheckMode::Manual);
+    });
 
     // 帮助-项目主页
     connect(ui->projectAction, &QAction::triggered,

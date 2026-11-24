@@ -1124,6 +1124,30 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>新版本 %1 已发布。当前版本为 %2。</translation>
     </message>
     <message>
+        <source>You’re up to date!</source>
+        <translation>已是最新版</translation>
+    </message>
+    <message>
+        <source>Latest stable release</source>
+        <translation>最新正式版</translation>
+    </message>
+    <message>
+        <source>You’re using JustConnect %1. The latest stable release is %2.</source>
+        <translation>当前使用 JustConnect %1，最新正式版为 %2。</translation>
+    </message>
+    <message>
+        <source>JustConnect %1 is the latest stable release.</source>
+        <translation>JustConnect %1 是最新正式版。</translation>
+    </message>
+    <message>
+        <source>Could not check for updates</source>
+        <translation>无法检查更新</translation>
+    </message>
+    <message>
+        <source>JustConnect couldn’t get the latest release information. Try again later.</source>
+        <translation>JustConnect 无法获取最新版本信息，请稍后再试。</translation>
+    </message>
+    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="95"/>
         <source>Open release page</source>
         <translation>打开发布页面</translation>

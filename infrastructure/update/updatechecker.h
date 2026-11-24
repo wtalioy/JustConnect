@@ -25,11 +25,14 @@ class UpdateChecker : public QObject
     Q_OBJECT
 
 public:
+    enum class CheckMode { Automatic, Manual };
+    enum class CheckResult { UpdateAvailable, UpToDate, ReleaseInfo, Failed };
+
     explicit UpdateChecker(QObject *parent = nullptr);
     ~UpdateChecker() override;
 
     const VersionInfo &versionInfo() const;
-    void check();
+    void check(CheckMode mode = CheckMode::Automatic);
     bool canInstall() const;
     void download();
     void cancelDownload();
@@ -37,11 +40,11 @@ public:
     bool launchStagedUpdate();
 
     static std::optional<QString> parseReleaseVersion(const QByteArray &payload);
-    static bool isNewerVersion(const QString &currentVersion, const QString &latestVersion);
+    static CheckResult compareVersions(const QString &currentVersion, const QString &latestVersion);
 
 signals:
     void versionInfoChanged(const VersionInfo &versionInfo);
-    void uiUpdateAvailable(const QString &version);
+    void checkFinished(CheckResult result, CheckMode mode, const QString &latestVersion);
     void updateProgress(qint64 received,qint64 total);
     void updateDownloaded();
     void updateDownloadFailed();
@@ -53,6 +56,7 @@ private:
 
     struct Download;
     VersionInfo versions;
+    CheckMode checkMode = CheckMode::Automatic;
     QNetworkAccessManager *uiNetworkManager = nullptr;
     std::optional<UpdatePackage> package;
     std::unique_ptr<Download> update;

@@ -24,10 +24,17 @@ bool coalescesChecksAndAllowsRetry()
 {
     UpdateChecker checker;
     using State = VersionInfo::UpdateState;
+    using Mode = UpdateChecker::CheckMode;
+    using Result = UpdateChecker::CheckResult;
     if (checker.versionInfo().updateState != State::Disabled)
         return false;
 
     int checks = 0;
+    QList<Mode> completed;
+    QObject::connect(&checker,&UpdateChecker::checkFinished,&checker,[&](Result result,Mode mode,const QString &latest) {
+        if (result==Result::Failed && latest.isEmpty())
+            completed.append(mode);
+    });
     QObject::connect(&checker, &UpdateChecker::versionInfoChanged, &checker, [&](const VersionInfo &info) {
         if (info.updateState == State::Checking && ++checks == 1)
             checker.check();
@@ -35,7 +42,7 @@ bool coalescesChecksAndAllowsRetry()
     for (int attempt = 1; attempt <= 2; ++attempt)
     {
         checker.check();
-        checker.check();
+        checker.check(attempt == 1 ? Mode::Manual : Mode::Automatic);
         if (checks != attempt)
             return false;
         // Abort immediately; no server response is required.
@@ -47,7 +54,7 @@ bool coalescesChecksAndAllowsRetry()
             return false;
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
-    return true;
+    return completed == QList<Mode>{Mode::Manual,Mode::Automatic};
 }
 
 bool validatesReleaseResponses()
@@ -74,27 +81,33 @@ bool validatesReleaseResponses()
 
 bool comparesVersions()
 {
+    using Result = UpdateChecker::CheckResult;
     struct VersionComparison
     {
         QString current;
         QString latest;
-        bool expected;
+        Result expected;
     };
     const QList<VersionComparison> comparisons{
-        {"1.2.3", "1.2.4", true},
-        {"1.2.3-beta", "1.2.3", true},
-        {"1.2.3-pre.2", "1.2.3-pre.10", true},
-        {"1.2.3", "1.2.3-hotfix", true},
-        {"1.2.3-hotfix.2", "1.2.3-hotfix.10", true},
-        {"1.2.3", "1.2.3", false},
-        {"1.2.3", "1.2.3-beta", false},
-        {"1.2.3-hotfix", "1.2.3", false},
-        {"1.3.0", "1.2.9", false}
+        {"1.2.3", "1.2.4", Result::UpdateAvailable},
+        {"1.2.3-beta", "1.2.3", Result::UpdateAvailable},
+        {"1.2.3-pre.2", "1.2.3-pre.10", Result::UpdateAvailable},
+        {"1.2.3", "1.2.3-hotfix", Result::UpdateAvailable},
+        {"1.2.3-hotfix.2", "1.2.3-hotfix.10", Result::UpdateAvailable},
+        {"1.2.3", "1.2.3", Result::UpToDate},
+        {"1.2.3", "1.2.3-beta", Result::UpToDate},
+        {"1.2.3-hotfix", "1.2.3", Result::UpToDate},
+        {"1.3.0", "1.2.9", Result::UpToDate},
+        {"8961409-nightly", "0.0.2", Result::ReleaseInfo},
+        {"afb3be5-nightly", "0.0.2", Result::ReleaseInfo},
+        {"0cacb81-nightly", "0.0.2", Result::ReleaseInfo},
+        {"dev", "0.0.2", Result::ReleaseInfo},
+        {"1.2.3", "arbitrary-tag", Result::Failed}
     };
 
     for (const VersionComparison &comparison : comparisons)
     {
-        const bool actual = UpdateChecker::isNewerVersion(
+        const auto actual = UpdateChecker::compareVersions(
             comparison.current,
             comparison.latest
         );
@@ -104,8 +117,8 @@ bool comparesVersions()
                 << "comparesVersions failed:"
                 << comparison.current
                 << comparison.latest
-                << "expected" << comparison.expected
-                << "actual" << actual;
+                << "expected" << int(comparison.expected)
+                << "actual" << int(actual);
             return false;
         }
     }

@@ -60,7 +60,8 @@ int UpdateInstaller::installAfterExit(const QStringList &arguments)
 {
     if (arguments.size()!=4 || arguments[1]!=WorkerOption || !UpdatePackage::isReleaseVersion(arguments[3])
         || !UpdatePackage::isReleaseVersion(QCoreApplication::applicationVersion())
-        || !UpdateChecker::isNewerVersion(QCoreApplication::applicationVersion(),arguments[3])) return 1;
+        || UpdateChecker::compareVersions(QCoreApplication::applicationVersion(),arguments[3])
+            != UpdateChecker::CheckResult::UpdateAvailable) return 1;
     const auto suffix=assetSuffix();
     if (suffix.isEmpty()) return 1;
     const QFileInfo directory(arguments[2]);

@@ -163,9 +163,13 @@ const VersionInfo &UpdateChecker::versionInfo() const
     return versions;
 }
 
-void UpdateChecker::check()
+void UpdateChecker::check(CheckMode mode)
 {
-    if (update || versions.updateState == VersionInfo::UpdateState::Checking)
+    if (update)
+        return;
+    if (mode == CheckMode::Manual)
+        checkMode = mode;
+    if (versions.updateState == VersionInfo::UpdateState::Checking)
         return;
     if (!uiNetworkManager)
     {
@@ -190,16 +194,22 @@ std::optional<QString> UpdateChecker::parseReleaseVersion(
     return releaseVersion(QJsonDocument::fromJson(payload).object());
 }
 
-bool UpdateChecker::isNewerVersion(const QString &currentVersion, const QString &latestVersion)
+UpdateChecker::CheckResult UpdateChecker::compareVersions(const QString &currentVersion, const QString &latestVersion)
 {
     qsizetype currentSuffix = 0;
     qsizetype latestSuffix = 0;
     const QVersionNumber current = QVersionNumber::fromString(currentVersion, &currentSuffix);
     const QVersionNumber latest = QVersionNumber::fromString(latestVersion, &latestSuffix);
 
+    if (latest.segmentCount() != 3)
+        return CheckResult::Failed;
+    // A nightly build is identified by its Git revision, which has no release version ordering.
+    if (current.segmentCount() != 3)
+        return CheckResult::ReleaseInfo;
+
     if (latest != current)
     {
-        return latest > current;
+        return latest > current ? CheckResult::UpdateAvailable : CheckResult::UpToDate;
     }
 
     const QString currentSuffixText =
@@ -210,48 +220,37 @@ bool UpdateChecker::isNewerVersion(const QString &currentVersion, const QString 
     const VersionSuffixKind latestKind = suffixKind(latestSuffixText);
     if (latestKind != currentKind)
     {
-        return latestKind > currentKind;
+        return latestKind > currentKind ? CheckResult::UpdateAvailable : CheckResult::UpToDate;
     }
-    return compareSuffixes(currentSuffixText, latestSuffixText) < 0;
+    return compareSuffixes(currentSuffixText, latestSuffixText) < 0
+        ? CheckResult::UpdateAvailable : CheckResult::UpToDate;
 }
 
 void UpdateChecker::handleUiReply(QNetworkReply *reply)
 {
-    if (reply->error() != QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()!=200)
-    {
-        const QString reason = reply->errorString();
-        qWarning().noquote() << "UI update check failed: " + reason;
-        versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Failed;
-        reply->deleteLater();
-        emit versionInfoChanged(versions);
-        return;
-    }
-
-    const auto release=QJsonDocument::fromJson(reply->readAll()).object();
+    const bool received = reply->error() == QNetworkReply::NoError
+        && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200;
+    const auto release = received ? QJsonDocument::fromJson(reply->readAll()).object() : QJsonObject{};
     const auto latestVersion=releaseVersion(release);
-    reply->deleteLater();
-    if (!latestVersion.has_value())
-    {
-        const QString reason =
-            QStringLiteral("The release response has no valid version tag.");
+    const auto result = latestVersion ? compareVersions(versions.uiVersion,*latestVersion) : CheckResult::Failed;
+    if (result == CheckResult::Failed) {
+        const auto reason = received ? QStringLiteral("The release response has no valid version tag.") : reply->errorString();
         qWarning().noquote() << "UI update check failed: " + reason;
-        versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Failed;
-        emit versionInfoChanged(versions);
-        return;
+        versions.uiLatest.clear();
+        versions.updateState=VersionInfo::UpdateState::Failed;
+    } else {
+        qInfo().noquote() << "UI update check succeeded. Latest version: " + *latestVersion;
+        versions.uiLatest = *latestVersion;
+        versions.updateState=VersionInfo::UpdateState::Ready;
     }
+    reply->deleteLater();
+    if (result == CheckResult::UpdateAvailable && UpdatePackage::isReleaseVersion(versions.uiVersion))
+        package=UpdatePackage::fromRelease(release,UpdateInstaller::assetSuffix());
 
-    qInfo().noquote()
-        << "UI update check succeeded. Latest version: " + *latestVersion;
-    versions.uiLatest = *latestVersion;
-    versions.updateState=VersionInfo::UpdateState::Ready;
+    const auto mode = std::exchange(checkMode,CheckMode::Automatic);
+    const auto latest = versions.uiLatest;
     emit versionInfoChanged(versions);
-
-    if (isNewerVersion(versions.uiVersion, *latestVersion))
-    {
-        if (UpdatePackage::isReleaseVersion(versions.uiVersion))
-            package=UpdatePackage::fromRelease(release,UpdateInstaller::assetSuffix());
-        emit uiUpdateAvailable(*latestVersion);
-    }
+    emit checkFinished(result,mode,latest);
 }
 
 bool UpdateChecker::canInstall() const

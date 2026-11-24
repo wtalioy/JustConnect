@@ -58,6 +58,7 @@
 #include <QStyle>
 #include <QStyleOption>
 #include <QLocale>
+#include <QNetworkReply>
 #include <QFile>
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -74,6 +75,8 @@ static void check(bool ok,const char *message) {
 
 static void updatePromptUsesTheSharedLayout(MainWindow &window)
 {
+    using Result = UpdateChecker::CheckResult;
+    using Mode = UpdateChecker::CheckMode;
     auto *checker=window.findChild<UpdateChecker *>();
     check(checker,"the main window exposes its update checker");
     const auto version=QApplication::applicationVersion();
@@ -88,9 +91,46 @@ static void updatePromptUsesTheSharedLayout(MainWindow &window)
         dismissed=true;
         prompt->dismissButton()->click();
     });
-    emit checker->uiUpdateAvailable("0.0.3");
-    QApplication::setApplicationVersion(version);
+    emit checker->checkFinished(Result::UpdateAvailable,Mode::Automatic,"0.0.3");
     check(dismissed,"the actual update notice was shown and dismissed");
+
+    emit checker->checkFinished(Result::UpToDate,Mode::Automatic,"0.0.2");
+    emit checker->checkFinished(Result::ReleaseInfo,Mode::Automatic,"0.0.2");
+    emit checker->checkFinished(Result::Failed,Mode::Automatic,{});
+    check(!QApplication::activeModalWidget(),"background checks leave non-updates quiet");
+    const auto expectPrompt = [&](PromptDialog::Tone tone,const QString &title,const QString &reportName) {
+        dismissed=false;
+        QTimer::singleShot(0,&window,[&,tone,title,reportName] {
+            auto *prompt=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+            check(prompt && prompt->tone()==tone && prompt->accessibleName()==title
+                && prompt->primaryButton()->text()=="OK" && !prompt->dismissButton(),
+                "manual check displays its result with a single acknowledgment");
+            if (tone==PromptDialog::Tone::UpdateResult)
+                check(prompt->text().contains(QApplication::applicationVersion()) && prompt->text().contains("0.0.2"),
+                    "manual check states the current build and latest stable version");
+            const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+            if (!report.isEmpty() && !reportName.isEmpty())
+                check(prompt->grab().save(QDir(report).filePath(reportName)),"save the actual update result prompt");
+            dismissed=true;
+            prompt->primaryButton()->click();
+        });
+    };
+    expectPrompt(PromptDialog::Tone::UpdateResult,"You’re up to date!",{});
+    emit checker->checkFinished(Result::UpToDate,Mode::Manual,"0.0.2");
+    check(dismissed,"manual check confirms that the release is current");
+
+    QApplication::setApplicationVersion("8961409-nightly");
+    expectPrompt(PromptDialog::Tone::UpdateResult,"Latest stable release","update-nightly.png");
+    emit checker->checkFinished(Result::ReleaseInfo,Mode::Manual,"0.0.2");
+    check(dismissed,"the nightly build shows release information without implying an upgrade");
+    QApplication::setApplicationVersion(version);
+
+    window.findChild<QAction *>("checkUpdateAction")->trigger();
+    auto *reply=checker->findChild<QNetworkReply *>();
+    check(reply,"the manual update action initiates a check");
+    expectPrompt(PromptDialog::Tone::Warning,"Could not check for updates",{});
+    reply->abort();
+    check(dismissed,"the actual manual update action reports a failed check");
 }
 
 class RecoveryNetwork : public NetworkAccess {
