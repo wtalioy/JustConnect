@@ -379,6 +379,7 @@ if(BUILD_TESTING)
 
     add_executable(graphcaptchawindow_test
         tests/graphcaptchawindow_test.cpp
+        presentation/presentationhelpers.cpp
         presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
         presentation/dialogs/graphcaptchawindow/captchacanvas.cpp)
     target_include_directories(graphcaptchawindow_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
