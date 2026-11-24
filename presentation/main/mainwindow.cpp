@@ -1,4 +1,5 @@
 #include <QMessageBox>
+#include <QtConcurrentRun>
 #include <QDesktopServices>
 #include <QDebug>
 #include <QFile>
@@ -319,6 +320,7 @@ void MainWindow::changeEvent(QEvent *event)
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
     copyClashScriptAction->setText(tr("Copy Clash Extend Script"));
+    importClashScriptAction->setText(tr("Import into Clash Verge Rev"));
     addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
     trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
@@ -577,8 +579,12 @@ void MainWindow::setupConnectionMenu()
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
     copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash Extend Script"));
-    popup->setCopyAction(copyClashScriptAction);
     copyClashScriptAction->setObjectName("copyClashScriptAction");
+    importClashScriptAction = ui->profileMenu->addAction(tr("Import into Clash Verge Rev"));
+    importClashScriptAction->setObjectName("importClashScriptAction");
+    for (auto *action : {copyClashScriptAction, importClashScriptAction})
+        action->setProperty("keepConnectionMenuOpen", true);
+    connect(popup,&QMenu::aboutToShow,this,&MainWindow::updateClashExport);
     connect(connectionSession,&ConnectionSession::stateChanged,this,&MainWindow::updateClashExport);
     connect(coordinator->networkPolicy(),&NetworkPolicySession::changed,this,&MainWindow::updateClashExport);
     connect(copyClashScriptAction, &QAction::triggered, this, [this,popup] {
@@ -589,10 +595,37 @@ void MainWindow::setupConnectionMenu()
         auto *clipboard=QApplication::clipboard();
         clipboard->setText(script);
         if (clipboard->text()!=script) return;
-        popup->showCopyCheck();
+        popup->showCheckFor(copyClashScriptAction);
         QAccessibleAnnouncementEvent announcement(ui->profileMenuButton,
             QCoreApplication::translate("PresentationHelpers","Copied to clipboard"));
         QAccessible::updateAccessibility(&announcement);
+    });
+    connect(importClashScriptAction,&QAction::triggered,this,[this,popup] {
+        if (clashImportRunning || connectionSession->state()!=ConnectionState::Running || !connectionSession->usesLocalProxy()) return;
+        const auto path = ClashExtension::vergeGlobalScriptPath();
+        if (path.isEmpty()) { updateClashExport(); return; }
+        const auto resources = coordinator->networkPolicy()->localProxyResources();
+        if (resources.isEmpty()) return;
+        clashImportRunning = true;
+        importClashScriptAction->setEnabled(false);
+        QtConcurrent::run([path, options=SavedConnectionService::load(*settings), name=connectionName(), resources] {
+            return ClashExtension::importScript(path, options, name, resources);
+        }).then(this,[this,popup](ClashExtension::ImportResult result) {
+            clashImportRunning = false;
+            updateClashExport();
+            if (result==ClashExtension::ImportResult::Saved) {
+                popup->showCheckFor(importClashScriptAction);
+                QAccessibleAnnouncementEvent announcement(ui->profileMenuButton,
+                    tr("Script imported. Reactivate profiles in Clash Verge Rev to apply it."));
+                QAccessible::updateAccessibility(&announcement);
+                return;
+            }
+            popup->hide();
+            QMessageBox::warning(this,tr("Could not import the Clash script"),
+                result==ClashExtension::ImportResult::Conflict
+                    ? tr("The global script changed or its format could not be read. Reopen it in Clash Verge Rev before trying again.")
+                    : tr("Could not save the global script or its backup. You can copy the script and add it in Clash Verge Rev."));
+        });
     });
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
     renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
@@ -654,8 +687,12 @@ void MainWindow::refreshConnectionMenu()
 
 void MainWindow::updateClashExport()
 {
-    copyClashScriptAction->setEnabled(connectionSession->state()==ConnectionState::Running
-        && connectionSession->usesLocalProxy() && !coordinator->networkPolicy()->localProxyResources().isEmpty());
+    const auto ready = connectionSession->state()==ConnectionState::Running && connectionSession->usesLocalProxy()
+        && !coordinator->networkPolicy()->localProxyResources().isEmpty();
+    copyClashScriptAction->setEnabled(ready);
+    const auto installed = !ClashExtension::vergeGlobalScriptPath().isEmpty();
+    importClashScriptAction->setVisible(installed);
+    importClashScriptAction->setEnabled(ready && installed && !clashImportRunning);
 }
 
 bool MainWindow::switchConnection(const QString &connectionId)

@@ -111,11 +111,14 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("addConnectionAction");
     auto *copyScript=window.findChild<QAction *>("copyClashScriptAction");
+    auto *importScript=window.findChild<QAction *>("importClashScriptAction");
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
     check(copyScript && !copyScript->isEnabled() && menu->actions().indexOf(copyScript)==menu->actions().indexOf(editAction)+1,
         "the automatic profile shows a disabled script action next to its editor");
+    check(importScript && !importScript->isEnabled() && menu->actions().indexOf(importScript)==menu->actions().indexOf(copyScript)+1,
+        "the import action follows copy and requires a live local proxy");
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");

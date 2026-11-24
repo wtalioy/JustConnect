@@ -110,6 +110,8 @@ private:
     QActionGroup *traySwitchGroup;
     QAction *addConnectionAction;
     QAction *copyClashScriptAction;
+    QAction *importClashScriptAction;
+    bool clashImportRunning = false;
     QAction *renameConnectionAction;
     QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;

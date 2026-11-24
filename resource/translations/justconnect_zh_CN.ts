@@ -1439,6 +1439,26 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>复制 Clash 扩展脚本</translation>
     </message>
     <message>
+        <source>Import into Clash Verge Rev</source>
+        <translation>导入到 Clash Verge Rev</translation>
+    </message>
+    <message>
+        <source>Script imported. Reactivate profiles in Clash Verge Rev to apply it.</source>
+        <translation>脚本已导入。请在 Clash Verge Rev 中重新激活订阅以应用。</translation>
+    </message>
+    <message>
+        <source>Could not import the Clash script</source>
+        <translation>无法导入 Clash 脚本</translation>
+    </message>
+    <message>
+        <source>The global script changed or its format could not be read. Reopen it in Clash Verge Rev before trying again.</source>
+        <translation>全局脚本已改动，或无法读取其格式。请在 Clash Verge Rev 中检查后重试。</translation>
+    </message>
+    <message>
+        <source>Could not save the global script or its backup. You can copy the script and add it in Clash Verge Rev.</source>
+        <translation>无法保存全局脚本或备份。你可以复制脚本并在 Clash Verge Rev 中添加。</translation>
+    </message>
+    <message>
         <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
         <translation>本地代理已就绪。Clash 负责分流选定的校园流量。</translation>
     </message>
@@ -2021,8 +2041,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Once connected, choose Copy Clash Extend Script from the connection menu.</source>
-        <translation>连接后，在连接菜单中选择「复制 Clash 扩展脚本」。</translation>
+        <source>Import or copy the script from the connection menu. After importing, reactivate profiles in Clash Verge Rev.</source>
+        <translation>从连接菜单导入或复制脚本。导入后，在 Clash Verge Rev 中重新激活订阅。</translation>
     </message>
     <message>
         <source>Additional Clash destinations</source>

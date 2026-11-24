@@ -73,12 +73,14 @@ Select **Local proxy only**, then click **Connect** and sign in. Point your prox
 
 Send campus hostnames through the proxy so JustConnect can resolve them with campus DNS. If Firefox connects directly to JustConnect over SOCKS5, enable **Proxy DNS when using SOCKS v5**.
 
-**Using Clash Verge Rev?** Once connected, choose **Copy Clash Extend Script** from JustConnect’s connection menu. In [Extend Script](https://www.clashverge.dev/guide/script.html) for your active profile:
+**Using Clash Verge Rev?** Once connected, choose **Import into Clash Verge Rev** from the connection menu, then use **Reactivate Profiles** in Clash Verge Rev. The import adds the campus rules after your existing global script runs and keeps the original file as `Script.js.justconnect.bak`.
+
+**Copying the script manually?** Choose **Copy Clash Extend Script**, then open the extend script in your proxy app. For example, use [Extend Script](https://www.clashverge.dev/guide/script.html) in Clash Verge Rev.
 
 - **New script:** Paste the whole script.
 - **Existing script:** Paste the `addJustConnect` function and call `addJustConnect(config);` before your `main` returns.
 
-Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and copy the script again.
+Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and import or copy the updated script.
 
 ## License and credits
 

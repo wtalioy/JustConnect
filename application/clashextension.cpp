@@ -2,10 +2,15 @@
 #include "networkprotection.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 #include <QSet>
+#include <QStandardPaths>
+#include <QStringDecoder>
 #include <QUrl>
 #include <optional>
 #include <algorithm>
@@ -98,9 +103,7 @@ QStringList exportRules(const ConnectionOptions &options, const QJsonObject &res
     }
     return result;
 }
-}
-
-QString ClashExtension::script(const ConnectionOptions &options, const QString &connectionName, const QJsonObject &resources)
+QString extensionFunction(const ConnectionOptions &options, const QString &connectionName, const QJsonObject &resources)
 {
     if (options.routingMode != RoutingMode::LocalProxy || !resources["domain_resources"].isObject()
         || !resources["ip_resources"].isArray()) return {};
@@ -119,18 +122,7 @@ QString ClashExtension::script(const ConnectionOptions &options, const QString &
         auto encoded = QJsonDocument(QJsonArray{rule}).toJson(QJsonDocument::Compact);
         routes.append("    " + QString::fromUtf8(encoded.mid(1,encoded.size()-2)));
     }
-    const auto instructions = QCoreApplication::translate("ClashExtension",
-        "// New script: paste everything.\n"
-        "// Already have a script? Paste only the addJustConnect function below,\n"
-        "// then add addJustConnect(config); before your main function returns config.\n"
-        "// Keep only one main function.");
-    return instructions + QStringLiteral(R"JS(
-
-function main(config) {
-  return addJustConnect(config);
-}
-
-function addJustConnect(config) {
+    return QStringLiteral(R"JS(function addJustConnect(config) {
   const node = )JS") + QString::fromUtf8(QJsonDocument(node).toJson(QJsonDocument::Compact))
     + QStringLiteral(";\n  const campusRoutes = [\n") + routes.join(",\n") + QStringLiteral(R"JS(
   ];
@@ -156,4 +148,115 @@ function addJustConnect(config) {
   return config;
 }
 )JS");
+}
+
+bool regularFile(const QFileInfo &info)
+{
+    return info.isFile() && !info.isSymLink() && !info.isJunction();
+}
+
+constexpr qint64 maxScriptSize = 4 * 1024 * 1024;
+
+std::optional<QByteArray> readScript(const QString &path)
+{
+    QFile file(path);
+    if (!regularFile(QFileInfo(path)) || !file.open(QIODevice::ReadOnly) || file.size() > maxScriptSize) return {};
+    auto contents = file.read(maxScriptSize + 1);
+    if (file.error() != QFileDevice::NoError || contents.size() > maxScriptSize) return {};
+    return contents;
+}
+
+constexpr auto managedStart = "// JustConnect global script integration\nvar main;\n{\n  let __justconnectOriginal;\n  {\n";
+constexpr auto originalEnd = "\n    ;__justconnectOriginal = main;\n  }\n";
+constexpr auto managedEnd = ";\n}\n// End JustConnect global script integration\n";
+constexpr auto wrapper = R"JS(  const __justconnectGlobal = main;
+  const __justconnectEntry = function main(config, profileName) {
+    globalThis.main = __justconnectGlobal;
+    let result;
+    try {
+      const previous = __justconnectOriginal;
+      result = typeof previous === "function" ? previous(config, profileName) : config;
+    } finally {
+      globalThis.main = __justconnectEntry;
+    }
+    if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+    try {
+      const prototype = Object.getPrototypeOf(result);
+      if (prototype === Object.prototype || prototype === null) return __justconnectAdd({...result});
+    } catch {
+      // Keep the user's result if the campus rules cannot be added.
+    }
+    return result;
+  };
+  main = __justconnectEntry;
+  const __justconnectAdd = )JS";
+}
+
+QString ClashExtension::script(const ConnectionOptions &options, const QString &connectionName, const QJsonObject &resources)
+{
+    const auto extension = extensionFunction(options, connectionName, resources);
+    if (extension.isEmpty()) return {};
+    return QCoreApplication::translate("ClashExtension",
+        "// New script: paste everything.\n"
+        "// Already have a script? Paste only the addJustConnect function below,\n"
+        "// then add addJustConnect(config); before your main function returns config.\n"
+        "// Keep only one main function.")
+        + QStringLiteral("\n\nfunction main(config) {\n  return addJustConnect(config);\n}\n\n") + extension;
+}
+
+QString ClashExtension::vergeGlobalScriptPath()
+{
+#ifdef Q_OS_WIN
+    const auto data = qEnvironmentVariable("APPDATA");
+#else
+    const auto data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+#endif
+    if (!QDir::isAbsolutePath(data)) return {};
+    const QDir directory(QDir(data).filePath("io.github.clash-verge-rev.clash-verge-rev"));
+    if (!regularFile(QFileInfo(directory.filePath("profiles.yaml")))) return {};
+    const auto path = directory.filePath("profiles/Script.js");
+    return regularFile(QFileInfo(path)) ? path : QString{};
+}
+
+ClashExtension::ImportResult ClashExtension::importScript(const QString &path, const ConnectionOptions &options,
+    const QString &connectionName, const QJsonObject &resources)
+{
+    const auto extension = extensionFunction(options, connectionName, resources);
+    if (extension.isEmpty() || path.isEmpty()) return ImportResult::Unavailable;
+    const auto current = readScript(path);
+    if (!current) return ImportResult::FileError;
+    QStringDecoder decoder(QStringDecoder::Utf8, QStringConverter::Flag::Stateless);
+    const QString decoded = decoder.decode(*current);
+    if (decoder.hasError() || decoded.contains(u'\0')) return ImportResult::Conflict;
+
+    const QByteArray bom = current->startsWith("\xef\xbb\xbf") ? current->first(3) : QByteArray{};
+    auto original = current->sliced(bom.size());
+    const bool previouslyImported = original.startsWith(managedStart);
+    if (previouslyImported) {
+        const auto start = QByteArrayView(managedStart).size();
+        const auto end = original.indexOf(originalEnd, start);
+        if (end < 0 || !original.endsWith(managedEnd)) return ImportResult::Conflict;
+        original = original.sliced(start, end - start);
+    }
+    if (original.contains("JustConnect global script integration") || original.contains("__justconnect"))
+        return ImportResult::Conflict;
+
+    const auto updated = bom + managedStart + original + originalEnd + wrapper + extension.toUtf8() + managedEnd;
+    if (updated == *current) return ImportResult::Saved;
+    if (updated.size() > maxScriptSize) return ImportResult::FileError;
+
+    QSaveFile pending(path);
+    if (!pending.open(QIODevice::WriteOnly) || pending.write(updated) != updated.size()) return ImportResult::FileError;
+    if (!previouslyImported) {
+        const auto backupPath = path + ".justconnect.bak";
+        const QFileInfo backupInfo(backupPath);
+        if (backupInfo.isSymLink() || backupInfo.isJunction() || (backupInfo.exists() && !backupInfo.isFile()))
+            return ImportResult::FileError;
+        QSaveFile backup(backupPath);
+        if (!backup.open(QIODevice::WriteOnly) || !backup.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)
+            || backup.write(*current) != current->size() || !backup.commit())
+            return ImportResult::FileError;
+    }
+    if (readScript(path) != current) return ImportResult::Conflict;
+    return pending.commit() ? ImportResult::Saved : ImportResult::FileError;
 }

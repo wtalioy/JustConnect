@@ -94,8 +94,60 @@ int main(int argc,char **argv) {
     const auto script=ClashExtension::script(local,"复旦大学",snapshot);
     check(ClashExtension::script(local,"Fudan",{}).isEmpty() && !script.isEmpty(),"export requires a live resource snapshot");
     check(ClashExtension::script(local,"Fudan",snapshot).contains("\"name\":\"Fudan\""),"export uses the current connection name");
+
+    const auto globalScript = directory.filePath("Script.js");
+    const auto writeScript = [&](const QByteArray &content) {
+        QFile file(globalScript);
+        check(file.open(QIODevice::WriteOnly) && file.write(content)==content.size(),"write the fixture script");
+    };
+    const auto read = [](const QString &name) {
+        QFile file(name);
+        check(file.open(QIODevice::ReadOnly),"read the fixture script");
+        return file.readAll();
+    };
+    const QByteArray original = "\xef\xbb\xbf// Existing global script\r\n"
+        "var calls = 0; var addJustConnect = 'keep';\r\n"
+        "const main = (config, profileName) => ({...config, name: profileName, calls: ++globalThis.calls,\r\n"
+        "  originalValue: addJustConnect, rules: ['MATCH,DIRECT']}); // no final newline";
+    writeScript(original);
+    using ImportResult = ClashExtension::ImportResult;
+    check(ClashExtension::importScript(globalScript,{},"Fudan",snapshot)==ImportResult::Unavailable && read(globalScript)==original,
+        "import does not change the file with no local-proxy session");
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Saved,"import the current campus rules");
+    const auto firstImport = read(globalScript);
+    check(firstImport.startsWith(original.first(3)) && firstImport.contains(original.sliced(3))
+        && read(globalScript+".justconnect.bak")==original,"preserve the existing script bytes and original backup");
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Saved && read(globalScript)==firstImport,
+        "importing the same connection twice leaves identical script bytes");
+    auto changedSnapshot = snapshot;
+    changedSnapshot["listeners"] = QJsonObject{{"socks", "127.0.0.1:32084"}};
+    check(ClashExtension::importScript(globalScript,local,"Fudan",changedSnapshot)==ImportResult::Saved,"refresh the imported SOCKS port");
+    const auto updatedImport = read(globalScript);
+    check(updatedImport.contains("32084") && !updatedImport.contains("32081") && read(globalScript+".justconnect.bak")==original,
+        "refresh replaces only the managed rules and retains the original backup");
+
     const auto node=QStandardPaths::findExecutable("node");
     if (!node.isEmpty()) {
+        QProcess imported;
+        imported.start(node,{"-e",R"JS(
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const script = fs.readFileSync(process.argv[1], 'utf8');
+const code = `try {
+  ${script};
+  JSON.stringify(main({proxies: []}, 'Current profile') || '')
+} catch (error) { throw error; }`;
+const result = JSON.parse(vm.runInNewContext(code));
+assert.equal(result.name, 'Current profile');
+assert.equal(result.calls, 1);
+assert.equal(result.originalValue, 'keep');
+assert.deepEqual(result.proxies, [{name:'Fudan', type:'socks5', server:'127.0.0.1', port:32084, udp:true}]);
+assert.ok(result.rules[0].endsWith(',Fudan'));
+assert.equal(result.rules.at(-1), 'MATCH,DIRECT');
+)JS",globalScript});
+        check(imported.waitForFinished() && imported.exitCode()==0,
+            ("evaluate the original and imported rules in the Verge entry flow: " + imported.readAllStandardError()).constData());
         QProcess js;
         js.start(node,{"-"});
         check(js.waitForStarted(),"start JavaScript runtime");
@@ -135,6 +187,11 @@ assert.deepEqual(existingScript({}).rules.slice(-2), ["DOMAIN,keep.example,DIREC
         check(js.waitForFinished(),"Clash script test finished");
         check(js.exitStatus()==QProcess::NormalExit && js.exitCode()==0,js.readAllStandardError().constData());
     }
+    const auto editedOutside = updatedImport + "\n// new user content outside the managed script\n";
+    writeScript(editedOutside);
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Conflict
+        && read(globalScript)==editedOutside && read(globalScript+".justconnect.bak")==original,
+        "refuse a changed managed layout without deleting external edits");
     mode->setCurrentIndex(0);
     check(rules->isVisibleTo(&editor) && !dnsHelp->text().contains("Clash"),
         "automatic routing keeps domain DNS editable without Clash guidance");

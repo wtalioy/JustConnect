@@ -159,7 +159,7 @@ void ServerSettingsWidget::retranslate() {
     socksPort->setSpecialValueText(tr("Off"));
     qobject_cast<QLabel *>(form->labelForField(httpPort))->setText(tr("Local HTTP port"));
     httpPort->setSpecialValueText(tr("Off"));
-    clashHelp->setText(tr("Once connected, choose Copy Clash Extend Script from the connection menu."));
+    clashHelp->setText(tr("Import or copy the script from the connection menu. After importing, reactivate profiles in Clash Verge Rev."));
     clashTargetsLabel->setText(tr("Additional Clash destinations"));
     clashTargets->setPlaceholderText(tr("Optional. One IPv4 address and TCP port per line, e.g. 192.0.2.10:22"));
     verify->setText(tr("Verify server certificate"));
