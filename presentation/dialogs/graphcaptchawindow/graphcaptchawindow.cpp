@@ -12,8 +12,10 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLineEdit>
-#include <QMessageBox>
+#include "presentation/presentationhelpers.h"
 #include <QPushButton>
+
+using PresentationHelpers::PromptDialog;
 
 GraphCaptchaWindow::GraphCaptchaWindow(QWidget *parent) : QDialog(parent), ui(new Ui::GraphCaptchaWindow)
 {
@@ -72,7 +74,7 @@ void GraphCaptchaWindow::accept()
 {
     if (ui->canvas->image().isNull())
     {
-        QMessageBox::warning(this, tr("Image verification"), tr("The verification image could not be loaded. Retry the connection."));
+        PresentationHelpers::showMessage(this, tr("Image verification"), tr("The verification image could not be loaded. Retry the connection."),PromptDialog::Tone::Warning);
         return;
     }
 
@@ -81,7 +83,7 @@ void GraphCaptchaWindow::accept()
         const QString code = ui->codeEdit->text().trimmed();
         if (code.isEmpty())
         {
-            QMessageBox::warning(this, tr("Image verification"), tr("Enter the characters shown in the image."));
+            PresentationHelpers::showMessage(this, tr("Image verification"), tr("Enter the characters shown in the image."),PromptDialog::Tone::Warning);
             ui->codeEdit->setFocus();
             return;
         }
@@ -90,7 +92,7 @@ void GraphCaptchaWindow::accept()
     else
     {
         if (ui->canvas->pointsPx().isEmpty() || ui->canvas->pointsPx().size() > JC_MAX_AUTH_POINTS) {
-            QMessageBox::warning(this, tr("Image verification"), tr("Select the points requested in the image."));
+            PresentationHelpers::showMessage(this, tr("Image verification"), tr("Select the points requested in the image."),PromptDialog::Tone::Warning);
             return;
         }
         QJsonObject obj;

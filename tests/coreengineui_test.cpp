@@ -1,3 +1,4 @@
+#include "presentation/presentationhelpers.h"
 #include "presentation/browser/signinbrowser.h"
 #include "application/connectionsession.h"
 #include "application/authmethodsquery.h"
@@ -28,7 +29,6 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
@@ -47,6 +47,8 @@
 #include <atomic>
 
 using ProxyCheck::check;
+using PresentationHelpers::PromptDialog;
+
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
 static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
@@ -190,12 +192,11 @@ static void manualCredentialsAndLateResults() {
         "Secure storage permission was denied. Check authorization.\nYou can sign in manually for this connection."
     };
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget);message && message->isVisible()) {
-            // macOS ignores QMessageBox titles; assert the actual warning and available action.
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<PromptDialog *>(widget);message && message->isVisible()) {
             check(warnings<expectedWarnings.size() && message->text()==expectedWarnings.at(warnings)
-                && message->icon()==QMessageBox::Warning && message->standardButtons()==QMessageBox::Ok,
+                && message->tone()==PromptDialog::Tone::Warning && !message->dismissButton(),
                 "only the expected native failure and manual-login action are shown");
-            ++warnings;message->button(QMessageBox::Ok)->click();
+            ++warnings;message->primaryButton()->click();
         }
     });dismiss.start(1);store->failure=CredentialStatus::PermissionDenied;
     login(true,"unsaved");
@@ -309,11 +310,11 @@ static void authenticationCacheLifecycle() {
     bool confirmed=false;QTimer confirm;
     QObject::connect(&confirm,&QTimer::timeout,[&]{
         for(auto *widget:QApplication::topLevelWidgets()) {
-            if (widget->objectName()!="actionPrompt" || !widget->isVisible()) continue;
-            auto *box=widget->findChild<QDialogButtonBox *>();
-            check(widget->findChild<QLabel *>("promptBody")->text().contains("login-alias")
-                && box->button(QDialogButtonBox::No)->isDefault(),"cache clear identifies the selected account and defaults to cancel");
-            confirmed=true;box->button(QDialogButtonBox::Yes)->click();
+            auto *prompt=qobject_cast<PromptDialog *>(widget);
+            if (!prompt || !prompt->isVisible()) continue;
+            check(prompt->text().contains("login-alias") && prompt->dismissButton() && prompt->dismissButton()->isDefault(),
+                "cache clear identifies the selected account and defaults to cancel");
+            confirmed=true;prompt->primaryButton()->click();
         }
     });confirm.start(1);controller.clearAuthenticationCache();confirm.stop();
     emit engine->authenticationCacheUpdated({cached.account,"late-authentication"});ready();
@@ -336,9 +337,9 @@ static void authenticationCacheLifecycle() {
     connectButton.click();until([&]{return engine->starts==5;});
     bool deferredClear=false;QTimer bindingNotice;
     QObject::connect(&bindingNotice,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->icon()==QMessageBox::Information && box->text()=="Wait for the save before clearing authentication caches.",
-                "unfinished account binding reports clear as deferred");box->button(QMessageBox::Ok)->click();
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
+            check(box->tone()==PromptDialog::Tone::Information && box->text()=="Wait for the save before clearing authentication caches.",
+                "unfinished account binding reports clear as deferred");box->primaryButton()->click();
         }
     });bindingNotice.start(1);
     const auto bindingObserver=QObject::connect(&access,&CredentialAccess::configurationSaved,[&](const QString &){
@@ -404,7 +405,7 @@ static void onlineExpiryOffersOneReauthentication() {
     connectButton.click();until([&]{return engine->starts==1;});emit engine->connectionEstablished();
     int errors=0;QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             check(box->text().contains("sign in again"),"online expiry explains the manual reauthentication action");++errors;box->accept();
         }
     });dismiss.start(1);
@@ -467,7 +468,7 @@ static void authenticationSurvivesTunnelFailure() {
     connectButton.click();until([&]{return engine->starts==1;});
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             check(box->text().contains("certificate"),"tunnel certificate rejection remains visible");
             errorShown=true;box->accept();
         }
@@ -511,7 +512,7 @@ static void platformFailureDetailAppearsInTheErrorDialog() {
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             check(box->text().contains("Unexpected error") && box->text().contains("helper binary is missing"),
                 "platform failure detail is shown alongside the error guidance");
             errorShown=true;box->accept();
@@ -547,7 +548,7 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     emit network->quiesced(network->attempt);
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,&parent,[&]{
-        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()){
             errorShown=true;box->accept();
         }
     });closeError.start(1);
@@ -942,11 +943,10 @@ static void uiContracts() {
     for (bool confirm:{false,true}) {
         const auto before=responses;
         dialogs.requestAuthentication(deviceRequest,{});
-        auto *dialog=challenge(parent);
-        auto *buttons=dialog->findChild<QDialogButtonBox *>();
-        check(responses==before && buttons->button(QDialogButtonBox::Cancel)->isDefault()
-            && !buttons->button(QDialogButtonBox::Ok)->isDefault(),"trusted device never confirms on opening or by default");
-        buttons->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
+        auto *dialog=qobject_cast<PromptDialog *>(challenge(parent));
+        check(dialog && dialog->dismissButton() && responses==before && dialog->dismissButton()->isDefault()
+            && !dialog->primaryButton()->isDefault(),"trusted device never confirms on opening or by default");
+        (confirm ? dialog->primaryButton() : dialog->dismissButton())->click();
         check(responses==before+1 && submitted["action"]==(confirm?"confirm":"cancel")
             && submitted["generation"]=="3" && submitted["request_id"]=="19" && !submitted.contains("code"),"explicit device decision retains request identity");
     }

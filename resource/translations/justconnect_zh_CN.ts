@@ -159,6 +159,10 @@
         <source>Skip future verification</source>
         <translation>跳过以后的二次认证</translation>
     </message>
+    <message>
+        <source>Trust device</source>
+        <translation>信任设备</translation>
+    </message>
 </context>
 <context>
     <name>AuthenticationCacheCoordinator</name>
@@ -557,6 +561,10 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     <message>
         <source>The local SOCKS5 port could not be opened. Close the app using it or change the port in connection settings.</source>
         <translation>无法打开本地 SOCKS5 端口。请关闭占用端口的应用，或在连接设置中更换端口。</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
     </message>
 </context>
 <context>
@@ -1112,13 +1120,13 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="93"/>
-        <source>Version %1 is available.</source>
-        <translation>发现新版本 %1。</translation>
+        <source>Version %1 is available. You’re using %2.</source>
+        <translation>新版本 %1 已发布。当前版本为 %2。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="95"/>
-        <source>Open page</source>
-        <translation>打开页面</translation>
+        <source>Open release page</source>
+        <translation>打开发布页面</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="764"/>
@@ -1461,6 +1469,14 @@ Complete the legacy credential migration first, or add a new connection.</source
     <message>
         <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
         <translation>本地代理已就绪。Clash 负责分流选定的校园流量。</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>重试</translation>
     </message>
 </context>
 <context>
@@ -1956,6 +1972,17 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
 </context>
 <context>
+    <name>PresentationHelpers::PromptDialog</name>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
     <name>ServerSettingsWidget</name>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="98"/>
@@ -2421,6 +2448,10 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>Choose a local SOCKS5 port to use Local proxy only.</source>
         <translation>使用「仅本地代理」前，请设置本地 SOCKS5 端口。</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
     </message>
 </context>
 <context>

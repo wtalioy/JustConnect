@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QMainWindow>
+#include <QScreen>
 #include <QPushButton>
 #include <QToolButton>
 #include <QMouseEvent>
@@ -59,30 +60,48 @@ protected:
         ++paints;
     }
 };
-static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton primary,
-    QDialogButtonBox::StandardButton dismiss,const QString &title,const QString &body,
-    const QString &label,const QString &reportName)
+using PresentationHelpers::PromptDialog;
+
+static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QString &title,
+    const QString &body,const QString &label,const QString &reportName)
 {
     bool observed=false;
     QTimer::singleShot(0,&parent,[&] {
-        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
-        check(dialog && dialog->objectName()=="actionPrompt","the styled prompt is the active modal dialog");
-        auto *box=dialog->findChild<QDialogButtonBox *>();
+        auto *dialog=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+        check(dialog && dialog->tone()==tone,"the shared prompt is the active modal dialog");
         auto *icon=dialog->findChild<QLabel *>("promptIcon");
+        auto *heading=dialog->findChild<QLabel *>("promptHeading");
         auto *text=dialog->findChild<QLabel *>("promptBody");
-        auto *action=box->button(primary);
-        auto *cancel=box->button(dismiss);
-        check(dialog->windowTitle()==title && text->text()==body
-            && dialog->findChildren<QLabel *>().size()==2,
-            "the native title is the only heading and the body appears once");
-        check(icon->size()==QSize(36,36) && qAbs(icon->geometry().center().y()-text->geometry().center().y())<=1,
-            "prompt icon is aligned with the body");
-        check(text->height()>=text->heightForWidth(text->width()) && dialog->rect().contains(box->geometry())
-            && action->height()==cancel->height() && box->rect().contains(action->geometry()),
-            "wrapped copy and both actions fit inside the prompt");
-        check(text->height()<=qMax(icon->height(),text->heightForWidth(text->width()))+2,
-            "the dialog leaves no extra vertical space around the wrapped copy");
+        auto *action=dialog->primaryButton();
+        auto *cancel=dialog->dismissButton();
+        const bool update=tone==PromptDialog::Tone::Update;
+        check(dialog->accessibleName()==title && heading->text()==title && text->text()==body
+            && heading->font().pointSizeF()>text->font().pointSizeF()
+            && heading->geometry().bottom()<text->geometry().top(),"the heading and wrapped body form a clear hierarchy");
+        check(icon->size()==QSize(44,44) && !icon->pixmap().isNull() && icon->y()==heading->y(),
+            "the icon starts at the same inset as the heading");
+        check(dialog->width()==qMin(504,dialog->screen()->availableGeometry().width()-32)
+            && text->height()>=text->heightForWidth(text->width())
+            && dialog->rect().contains(action->geometry()),"the copy and action fit within the dialog");
+        if (cancel) check(action->height()==cancel->height() && dialog->rect().contains(cancel->geometry())
+            && (cancel->geometry().right()<action->geometry().left() || cancel->geometry().bottom()<action->geometry().top())
+            && cancel->isDefault()!=update && action->isDefault()==update && !cancel->property("promptPrimary").toBool(),
+            "Cancel precedes the primary button and remains the keyboard default for confirmations");
+        else check(action->isDefault() && action->text()=="OK","a notice has one default acknowledgment");
+        const auto fill = [](QPushButton *button) {
+            const auto pixels = button->grab().toImage();
+            return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
+        };
+        const auto actionFill=fill(action);
+        check(action->property("promptPrimary").toBool()
+            && actionFill.blue()>actionFill.red()+60 && actionFill.green()<170,
+            "only the primary action is accented");
+        if (cancel) {
+            const auto cancelFill=fill(cancel);
+            check(cancelFill.red()>220 && cancelFill.green()>220,"Cancel renders neutral even when it is the default");
+        }
         for (auto *button : {action,cancel}) {
+            if (!button) continue;
             QStyleOptionButton option;
             option.initFrom(button);
             option.text=button->text();
@@ -90,28 +109,19 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
             check(contents.width()>=button->fontMetrics().size(Qt::TextShowMnemonic,button->text()).width(),
                 "button text fits with the shared padding");
         }
-        check(action->property("promptPrimary").toBool() && cancel->isDefault() && !action->isDefault(),
-            "the blue action and safe keyboard default are independent");
-        const auto fill = [](QPushButton *button) {
-            const auto pixels = button->grab().toImage();
-            return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
-        };
-        const auto actionFill=fill(action), cancelFill=fill(cancel);
-        check(actionFill.blue()>actionFill.red()+60 && actionFill.green()<170
-            && cancelFill.red()>220 && cancelFill.green()>220,
-            "the affirmative button renders blue and the keyboard default renders neutral");
         const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
         if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath(reportName)),"save styled prompt screenshot");
         observed=true;
-        if (primary==QDialogButtonBox::Yes) {
+        if (tone==PromptDialog::Tone::Information && cancel) action->click();
+        else {
             QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
             QCoreApplication::sendEvent(dialog,&enter);
-        } else {
-            action->click();
         }
     });
-    const bool accepted=PresentationHelpers::actionPrompt(&parent,title,body,primary,dismiss,label);
-    check(observed && accepted==(primary!=QDialogButtonBox::Yes),"Return dismisses a deletion and the settings button accepts");
+    if (label.isEmpty()) PresentationHelpers::showMessage(&parent,title,body,tone);
+    else check(PresentationHelpers::actionPrompt(&parent,title,body,label,tone)==(tone!=PromptDialog::Tone::Question),
+        "Return cancels a destructive action, while the update and settings actions accept");
+    check(observed,"the prompt was exercised");
 }
 
 static void checkboxAlignment(const QString &caption, bool checked = true) {
@@ -272,12 +282,16 @@ int main(int argc,char **argv) {
     }
     QWidget promptParent;
     promptParent.show();
-    actionPromptLayout(promptParent,QDialogButtonBox::Yes,QDialogButtonBox::No,"Clear authentication cache",
+    actionPromptLayout(promptParent,PromptDialog::Tone::Update,"Update available",
+        "Version 0.0.3 is available. You’re using 0.0.2.","Open release page","update-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear authentication cache",
         "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
-        {},"cache-prompt.png");
-    actionPromptLayout(promptParent,QDialogButtonBox::Open,QDialogButtonBox::Cancel,"Background access required",
+        "Clear","cache-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Information,"Background access required",
         "Allow JustConnect under Login Items & Extensions, then connect again.",
         "Open System Settings","background-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Warning,"Could not save connection",
+        "Your draft was preserved. Check the file permissions and try again.",{},"warning-prompt.png");
     promptParent.hide();
     textContextMenus();
     checkboxAlignment(QStringLiteral("Launch at sign-in"));

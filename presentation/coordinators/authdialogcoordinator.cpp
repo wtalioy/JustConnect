@@ -8,7 +8,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -18,6 +17,8 @@
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "application/coreengine.h"
 #include <QSignalBlocker>
+
+using PresentationHelpers::PromptDialog;
 
 namespace {
 void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);layout->parentWidget()->setMinimumWidth(320);}
@@ -113,11 +114,11 @@ void AuthDialogCoordinator::requestPhoneNumber(
             const QString submittedPhoneNumber = phoneNumberEdit->text().trimmed();
             if (submittedCountryCode.isEmpty() || submittedPhoneNumber.isEmpty())
             {
-                QMessageBox::warning(
+                PresentationHelpers::showMessage(
                     dialog,
                     tr("Warning"),
                     tr("Country code and phone number are required.")
-                );
+                ,PromptDialog::Tone::Warning);
                 return;
             }
 
@@ -193,21 +194,12 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         });
         dialog = signIn;
     } else if (kind == "trusted_device") {
-        auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
-        auto *layout = new QVBoxLayout(dialog);
-        spaceForm(layout);
-        auto *label = new QLabel(dialog);
-        input->setTranslation([input,label] {input->setWindowTitle(tr("Trust this device?"));label->setText(tr("The server wants to remember this device as trusted. Allow it?"));});
-        label->setWordWrap(true);
-        layout->addWidget(label);
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-        buttons->button(QDialogButtonBox::Ok)->setAutoDefault(false);
-        buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
-        layout->addWidget(buttons);
-        connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        auto *input=new LocalizedDialog<PromptDialog>(parentWidget,QString{},QString{},PromptDialog::Tone::Question,QString{},true);
+        dialog=input;
+        input->setTranslation([input] {
+            input->setContent(tr("Trust this device?"),tr("The server wants to remember this device as trusted. Allow it?"),tr("Trust device"));
+        });
         connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
-        input->resize(400,input->sizeHint().height());
     } else if (kind == "sms" || kind == "totp" || kind == "radius") {
         auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);

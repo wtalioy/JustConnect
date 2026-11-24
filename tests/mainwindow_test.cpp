@@ -15,6 +15,7 @@
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/savedconnectionstore.h"
+#include "infrastructure/update/updatechecker.h"
 #if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
 #include <windows.h>
 #endif
@@ -40,7 +41,6 @@
 #include <QScrollBar>
 #include <QSemaphore>
 #include <QToolButton>
-#include <QMessageBox>
 #include <QTcpServer>
 #include <QLabel>
 #include <QStandardPaths>
@@ -66,9 +66,33 @@
 #include <cstdlib>
 #include <iostream>
 
+using PresentationHelpers::PromptDialog;
+
 static void check(bool ok,const char *message) {
     if (!ok) {std::cerr << message << '\n';std::exit(1);}
 }
+
+static void updatePromptUsesTheSharedLayout(MainWindow &window)
+{
+    auto *checker=window.findChild<UpdateChecker *>();
+    check(checker,"the main window exposes its update checker");
+    const auto version=QApplication::applicationVersion();
+    QApplication::setApplicationVersion("0.0.2");
+    bool dismissed=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto *prompt=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+        check(prompt && prompt->tone()==PromptDialog::Tone::Update
+            && prompt->text().contains("0.0.3") && prompt->text().contains("0.0.2")
+            && prompt->primaryButton()->text()=="Open release page" && prompt->primaryButton()->isDefault()
+            && prompt->dismissButton(),"the update describes both versions and offers the release page");
+        dismissed=true;
+        prompt->dismissButton()->click();
+    });
+    emit checker->uiUpdateAvailable("0.0.3");
+    QApplication::setApplicationVersion(version);
+    check(dismissed,"the actual update notice was shown and dismissed");
+}
+
 class RecoveryNetwork : public NetworkAccess {
 public:
     QUuid attempt;
@@ -90,7 +114,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     session->stop();
     bool errorShown=false;QTimer acknowledgeError;
     QObject::connect(&acknowledgeError,&QTimer::timeout,&window,[&]{
-        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()){
             errorShown=true;box->accept();
         }
     });acknowledgeError.start(1);
@@ -267,11 +291,10 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     UiWait::until(__FILE__,__LINE__,[&]{return !credentials->isBusy(newPath);});
     bool confirmedLayout=false;
     QTimer::singleShot(0,&window,[&] {
-        auto *prompt=QApplication::activeModalWidget();
-        check(prompt && prompt->objectName()=="actionPrompt","delete uses the shared confirmation");
-        auto *buttons=prompt->findChild<QDialogButtonBox *>();
-        auto *remove=buttons->button(QDialogButtonBox::Yes);
-        auto *cancel=buttons->button(QDialogButtonBox::Cancel);
+        auto *prompt=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+        check(prompt,"delete uses the shared confirmation");
+        auto *remove=prompt->primaryButton();
+        auto *cancel=prompt->dismissButton();
         check(remove->text()=="Delete" && remove->icon().isNull() && remove->property("promptPrimary").toBool()
             && cancel->isDefault() && prompt->findChild<QLabel *>("promptBody")->text().startsWith("Delete “direct-add”?"),
             "delete uses short copy, a blue text-only action and a safe keyboard default");
@@ -478,7 +501,7 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
 static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     QTimer unexpectedMessage;
     QObject::connect(&unexpectedMessage,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             std::cerr<<"Unexpected profile translation message: "<<box->text().toStdString()<<'\n';std::exit(1);
         }
     });unexpectedMessage.start(10);
@@ -923,6 +946,7 @@ int main(int argc,char **argv) {
             check(hasUntitledNativeHomeFrame(window),"the macOS home hides the caption and keeps its title and native controls");
 #endif
             nativeHome(window, logger);
+            updatePromptUsesTheSharedLayout(window);
             languagePreferences(window);
             profileMenusKeepTheirActions(window,menuProfile);
         }

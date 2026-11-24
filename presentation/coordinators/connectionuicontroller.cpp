@@ -9,7 +9,6 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDebug>
-#include <QMessageBox>
 #if defined(Q_OS_MACOS)
 #include "infrastructure/networkhelper/macos/helperregistration.h"
 #endif
@@ -32,6 +31,8 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/process/running.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
+
+using PresentationHelpers::PromptDialog;
 
 ConnectionUiController::ConnectionUiController(
     QWidget *parentWidget,
@@ -187,7 +188,7 @@ void ConnectionUiController::enableCampusAccess()
 {
     if (quitting || connectionSession->isActive() || credentialsPending) return;
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
-    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before connecting."));return;}
+    if (isConfigurationSaving()) {PresentationHelpers::showMessage(parentWidget,tr("Saving connection"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();
     const auto connectionOptions=SavedConnectionService::load(*settings());
     if (settings()->value("Common/NeedsConfiguration",false).toBool() || connectionOptions.endpoint.server.isEmpty() || connectionOptions.endpoint.authType.isEmpty()) {
@@ -195,7 +196,7 @@ void ConnectionUiController::enableCampusAccess()
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
     if (!SettingsMigrator::readableFile(source.path)) {
-        QMessageBox::warning(parentWidget,tr("Connection unavailable"),tr("The current connection settings could not be read. Check the file permissions and contents, then reopen the connection."));return;
+        PresentationHelpers::showMessage(parentWidget,tr("Connection unavailable"),tr("The current connection settings could not be read. Check the file permissions and contents, then reopen the connection."),PromptDialog::Tone::Warning);return;
     }
     credentialsPending=true;refreshActions();
     // The vendor's three desktop clients use aTrustAgent; this is advisory, never ownership or authentication evidence.
@@ -209,7 +210,7 @@ void ConnectionUiController::enableCampusAccess()
         if (generation!=credentialGeneration) return;
         if (!sourceStillCurrent(source) || (loaded.result.succeeded() && !CredentialAccess::matches(source,*settings()))) {cancelPendingCredentials();return;}
         if (!loaded.result.succeeded() && loaded.result.status!=CredentialStatus::NotFound) {
-            QMessageBox::warning(parentWidget,tr("Saved credentials unavailable"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou can sign in manually for this connection."));
+            PresentationHelpers::showMessage(parentWidget,tr("Saved credentials unavailable"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou can sign in manually for this connection."),PromptDialog::Tone::Warning);
         }
         if (generation!=credentialGeneration) return;
         const auto current=credentialSourceProvider();
@@ -287,7 +288,7 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
         credentialsPending=false;
         const bool sameFile=settings()->fileName()==source.path;
         if (!sameFile) {cancelPendingCredentials();return;}
-        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Login details were not saved"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nYou can sign in manually for this connection."));
+        if (!result.succeeded()) PresentationHelpers::showMessage(parentWidget,tr("Login details were not saved"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nYou can sign in manually for this connection."),PromptDialog::Tone::Warning);
         if (generation!=credentialGeneration) return;
         const auto current=SavedConnectionService::load(*settings());
         const auto expected=result.succeeded() ? connectionOptions.authenticationIdentity() : source.connectionOptions.authenticationIdentity();
@@ -329,18 +330,18 @@ void ConnectionUiController::clearAuthenticationCache()
     if (quitting) return;
     const auto source=credentialSourceProvider();
     if (isConfigurationSaving()) {
-        QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before clearing authentication caches."));return;
+        PresentationHelpers::showMessage(parentWidget,tr("Saving connection"),tr("Wait for the save before clearing authentication caches."));return;
     }
     if (ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions).isEmpty()) {
-        QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
+        PresentationHelpers::showMessage(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
     }
     const auto account=source.connectionOptions.credentials.username.isEmpty() ? source.connectionOptions.endpoint.phone : source.connectionOptions.credentials.username;
     if (!PresentationHelpers::actionPrompt(parentWidget,tr("Clear authentication cache"),
         tr("Clear the saved sign-in for %1 on %2?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.")
-            .arg(account,source.connectionOptions.endpoint.server))) return;
+            .arg(account,source.connectionOptions.endpoint.server),tr("Clear"))) return;
     if (credentialsPending) cancelPendingCredentials();
     authenticationCache->clear(source).then(this,[this](const CredentialResult &result) {
-        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Authentication cache cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
+        if (!result.succeeded()) PresentationHelpers::showMessage(parentWidget,tr("Authentication cache cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status),PromptDialog::Tone::Warning);
     });
 }
 
@@ -368,7 +369,7 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
 #if defined(Q_OS_MACOS)
         if (PresentationHelpers::actionPrompt(parentWidget,tr("Background access required"),
             tr("Allow JustConnect under Login Items & Extensions, then connect again."),
-            QDialogButtonBox::Open,QDialogButtonBox::Cancel,tr("Open System Settings"))) openMacBackgroundApprovalSettings();
+            tr("Open System Settings"),PresentationHelpers::PromptDialog::Tone::Information)) openMacBackgroundApprovalSettings();
         return;
 #else
         message=tr("Check that JustConnect is allowed to run in the background, then connect again.");
@@ -427,5 +428,5 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
         const QString detail=connectionSession->platformFailureDetail();
         if (!detail.isEmpty()) message+="\n"+detail;
     }
-    QMessageBox::critical(parentWidget, tr("Error"), message);
+    PresentationHelpers::showMessage(parentWidget, tr("Error"), message,PromptDialog::Tone::Critical);
 }

@@ -1,4 +1,3 @@
-#include <QMessageBox>
 #include <QtConcurrentRun>
 #include <QDesktopServices>
 #include <QDebug>
@@ -16,9 +15,9 @@
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
+#include <QScreen>
 #include <QHBoxLayout>
 #include <QHash>
-#include <QDialogButtonBox>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
 #include "presentation/widgets/connectionmenu.h"
@@ -46,6 +45,8 @@
 #include "presentation/presentationhelpers.h"
 #include "ui_mainwindow.h"
 
+using PresentationHelpers::PromptDialog;
+
 namespace {
 QString defaultConnectionLabel(const QSettings &settings)
 {
@@ -59,9 +60,9 @@ std::optional<QString> requestConnectionName(QWidget *parent,const QString &titl
     QDialog dialog(parent);
     dialog.setObjectName("connectionNameDialog");
     dialog.setWindowTitle(title);
-    dialog.setMinimumWidth(320);
+    dialog.setMinimumWidth(qMin(400,dialog.screen()->availableGeometry().width()-32));
     auto *layout=new QVBoxLayout(&dialog);
-    layout->setContentsMargins(20,20,20,20);
+    layout->setContentsMargins(26,24,26,24);
     layout->setSpacing(8);
     auto *label=new QLabel(MainWindow::tr("Connection name"),&dialog);
     label->setObjectName("connectionNameLabel");
@@ -78,11 +79,13 @@ std::optional<QString> requestConnectionName(QWidget *parent,const QString &titl
     layout->addWidget(hint);
     auto *cancel=new QPushButton(MainWindow::tr("Cancel"),&dialog);
     cancel->setObjectName("connectionNameCancel");
+    cancel->setProperty("promptPrimary",false);
     auto *primary=new QPushButton(action,&dialog);
     primary->setObjectName("connectionNamePrimary");
+    primary->setProperty("promptPrimary",true);
     primary->setDefault(true);
     auto *buttons=new QHBoxLayout;
-    buttons->setSpacing(12);
+    buttons->setSpacing(8);
     buttons->addStretch();
     buttons->addWidget(cancel);
     buttons->addWidget(primary);
@@ -141,15 +144,9 @@ MainWindow::MainWindow(
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
             {
-                QMessageBox msgBox(this);
-                msgBox.setWindowTitle(tr("Update available"));
-                msgBox.setTextFormat(Qt::PlainText);
-                msgBox.setText(tr("Version %1 is available.").arg(latestVersion));
-                msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-                msgBox.button(QMessageBox::Ok)->setText(tr("Open page"));
-                msgBox.setDefaultButton(QMessageBox::Ok);
-
-                if (msgBox.exec() == QMessageBox::Ok)
+                if (PresentationHelpers::actionPrompt(this,tr("Update available"),
+                    tr("Version %1 is available. You’re using %2.").arg(latestVersion,QApplication::applicationVersion()),
+                    tr("Open release page"),PresentationHelpers::PromptDialog::Tone::Update))
                 {
                     QDesktopServices::openUrl(
                         QUrl(
@@ -215,13 +212,13 @@ MainWindow::MainWindow(
 
     connect(ui->clearClientDataAction,&QAction::triggered,this,[this] {
         if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving()) {
-            QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before clearing legacy data."));return;
+            PresentationHelpers::showMessage(this,tr("Secure storage is busy"),tr("Wait for the current operation before clearing legacy data."));return;
         }
         const auto source=coordinator->credentialSource();
         if (!PresentationHelpers::actionPrompt(this,tr("Clear legacy data"),
-            tr("Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept."))) return;
+            tr("Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept."),tr("Clear"))) return;
         coordinator->credentials()->clearLegacyCache(source).then(this,[this](const CredentialResult &result) {
-            if (!result.succeeded()) QMessageBox::warning(this,tr("Legacy data cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
+            if (!result.succeeded()) PresentationHelpers::showMessage(this,tr("Legacy data cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status),PromptDialog::Tone::Warning);
             else qInfo().noquote()<<tr("Legacy data cleared for the current connection");
         });
     });
@@ -282,11 +279,11 @@ MainWindow::MainWindow(
             << "credential_work" << coordinator->credentials()->isBusy();
         if (property("systemShutdown").toBool()) return;
         PresentationHelpers::activateWindow(this);
-        auto *message=new QMessageBox(QMessageBox::Warning,tr("Exit incomplete"),
+        auto *message=new PresentationHelpers::PromptDialog(this,tr("Exit incomplete"),
             tr("Cleanup failed or timed out. New connections and reconnection are stopped. Check network recovery and retry Exit. The application remains available while the core or storage work is still running."),
-            QMessageBox::Retry|QMessageBox::Cancel,this);
+            PresentationHelpers::PromptDialog::Tone::Warning,tr("Retry"),true);
         message->setAttribute(Qt::WA_DeleteOnClose);
-        connect(message,&QMessageBox::finished,this,[this](int result){if(result==QMessageBox::Retry) gracefullyQuit();});
+        connect(message,&QDialog::accepted,this,&MainWindow::gracefullyQuit);
         message->open();
     });
 
@@ -358,7 +355,7 @@ void MainWindow::showApplicationPreferences()
 
 void MainWindow::showConnectionSettings() {
     if (connectionUiController->isConfigurationSaving()) {
-        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save to finish."));return;
+        PresentationHelpers::showMessage(this,tr("Saving connection"),tr("Wait for the save to finish."));return;
     }
     if (!settingWindow) {
         if (!connectionSession->isActive()) connectionUiController->cancelPendingCredentials();
@@ -630,10 +627,10 @@ void MainWindow::setupConnectionMenu()
                         return;
                     }
                     popup->hide();
-                    QMessageBox::warning(this,tr("Could not import the Clash script"),
+                    PresentationHelpers::showMessage(this,tr("Could not import the Clash script"),
                         result==ClashExtension::ImportResult::Conflict
                             ? tr("The global script changed or its format could not be read. Reopen it in Clash Verge Rev before trying again.")
-                            : tr("Could not save the global script or its backup. You can copy the script and add it in Clash Verge Rev."));
+                            : tr("Could not save the global script or its backup. You can copy the script and add it in Clash Verge Rev."),PromptDialog::Tone::Warning);
                 });
             });
         });
@@ -711,13 +708,13 @@ bool MainWindow::switchConnection(const QString &connectionId)
 
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, tr("Could not switch connection"), tr("Disconnect before switching connections."));
+        PresentationHelpers::showMessage(this, tr("Could not switch connection"), tr("Disconnect before switching connections."),PromptDialog::Tone::Warning);
         refreshConnectionMenu();
         return false;
     }
 
     if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
-        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before switching connections."));refreshConnectionMenu();return false;
+        PresentationHelpers::showMessage(this,tr("Saving connection"),tr("Wait for the save before switching connections."));refreshConnectionMenu();return false;
     }
     if (settingWindow != nullptr)
     {
@@ -726,7 +723,7 @@ bool MainWindow::switchConnection(const QString &connectionId)
 
     if (!savedConnections->switchTo(connectionId))
     {
-        QMessageBox::warning(this,tr("Could not switch connection"),tr("Could not save the current connection or read the selected connection. Check the file permissions and contents."));
+        PresentationHelpers::showMessage(this,tr("Could not switch connection"),tr("Could not save the current connection or read the selected connection. Check the file permissions and contents."),PromptDialog::Tone::Warning);
         refreshConnectionMenu();
         return false;
     }
@@ -745,11 +742,11 @@ bool MainWindow::switchConnection(const QString &connectionId)
 void MainWindow::createConnection()
 {
     if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
-        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before adding a connection."));return;
+        PresentationHelpers::showMessage(this,tr("Saving connection"),tr("Wait for the save before adding a connection."));return;
     }
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, tr("Could not add connection"), tr("Disconnect before adding a connection."));
+        PresentationHelpers::showMessage(this, tr("Could not add connection"), tr("Disconnect before adding a connection."),PromptDialog::Tone::Warning);
         return;
     }
 
@@ -762,14 +759,14 @@ void MainWindow::createConnection()
     const auto draft=std::make_shared<QTemporaryDir>();
     if (!draft->isValid())
     {
-        QMessageBox::critical(this, tr("Could not add connection"), tr("The new connection could not be created."));
+        PresentationHelpers::showMessage(this, tr("Could not add connection"), tr("The new connection could not be created."),PromptDialog::Tone::Critical);
         return;
     }
     QSettings draftSettings(draft->filePath("connection.ini"),QSettings::IniFormat);
     DefaultSettings::reset(draftSettings);
     const auto source=CredentialAccess::source(draftSettings,{});
     if (source.scope.isEmpty()) {
-        QMessageBox::critical(this,tr("Could not add connection"),tr("The new connection could not be created."));
+        PresentationHelpers::showMessage(this,tr("Could not add connection"),tr("The new connection could not be created."),PromptDialog::Tone::Critical);
         return;
     }
     if (settingWindow) settingWindow->close();
@@ -792,7 +789,7 @@ void MainWindow::createConnection()
 void MainWindow::renameCurrentConnection()
 {
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
-        QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
+        PresentationHelpers::showMessage(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
     const auto name=requestConnectionName(this,tr("Rename connection…"),tr("Rename"),currentConnectionId);
     if (!name)
@@ -803,7 +800,7 @@ void MainWindow::renameCurrentConnection()
     const QString normalizedName = savedConnections->normalizeConnectionId(*name);
     if (normalizedName.isEmpty())
     {
-        QMessageBox::warning(this, tr("Could not rename connection"), tr("The connection name cannot be empty."));
+        PresentationHelpers::showMessage(this, tr("Could not rename connection"), tr("The connection name cannot be empty."),PromptDialog::Tone::Warning);
         return;
     }
     if (normalizedName == currentConnectionId)
@@ -812,7 +809,7 @@ void MainWindow::renameCurrentConnection()
     }
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, tr("Could not rename connection"), tr("Disconnect before renaming a connection."));
+        PresentationHelpers::showMessage(this, tr("Could not rename connection"), tr("Disconnect before renaming a connection."),PromptDialog::Tone::Warning);
         return;
     }
 
@@ -824,8 +821,8 @@ void MainWindow::renameCurrentConnection()
     const auto source=coordinator->credentialSource();
     coordinator->credentials()->migrate(source).then(this,[this,source,normalizedName](const CredentialResult &result) {
         if (!CredentialAccess::matches(source,*settings)) return;
-        if (!result.succeeded()) {QMessageBox::warning(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or add a new connection."));return;}
-        if (!savedConnections->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename connection"),tr("The name is already in use or the connection cannot be renamed."));return;}
+        if (!result.succeeded()) {PresentationHelpers::showMessage(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or add a new connection."),PromptDialog::Tone::Warning);return;}
+        if (!savedConnections->renameCurrent(normalizedName)) {PresentationHelpers::showMessage(this,tr("Could not rename connection"),tr("The name is already in use or the connection cannot be renamed."),PromptDialog::Tone::Warning);return;}
         currentConnectionId=savedConnections->currentConnectionId();settings=savedConnections->settings();
         updateConnectionSummary();refreshConnectionMenu();resetConnectionLog();qInfo().noquote()<<tr("Connection renamed to: ")+currentConnectionId;
     });
@@ -833,25 +830,25 @@ void MainWindow::renameCurrentConnection()
 
 void MainWindow::deleteCurrentConnection()
 {
-    if (savedConnections->usesOverrideConfiguration()) {QMessageBox::warning(this,tr("Could not delete connection"),tr("External connections cannot be deleted here."));return;}
+    if (savedConnections->usesOverrideConfiguration()) {PresentationHelpers::showMessage(this,tr("Could not delete connection"),tr("External connections cannot be deleted here."),PromptDialog::Tone::Warning);return;}
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
-        QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before deleting the connection."));return;
+        PresentationHelpers::showMessage(this,tr("Secure storage is busy"),tr("Wait for the current operation before deleting the connection."));return;
     }
     if (currentConnectionId.isEmpty())
     {
-        QMessageBox::warning(this, tr("Could not delete connection"), tr("The primary connection cannot be deleted."));
+        PresentationHelpers::showMessage(this, tr("Could not delete connection"), tr("The primary connection cannot be deleted."),PromptDialog::Tone::Warning);
         return;
     }
 
     if (!PresentationHelpers::actionPrompt(this,tr("Delete connection"),
         tr("Delete “%1”?").arg(currentConnectionId) + "\n\n" +
         tr("This removes its settings and old cache. Clear saved credentials and sign-ins first if you want them removed too."),
-        QDialogButtonBox::Yes,QDialogButtonBox::Cancel,tr("Delete"))) return;
+        tr("Delete"))) return;
 
     const QString removedConnectionId = currentConnectionId;
     if (connectionSession != nullptr && connectionSession->isActive())
     {
-        QMessageBox::warning(this, tr("Could not delete connection"), tr("Disconnect before deleting a connection."));
+        PresentationHelpers::showMessage(this, tr("Could not delete connection"), tr("Disconnect before deleting a connection."),PromptDialog::Tone::Warning);
         return;
     }
     if (settingWindow != nullptr)
@@ -861,11 +858,11 @@ void MainWindow::deleteCurrentConnection()
     connectionUiController->cancelPendingCredentials();
     const auto legacy=coordinator->credentialSource().legacyCachePath;
     if (!legacy.isEmpty() && QFileInfo::exists(legacy) && !QFile::remove(legacy)) {
-        QMessageBox::warning(this,tr("Delete incomplete"),tr("The legacy cache could not be removed. The connection was preserved. Check access permissions and retry."));return;
+        PresentationHelpers::showMessage(this,tr("Delete incomplete"),tr("The legacy cache could not be removed. The connection was preserved. Check access permissions and retry."),PromptDialog::Tone::Warning);return;
     }
     if (!savedConnections->removeCurrentAndSwitchToDefault())
     {
-        QMessageBox::warning(this, tr("Could not delete connection"), tr("The connection settings file could not be deleted."));
+        PresentationHelpers::showMessage(this, tr("Could not delete connection"), tr("The connection settings file could not be deleted."),PromptDialog::Tone::Warning);
         return;
     }
 
@@ -885,13 +882,13 @@ void MainWindow::upgradeSettings()
     if (action == SettingsMigrationAction::MigrateAutoStart)
     {
         if (!savedConnections->migrateAutoStartSetting(settings->value("Common/AutoStart", false).toBool())) {
-            QMessageBox::warning(this, tr("Startup preference migration failed"), tr("The previous startup preference could not be saved. The old configuration is preserved for retry."));
+            PresentationHelpers::showMessage(this, tr("Startup preference migration failed"), tr("The previous startup preference could not be saved. The old configuration is preserved for retry."),PromptDialog::Tone::Warning);
             return;
         }
     }
     if (action == SettingsMigrationAction::Failed || !SettingsMigrator::finish(*settings))
     {
-        QMessageBox::warning(this, tr("Connection settings migration incomplete"), tr("The upgraded connection settings could not be saved. The previous settings were kept for retry."));
+        PresentationHelpers::showMessage(this, tr("Connection settings migration incomplete"), tr("The upgraded connection settings could not be saved. The previous settings were kept for retry."),PromptDialog::Tone::Warning);
     }
 }
 
@@ -911,8 +908,9 @@ void MainWindow::updateVersionInfo()
 void MainWindow::showNotification(const QString &title, const QString &content, QSystemTrayIcon::MessageIcon icon)
 {
     if(!QSystemTrayIcon::isSystemTrayAvailable() || !QSystemTrayIcon::supportsMessages()){
-        auto *notice=new QMessageBox(icon==QSystemTrayIcon::Warning?QMessageBox::Warning:QMessageBox::Information,
-            title,content,QMessageBox::Ok,this);
+        const auto tone = icon==QSystemTrayIcon::Warning ? PresentationHelpers::PromptDialog::Tone::Warning
+                                                       : PresentationHelpers::PromptDialog::Tone::Information;
+        auto *notice=new PresentationHelpers::PromptDialog(this,title,content,tone);
         notice->setAttribute(Qt::WA_DeleteOnClose);notice->setWindowModality(Qt::NonModal);notice->show();return;
     }
     disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
