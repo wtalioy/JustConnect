@@ -88,6 +88,8 @@ static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QSt
             && cancel->isDefault()!=update && action->isDefault()==update && !cancel->property("promptPrimary").toBool(),
             "Cancel precedes the primary button and remains the keyboard default for confirmations");
         else check(action->isDefault() && action->text()=="OK","a notice has one default acknowledgment");
+        check(dialog->focusWidget()==heading,"the prompt opens without a button focus outline");
+        UiWait::until(__FILE__,__LINE__,[&]{return heading->hasFocus();});
         const auto fill = [](QPushButton *button) {
             const auto pixels = button->grab().toImage();
             return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
@@ -111,11 +113,18 @@ static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QSt
         }
         const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
         if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath(reportName)),"save styled prompt screenshot");
+        if (cancel && tone==PromptDialog::Tone::Question) {
+            QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);
+            QApplication::sendEvent(heading,&tab);
+            check(dialog->focusWidget()==cancel,"Tab first reaches Cancel in a destructive prompt");
+            QApplication::sendEvent(cancel,&tab);
+            check(dialog->focusWidget()==action,"Tab then reaches the destructive action");
+        }
         observed=true;
         if (tone==PromptDialog::Tone::Information && cancel) action->click();
         else {
             QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-            QCoreApplication::sendEvent(dialog,&enter);
+            QCoreApplication::sendEvent(dialog->focusWidget(),&enter);
         }
     });
     if (label.isEmpty()) PresentationHelpers::showMessage(&parent,title,body,tone);
@@ -287,6 +296,9 @@ int main(int argc,char **argv) {
     actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear authentication cache",
         "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
         "Clear","cache-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear legacy data",
+        "Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept.",
+        "Clear","legacy-data-prompt.png");
     actionPromptLayout(promptParent,PromptDialog::Tone::Information,"Background access required",
         "Allow JustConnect under Login Items & Extensions, then connect again.",
         "Open System Settings","background-prompt.png");

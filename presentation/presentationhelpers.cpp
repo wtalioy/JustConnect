@@ -102,7 +102,10 @@ PresentationHelpers::PromptDialog::PromptDialog(QWidget *parent,const QString &t
     connect(primary,&QPushButton::clicked,this,&QDialog::accept);
     auto *defaultButton = dismiss && tone!=Tone::Update ? dismiss : primary;
     defaultButton->setDefault(true);
-    defaultButton->setFocus(Qt::OtherFocusReason);
+    // Keep the initial focus ring off the buttons until the user navigates to one.
+    heading->setFocusPolicy(Qt::ClickFocus);
+    if (dismiss) setTabOrder({heading,dismiss,primary});
+    heading->setFocus(Qt::OtherFocusReason);
     layout->addLayout(buttons);
     ensurePolished();
     setContent(title,body,primaryText);
