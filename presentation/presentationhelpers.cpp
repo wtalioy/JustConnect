@@ -122,7 +122,8 @@ void PresentationHelpers::PromptDialog::setContent(const QString &title,const QS
             ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
     }
     layout()->invalidate();
-    setFixedHeight(layout()->totalHeightForWidth(width()));
+    const auto height=layout()->totalHeightForWidth(width());
+    setFixedHeight(height>=0 ? height : layout()->totalSizeHint().height());
 }
 
 QString PresentationHelpers::PromptDialog::text() const

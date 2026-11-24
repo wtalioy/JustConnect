@@ -1244,9 +1244,17 @@ static void gateway(const QJsonObject &config) {
     until([&]{return resourceSnapshots==1;});
     check(resourceStatus==CoreEngine::RequestStatus::Pending,"Qt distinguishes resources pending authentication from missing capability");
     enterCode(parent, "fixture-code");
-    until([&] {for (auto *dialog:parent.findChildren<QDialog *>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox *>() && !dialog->findChild<QLineEdit *>("authCodeEdit"))return true;return false;});
+    PromptDialog *devicePrompt=nullptr;
+    until([&] {
+        for (auto *dialog : parent.findChildren<PromptDialog *>()) {
+            if (!dialog->isVisible() || dialog->tone()!=PromptDialog::Tone::Question) continue;
+            devicePrompt=dialog;
+            return true;
+        }
+        return false;
+    });
     check(responses==1 && session.state()==ConnectionState::Starting,"device registration waits for a second explicit UI action");
-    challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    devicePrompt->primaryButton()->click();
     until([&] { return session.state() == ConnectionState::Running; });
     until([&]{return resourceSnapshots==2 && networkSnapshots==1 && networkPolicy.status()==CoreEngine::RequestStatus::Success;});
     check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
