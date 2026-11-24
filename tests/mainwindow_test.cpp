@@ -974,8 +974,8 @@ int main(int argc,char **argv) {
             check(hasUntitledNativeHomeFrame(window),"the macOS home hides the caption and keeps its title and native controls");
 #endif
             nativeHome(window, logger);
-            updatePromptUsesTheSharedLayout(window);
             languagePreferences(window);
+            updatePromptUsesTheSharedLayout(window);
             profileMenusKeepTheirActions(window,menuProfile);
         }
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
