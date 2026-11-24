@@ -121,10 +121,16 @@ int main(int argc,char **argv) {
         "importing the same connection twice leaves identical script bytes");
     auto changedSnapshot = snapshot;
     changedSnapshot["listeners"] = QJsonObject{{"socks", "127.0.0.1:32084"}};
-    check(ClashExtension::importScript(globalScript,local,"Fudan",changedSnapshot)==ImportResult::Saved,"refresh the imported SOCKS port");
+    auto dnsPermissions = snapshot["domain_dns_permissions"].toObject();
+    dnsPermissions["late.example.edu"] = dnsPermissions["alias.example.edu"];
+    changedSnapshot["domain_dns_permissions"] = dnsPermissions;
+    check(ClashExtension::importScript(globalScript,local,"Fudan",changedSnapshot)==ImportResult::Saved,"refresh the imported SOCKS port and DNS grants");
     const auto updatedImport = read(globalScript);
     check(updatedImport.contains("32084") && !updatedImport.contains("32081") && read(globalScript+".justconnect.bak")==original,
         "refresh replaces only the managed rules and retains the original backup");
+    const auto lateRule = "(NETWORK,TCP),(DST-PORT,8443),(DOMAIN,late.example.edu)";
+    check(updatedImport.contains(lateRule) && ClashExtension::script(local,"Fudan",changedSnapshot).contains(lateRule),
+        "a newly resolved DNS grant reaches both copy and import with the same limits");
 
     const auto node=QStandardPaths::findExecutable("node");
     if (!node.isEmpty()) {

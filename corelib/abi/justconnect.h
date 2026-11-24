@@ -61,6 +61,7 @@ JC_API int32_t jc_session_prepare_original_dns(uint64_t handle, const uint8_t *s
 /* Read parsed campus resources for the requested active generation.
  * Local proxy sessions expose the SOCKS listener and exportable grants only.
  * domain_dns_permissions contains exact names derived from authorized IPv4 DNS answers.
+ * A local-proxy snapshot may perform a bounded DNS lookup while the session is active.
  */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Borrow a validated, nonblocking macOS utun fd for the ready generation.

@@ -59,7 +59,7 @@ type Resources struct {
 	IPs                           []client.IPResource
 	PrivateIPRanges               [][2]netip.Addr
 	Domains                       client.DomainResources
-	DomainDNSPermissions          client.DomainResources
+	LoadDomainDNSPermissions      func(context.Context) client.DomainResources
 	DNSRecords                    map[string][]net.IP
 	CampusDNS                     string
 	CampusDNSEnabled              bool
@@ -307,8 +307,10 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if observer.Resources != nil && options.LocalProxy {
 		scoped, _ := dialer.CaptureIPResources()
 		scoped = appendProxyExportTargets(scoped, dialer, options.ProxyExportTargets)
-		permissions := proxyExportDomainDNS(ctx, resolver, ips, dialer.OriginalAuthentication.Address)
-		observer.Resources(Resources{IPs: scoped, Domains: domains, DomainDNSPermissions: permissions,
+		observer.Resources(Resources{IPs: scoped, Domains: domains,
+			LoadDomainDNSPermissions: func(ctx context.Context) client.DomainResources {
+				return proxyExportDomainDNS(ctx, resolver, ips, dialer.OriginalAuthentication.Address)
+			},
 			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address, Listeners: listeners.Addresses()})
 	} else if observer.Resources != nil {
 		var domainDNSNames []string

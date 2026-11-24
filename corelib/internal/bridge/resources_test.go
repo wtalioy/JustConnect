@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wtalioy/JustConnect/corelib"
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -21,6 +22,41 @@ func readResourceBytes(e *Engine, handle, generation uint64) ([]byte, Status) {
 		return nil, status
 	}
 	return buffer[:length], OK
+}
+
+func TestLocalProxyExportIsCancelledOnStop(t *testing.T) {
+	available := make(chan Status, 1)
+	resolving := make(chan struct{})
+	e := New(func(ctx context.Context, _ Config, s *Session) Status {
+		available <- s.setResources(corelib.Resources{LoadDomainDNSPermissions: func(ctx context.Context) client.DomainResources {
+			close(resolving)
+			<-ctx.Done()
+			return client.DomainResources{"alias.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}
+		}})
+		<-ctx.Done()
+		return Cancelled
+	})
+	h := create(t, e)
+	g, status := e.Start(h, []byte(configJSON))
+	if status != OK || <-available != OK {
+		t.Fatal("start local export fixture", status)
+	}
+	result := make(chan Status, 1)
+	go func() {
+		_, status := readResourceBytes(e, h, g)
+		result <- status
+	}()
+	select {
+	case <-resolving:
+	case <-time.After(time.Second):
+		t.Fatal("resource read did not start DNS")
+	}
+	if status := e.Stop(h, 1000); status != OK {
+		t.Fatal("stop must cancel the in-flight DNS lookup", status)
+	}
+	if status := <-result; status != StaleRequest {
+		t.Fatal("a stopped generation returned DNS grants", status)
+	}
 }
 
 func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {

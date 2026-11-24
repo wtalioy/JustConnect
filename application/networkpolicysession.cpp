@@ -27,6 +27,10 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
     connect(engine, &CoreEngine::connectionEstablished, this, [this] {
         if (generation.isEmpty() || transportReady) return;
         transportReady = true;
+        if (localProxy) {
+            emit changed();
+            return;
+        }
         resourcesPending = true;
         this->engine->readSnapshot(CoreEngine::Snapshot::Resources, generation);
     });
@@ -38,6 +42,12 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
             auto &pending = isNetwork ? networkPending : resourcesPending;
             if (!pending) return;
             pending = false;
+            if (localProxy) {
+                auto complete = std::exchange(localProxySnapshot, {});
+                emit changed();
+                if (complete && id == generation && status == Status::Success) complete(data["resources"].toObject());
+                return;
+            }
             auto &resultStatus = isNetwork ? networkStatus : resourceStatus;
             auto &result = isNetwork ? network : resources;
             resultStatus = status;
@@ -50,8 +60,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
                     if (isNetwork) networkVersion = data["schema_version"];
                 }
             }
-            if (localProxy) emit changed();
-            else publish();
+            publish();
         });
     connect(engine, &CoreEngine::policyUpdated, this,
         [this](const QString &id, const QString &appliedRevision, Status status) {
@@ -74,6 +83,15 @@ NetworkPolicySession::~NetworkPolicySession()
     watcher.waitForFinished();
 }
 
+void NetworkPolicySession::readLocalProxyResources(std::function<void(const QJsonObject &)> complete)
+{
+    if (!canReadLocalProxyResources()) return;
+    localProxySnapshot = std::move(complete);
+    resourcesPending = true;
+    emit changed();
+    engine->readSnapshot(CoreEngine::Snapshot::Resources, generation);
+}
+
 void NetworkPolicySession::begin(const QString &id, bool proxyOnly)
 {
     clear();
@@ -88,6 +106,7 @@ void NetworkPolicySession::clear()
     ++serial;
     generation.clear();
     localProxy = false;
+    localProxySnapshot = {};
     resourceStatus = Status::Pending;
     transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
     originalViewFilter = {};

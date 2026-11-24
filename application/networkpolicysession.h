@@ -43,7 +43,8 @@ public:
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject confirmedProtection() const { return confirmedPolicy; }
     QJsonObject model() const { return currentStatus == CoreEngine::RequestStatus::Success ? lastModel : QJsonObject{}; }
-    QJsonObject localProxyResources() const { return localProxy && resourceStatus == CoreEngine::RequestStatus::Success ? resources : QJsonObject{}; }
+    bool canReadLocalProxyResources() const { return engine && localProxy && transportReady && !resourcesPending; }
+    void readLocalProxyResources(std::function<void(const QJsonObject &)> complete);
     // Names the read or projection behind a non-Success status, for failure diagnostics.
     QString failureDetail() const;
 signals:
@@ -67,6 +68,7 @@ private:
     quint64 workerSerial = 0;
     bool workerBusy = false, networkPending = false, resourcesPending = false, transportReady = false;
     bool localProxy = false;
+    std::function<void(const QJsonObject &)> localProxySnapshot;
     CoreEngine::RequestStatus networkStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus resourceStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus modelStatus = CoreEngine::RequestStatus::Pending;

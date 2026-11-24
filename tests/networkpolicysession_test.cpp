@@ -297,18 +297,27 @@ int main(int argc, char **argv) try
         Engine core;
         NetworkPolicySession proxy(&core, {}, nullptr, [] { return false; });
         emit core.sessionStarted("local");
-        check(core.requests.isEmpty() && proxy.localProxyResources().isEmpty() && !proxy.refresh(),
+        check(core.requests.isEmpty() && !proxy.canReadLocalProxyResources() && !proxy.refresh(),
               "Local proxy does not read or refresh system network state");
         emit core.connectionEstablished();
-        check(core.requests.size()==1 && core.requests.first()==std::make_pair(Kind::Resources,QString("local")),
-              "Ready local proxy reads only the active generation's grants");
+        check(core.requests.isEmpty() && proxy.canReadLocalProxyResources(), "Readiness does not resolve export DNS");
+        int completed = 0;
+        const auto read = [&](const QJsonObject &snapshot) {
+            check(snapshot==resources("192.0.2.11")["resources"].toObject(), "Export receives the requested generation's grants");
+            ++completed;
+        };
+        proxy.readLocalProxyResources(read);
+        proxy.readLocalProxyResources(read);
+        check(core.requests.size()==1 && !proxy.canReadLocalProxyResources()
+              && core.requests.first()==std::make_pair(Kind::Resources,QString("local")), "Export reads the active generation once");
         emit core.snapshotReady(Kind::Resources,"previous",resources("192.0.2.10"),Status::Success);
-        check(proxy.localProxyResources().isEmpty(),"A stale snapshot cannot enable export");
+        check(completed==0 && !proxy.canReadLocalProxyResources(), "A stale snapshot cannot complete export");
         emit core.snapshotReady(Kind::Resources,"local",resources("192.0.2.11"),Status::Success);
-        check(!proxy.localProxyResources().isEmpty() && proxy.model().isEmpty(),"Local grants never form a system capture model");
+        check(completed==1 && proxy.canReadLocalProxyResources() && proxy.model().isEmpty(), "Local grants never form a system capture model");
+        proxy.readLocalProxyResources(read);
         proxy.clear();
         emit core.snapshotReady(Kind::Resources,"local",resources("192.0.2.12"),Status::Success);
-        check(proxy.localProxyResources().isEmpty(),"Disconnect discards local export grants");
+        check(completed==1 && !proxy.canReadLocalProxyResources(), "Disconnect cancels an outstanding export");
     }
     coordinatedPolicyRequiresBothConfirmations();
     withdrawalWaitsForCurrentOwnedView();

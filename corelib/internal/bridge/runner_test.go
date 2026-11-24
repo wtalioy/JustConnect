@@ -78,6 +78,16 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	if ready.State != "ready" {
 		t.Fatal(ready)
 	}
+	if count := g.dnsUDPPackets.Load(); count != 0 {
+		t.Fatalf("local proxy readiness must not wait for export DNS, got %d queries", count)
+	}
+	g.exportDNS.Store(false) // The gateway has granted the IP but its DNS is temporarily empty.
+	first, status := readResourceBytes(e, h, ready.Generation)
+	var initial resourcesEnvelope
+	if status != OK || json.Unmarshal(first, &initial) != nil || len(initial.Resources.DomainDNSPermissions) != 0 {
+		t.Fatal("an unavailable DNS answer must not create an export grant", status, initial.Resources.DomainDNSPermissions)
+	}
+	g.exportDNS.Store(true)
 	data, status := readResourceBytes(e, h, ready.Generation)
 	var snapshot resourcesEnvelope
 	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
@@ -93,8 +103,11 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 		permissions[1] != (resourcePermission{Protocol: "udp", PortMin: 1053, PortMax: 1053}) {
 		t.Fatal("DNS aliases must inherit only the exact port and protocol grants for their answer", aliases)
 	}
-	if count := g.dnsUDPPackets.Load(); count != 2 {
+	if count := g.dnsUDPPackets.Load(); count != 4 {
 		t.Fatalf("expected DNS queries only for names without gateway domain grants, got %d: %v", count, g.observedDNSQuestions())
+	}
+	if cached, status := readResourceBytes(e, h, ready.Generation); status != OK || !bytes.Equal(cached, data) || g.dnsUDPPackets.Load() != 4 {
+		t.Fatal("a second export must reuse current successful DNS answers", status, g.observedDNSQuestions())
 	}
 	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
 	if err != nil {
@@ -108,7 +121,7 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	}
 	defer connection.Close()
 	echo(t, connection)
-	if count := g.dnsUDPPackets.Load(); count != 3 {
+	if count := g.dnsUDPPackets.Load(); count != 5 {
 		t.Fatalf("expected the first SOCKS request to use the configured DNS, got %d queries: %v", count, g.observedDNSQuestions())
 	}
 	for _, denied := range []string{c.Listeners.SOCKS, "192.0.2.99:80"} {
