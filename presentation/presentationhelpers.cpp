@@ -10,6 +10,7 @@
 #include <QDialog>
 #include <QLabel>
 #include <QLocale>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScreen>
 #include <QVBoxLayout>
@@ -145,6 +146,71 @@ void PresentationHelpers::showMessage(QWidget *parent,const QString &title,const
 {
     PromptDialog dialog(parent,title,body,tone);
     dialog.exec();
+}
+
+PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
+    : QDialog(parent), heading(new QLabel(tr("Downloading update"),this)),
+      status(new QLabel(this)), progress(new QProgressBar(this)), cancel(new QPushButton(tr("Cancel"),this))
+{
+    setWindowTitle(QApplication::applicationDisplayName());
+    setAccessibleName(heading->text());
+    setWindowFlag(Qt::WindowContextHelpButtonHint,false);
+    setWindowFlag(Qt::WindowCloseButtonHint,false);
+    setFixedWidth(qMin(472,screen()->availableGeometry().width()-32));
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(24,22,24,22);
+    layout->setSpacing(8);
+    heading->setObjectName("promptHeading");
+    heading->setFocusPolicy(Qt::ClickFocus);
+    heading->setFocus(Qt::OtherFocusReason);
+    layout->addWidget(heading);
+    auto *description = new QLabel(tr("JustConnect will restart when installation finishes."),this);
+    description->setObjectName("promptBody");
+    description->setWordWrap(true);
+    layout->addWidget(description);
+
+    progress->setObjectName("updateProgress");
+    progress->setAccessibleName(heading->text());
+    progress->setTextVisible(false);
+    progress->setFixedHeight(8);
+    status->setObjectName("updateProgressStatus");
+    status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    status->setText(tr("Preparing…"));
+    status->setMinimumWidth(status->sizeHint().width());
+    auto *row = new QHBoxLayout;
+    row->setSpacing(12);
+    row->addWidget(progress,1);
+    row->addWidget(status);
+    layout->addSpacing(8);
+    layout->addLayout(row);
+
+    cancel->setProperty("promptPrimary",false);
+    cancel->setAutoDefault(false);
+    connect(cancel,&QPushButton::clicked,this,&UpdateProgressDialog::reject);
+    layout->addWidget(cancel,0,Qt::AlignRight);
+    setDownloadProgress(0);
+}
+
+void PresentationHelpers::UpdateProgressDialog::setDownloadProgress(int percentage)
+{
+    progress->setValue(percentage);
+    status->setText(progress->text());
+}
+
+void PresentationHelpers::UpdateProgressDialog::prepareToInstall()
+{
+    heading->setText(tr("Installing update"));
+    setAccessibleName(heading->text());
+    progress->setAccessibleName(heading->text());
+    progress->setRange(0,0);
+    status->setText(tr("Preparing…"));
+    cancel->hide();
+    adjustSize();
+}
+
+void PresentationHelpers::UpdateProgressDialog::reject()
+{
+    if (!cancel->isHidden()) QDialog::reject();
 }
 
 bool PresentationHelpers::setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows)

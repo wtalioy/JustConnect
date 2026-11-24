@@ -15,6 +15,7 @@ class QAction;
 class QAbstractButton;
 class QBoxLayout;
 class QLabel;
+class QProgressBar;
 class QPushButton;
 class QTreeWidget;
 
@@ -38,6 +39,21 @@ private:
     QPushButton *primary;
     QPushButton *dismiss = nullptr;
     QBoxLayout *buttons;
+};
+
+class UpdateProgressDialog : public QDialog {
+    Q_OBJECT
+public:
+    explicit UpdateProgressDialog(QWidget *parent);
+    void setDownloadProgress(int percentage);
+    void prepareToInstall();
+    void reject() override;
+
+private:
+    QLabel *heading;
+    QLabel *status;
+    QProgressBar *progress;
+    QPushButton *cancel;
 };
 
 QString credentialOperationMessage(CredentialStatus status);

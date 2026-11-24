@@ -14,7 +14,6 @@
 #include <QStyle>
 #include <QTimer>
 #include <QPushButton>
-#include <QProgressDialog>
 #include <QLabel>
 #include <QScreen>
 #include <QHBoxLayout>
@@ -323,26 +322,23 @@ MainWindow::MainWindow(
 void MainWindow::installUpdate()
 {
     if (!updateChecker->canInstall()) return;
-    auto *progress=new QProgressDialog(tr("Downloading the update…"),tr("Cancel"),0,100,this);
-    progress->setWindowTitle(tr("Install update"));
-    progress->setMinimumWidth(360);
+    auto *progress=new PresentationHelpers::UpdateProgressDialog(this);
     progress->setAttribute(Qt::WA_DeleteOnClose);
-    progress->setAutoClose(false);
-    progress->setAutoReset(false);
-    connect(progress,&QProgressDialog::canceled,updateChecker,&UpdateChecker::cancelDownload);
+    connect(progress,&QDialog::rejected,updateChecker,&UpdateChecker::cancelDownload);
     connect(updateChecker,&UpdateChecker::updateProgress,progress,[progress](qint64 received,qint64 total) {
-        progress->setValue(int(received*100/total));
+        progress->setDownloadProgress(int(received*100/total));
     });
     connect(updateChecker,&UpdateChecker::updateDownloaded,progress,[this,progress] {
-        progress->close();
+        progress->prepareToInstall();
+        connect(connectionUiController,&ConnectionUiController::quitFailed,progress,&QDialog::accept);
         gracefullyQuit();
     });
     connect(updateChecker,&UpdateChecker::updateDownloadFailed,progress,[this,progress] {
-        progress->close();
+        progress->accept();
         PresentationHelpers::showMessage(this,tr("Update download failed"),
             tr("The download could not be completed or verified. Check for updates to try again."),PromptDialog::Tone::Warning);
     });
-    progress->show();
+    progress->open();
     updateChecker->download();
 }
 

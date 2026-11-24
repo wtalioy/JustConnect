@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QMainWindow>
 #include <QScreen>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QToolButton>
 #include <QMouseEvent>
@@ -131,6 +132,42 @@ static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QSt
     else check(PresentationHelpers::actionPrompt(&parent,title,body,label,tone)==(tone!=PromptDialog::Tone::Question),
         "Return cancels a destructive action, while the update and settings actions accept");
     check(observed,"the prompt was exercised");
+}
+
+static void updateProgressLayout(QWidget &parent)
+{
+    PresentationHelpers::UpdateProgressDialog dialog(&parent);
+    auto *progress=dialog.findChild<QProgressBar *>();
+    auto *cancel=dialog.findChild<QPushButton *>();
+    auto *heading=dialog.findChild<QLabel *>("promptHeading");
+    auto *status=dialog.findChild<QLabel *>("updateProgressStatus");
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    dialog.open();
+    dialog.setDownloadProgress(37);
+    QCoreApplication::processEvents();
+    const auto track=progress->grab().toImage();
+    const auto filled=track.pixelColor(track.width()/4,track.height()/2);
+    const auto empty=track.pixelColor(track.width()*3/4,track.height()/2);
+    const auto trackWidth=progress->width();
+    check(progress->value()==37 && progress->height()==8 && filled.blue()>filled.red()+60 && empty.red()>210
+        && status->text()==progress->text() && !status->text().isEmpty()
+        && dialog.rect().contains(progress->geometry()) && cancel->isVisible(),
+        "download progress renders as a thin accent track with a cancel action");
+    if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-downloading.png")),"save download progress screenshot");
+    cancel->click();
+    check(!dialog.isVisible() && dialog.result()==QDialog::Rejected,"Cancel closes the download and signals rejection");
+
+    dialog.open();
+    dialog.prepareToInstall();
+    QCoreApplication::processEvents();
+    check(heading->text()=="Installing update" && status->text()=="Preparing…"
+        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && cancel->isHidden(),
+        "installer preparation uses a busy indicator without a download cancel action");
+    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+    QCoreApplication::sendEvent(&dialog,&escape);
+    check(dialog.isVisible(),"Escape cannot dismiss installer preparation");
+    if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-preparing.png")),"save installer preparation screenshot");
+    dialog.accept();
 }
 
 static void checkboxAlignment(const QString &caption, bool checked = true) {
@@ -304,6 +341,7 @@ int main(int argc,char **argv) {
         "Open System Settings","background-prompt.png");
     actionPromptLayout(promptParent,PromptDialog::Tone::Warning,"Could not save connection",
         "Your draft was preserved. Check the file permissions and try again.",{},"warning-prompt.png");
+    updateProgressLayout(promptParent);
     promptParent.hide();
     textContextMenus();
     checkboxAlignment(QStringLiteral("Launch at sign-in"));

@@ -1503,10 +1503,6 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>无法安装更新。请重新检查更新后重试。</translation>
     </message>
     <message>
-        <source>Downloading the update…</source>
-        <translation>正在下载更新…</translation>
-    </message>
-    <message>
         <source>Update download failed</source>
         <translation>更新下载失败</translation>
     </message>
@@ -2005,6 +2001,29 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/presentationhelpers.cpp" line="64"/>
         <source>Show</source>
         <translation>显示</translation>
+    </message>
+</context>
+<context>
+    <name>PresentationHelpers::UpdateProgressDialog</name>
+    <message>
+        <source>Downloading update</source>
+        <translation>正在下载更新</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>JustConnect will restart when installation finishes.</source>
+        <translation>安装完成后，JustConnect 将重新启动。</translation>
+    </message>
+    <message>
+        <source>Installing update</source>
+        <translation>正在安装更新</translation>
+    </message>
+    <message>
+        <source>Preparing…</source>
+        <translation>正在准备…</translation>
     </message>
 </context>
 <context>

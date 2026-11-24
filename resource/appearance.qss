@@ -16,8 +16,10 @@ QDialog QPushButton:default:enabled:hover, QPushButton#connectButton[primaryActi
 QDialog QPushButton:default:enabled:pressed, QPushButton#connectButton[primaryAction="true"]:enabled:pressed { background: #394bbd; }
 QDialog QPushButton:default:focus, QPushButton#connectButton[primaryAction="true"]:focus { border-color: #182132; }
 QDialog QPushButton[promptPrimary] { min-width: 82px; min-height: 34px; padding: 0 16px; border-radius: 16px; }
-QDialog#actionPrompt QLabel#promptHeading { font-size: 13pt; font-weight: 600; }
-QDialog#actionPrompt QLabel#promptBody { color: #414c5f; }
+QDialog QLabel#promptHeading { font-size: 13pt; font-weight: 600; }
+QDialog QLabel#promptBody, QLabel#updateProgressStatus { color: #414c5f; }
+QProgressBar#updateProgress { border: none; border-radius: 4px; background: #e6eaf1; }
+QProgressBar#updateProgress::chunk { border-radius: 4px; background: #5367e8; }
 QDialog QPushButton[promptPrimary="false"]:enabled { color: #263143; background: #edf0f5; border-color: transparent; font-weight: 400; }
 QDialog QPushButton[promptPrimary="false"]:enabled:hover { background: #e4e7ec; }
 QDialog QPushButton[promptPrimary="false"]:enabled:pressed { background: #dce0e6; }
