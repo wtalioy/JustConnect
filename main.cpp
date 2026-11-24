@@ -44,6 +44,9 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationDisplayName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationVersion(PROJ_VER);
+#if defined(Q_OS_LINUX)
+    QApplication::setDesktopFileName(QStringLiteral("justconnect"));
+#endif
 
     const ApplicationInstanceLock instanceLock;
     const auto lockError = instanceLock.error();

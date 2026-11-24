@@ -11,6 +11,7 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
 test -z "$(dpkg --verify justconnect)"
 test -x /usr/bin/JustConnect
+cmp /usr/share/icons/hicolor/scalable/apps/JustConnect.svg "$(dirname "$0")/../resource/icon.svg"
 helper=/usr/libexec/justconnect-network-helper
 test -x "$helper"
 test "$(stat -c '%u:%g:%a' "$helper")" = '0:0:755'
@@ -24,7 +25,7 @@ grep -F '"ok":true' <<< "$report"
 grep -Fq "\"revision\":\"$revision\"" <<< "$report"
 grep -Fq '"source_state":"clean"' <<< "$report"
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xauth xdotool
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xauth xdotool x11-utils
 home=$(mktemp -d)
 trap 'rm -rf "$home"' EXIT
 chown nobody:nogroup "$home"
@@ -33,7 +34,9 @@ chown nobody:nogroup "$home"
         /usr/bin/JustConnect &
         pid=$!
         trap "kill $pid 2>/dev/null || true" EXIT
-        timeout 15s xdotool search --sync --onlyvisible --pid "$pid"
+        window=$(timeout 15s xdotool search --sync --onlyvisible --pid "$pid" --limit 1)
+        desktop_id=$(xprop -notype -id "$window" _GTK_APPLICATION_ID | cut -d\" -f2)
+        test -f "/usr/share/applications/$desktop_id.desktop"
         kill -TERM "$pid"
         wait "$pid"
     '

@@ -176,7 +176,7 @@ else()
     install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT CoreRuntime)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/justconnect.desktop"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications" COMPONENT CoreRuntime)
-    install(FILES "${REPO}/resource/app-icon.svg"
+    install(FILES "${REPO}/resource/icon.svg"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
         RENAME "${PROJECT_NAME}.svg" COMPONENT CoreRuntime)
 endif()
