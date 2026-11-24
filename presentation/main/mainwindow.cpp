@@ -578,6 +578,12 @@ void MainWindow::setupConnectionMenu()
     traySwitchGroup->setExclusive(true);
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
+    addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
+    renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
+    renameConnectionAction->setObjectName("renameConnectionAction");
+    deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
+    deleteConnectionAction->setObjectName("deleteConnectionAction");
+    ui->profileMenu->addSeparator();
     copyClashScriptAction = ui->profileMenu->addAction(tr("Copy Clash Extend Script"));
     copyClashScriptAction->setObjectName("copyClashScriptAction");
     importClashScriptAction = ui->profileMenu->addAction(tr("Import into Clash Verge Rev"));
@@ -632,11 +638,6 @@ void MainWindow::setupConnectionMenu()
             });
         });
     }
-    addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
-    renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
-    renameConnectionAction->setObjectName("renameConnectionAction");
-    deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
-    deleteConnectionAction->setObjectName("deleteConnectionAction");
     ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->clearAuthenticationCacheAction);
     ui->profileMenu->addAction(ui->clearClientDataAction);

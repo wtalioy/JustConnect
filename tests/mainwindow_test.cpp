@@ -115,10 +115,18 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
-    check(copyScript && !copyScript->isEnabled() && menu->actions().indexOf(copyScript)==menu->actions().indexOf(editAction)+1,
-        "the automatic profile shows a disabled script action next to its editor");
-    check(importScript && !importScript->isEnabled() && menu->actions().indexOf(importScript)==menu->actions().indexOf(copyScript)+1,
-        "the import action follows copy and requires a live local proxy");
+    check(copyScript && importScript && !copyScript->isEnabled() && !importScript->isEnabled(),
+        "Clash actions require a live local proxy");
+    auto *deleteAction=window.findChild<QAction *>("deleteConnectionAction");
+    auto *clearCache=window.findChild<QAction *>("clearAuthenticationCacheAction");
+    for (auto *surface : {menu,menuBarProfiles}) {
+        const auto actions = surface->actions();
+        const auto copyIndex = actions.indexOf(copyScript);
+        check(copyIndex>=2 && copyIndex+3<actions.size() && actions[copyIndex-2]==deleteAction
+            && actions[copyIndex-1]->isSeparator() && actions[copyIndex+1]==importScript
+            && actions[copyIndex+2]->isSeparator() && actions[copyIndex+3]==clearCache,
+            "Copy and Import share a group between connection management and cleanup");
+    }
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");
