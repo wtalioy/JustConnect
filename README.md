@@ -45,7 +45,7 @@ Always remember your saved sign-in between launches. As long as it’s still val
 | --- | --- |
 | **Windows** · x64 or ARM64 | Run the installer, or extract the portable ZIP and open `JustConnect.exe`. |
 | **macOS** · 14.4 or later, Apple silicon or Intel | Open the DMG and drag JustConnect into Applications. |
-| **Linux** · x64 | On Debian 13, install the package with `sudo apt install ./JustConnect-…-linux-x64.deb`. For the portable build, extract the tarball and run `bin/JustConnect`. |
+| **Linux** · x64 | Extract the portable archive and run `bin/JustConnect`, or use `sudo apt install ./JustConnect-…-linux-x64.deb` on a compatible system. |
 
 Windows installers are unsigned, so Windows may show a warning.
 
@@ -53,15 +53,15 @@ macOS builds are not notarized. If macOS blocks the first launch, confirm you do
 
 #### Linux requirements
 
-- **Sign-in** uses WebKitGTK 4.1. The Debian package pulls it in automatically. Install `libwebkit2gtk-4.1` yourself for the portable build, and make sure XWayland is available if you use Wayland.
-- **Automatic routing** requires polkit and an active systemd-resolved with `/etc/resolv.conf` using its DNS stub at `127.0.0.53`. The Debian package installs the network helper. With the portable build, run `sudo ./setup-network-helper.sh` from the extracted directory after installing or upgrading.
+- **Sign-in** requires WebKitGTK 4.1. The `.deb` installs it as a dependency. For the portable build, install it through your distribution’s package manager. Wayland sessions also need XWayland.
+- **Automatic routing** requires polkit and an active systemd-resolved with `/etc/resolv.conf` using its DNS stub at `127.0.0.53`. The `.deb` installs the network helper. With the portable build, run `sudo ./setup-network-helper.sh` from the extracted directory after installing or upgrading.
 - **Saved sign-in** requires a Secret Service keyring. Without one, JustConnect keeps the sign-in in memory until you quit.
 
-See [Building on Linux](docs/build-linux.md) for source builds and Debian packaging.
+The `.deb` is built and tested on Debian 13. See [Building on Linux](docs/build-linux.md) for source builds and packaging details.
 
 ### Update
 
-Choose **Check for updates → Install update** to download, verify, and install a new release. JustConnect disconnects cleanly before installation and reopens afterward. The Windows installer, a writable macOS app bundle, and the Linux Debian package support in-app updates. Linux asks for system authorization when installing. For portable builds, use the release page to get the new package.
+Choose **Check for updates → Install update** to download, verify, and install a new release. JustConnect disconnects cleanly before installation and reopens afterward. The Windows installer, a writable macOS app bundle, and the Linux `.deb` support in-app updates. Linux asks for system authorization when installing. For portable builds, use the release page to get the new package.
 
 ### Connect
 
