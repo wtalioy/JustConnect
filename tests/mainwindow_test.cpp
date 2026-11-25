@@ -77,6 +77,8 @@ static void check(bool ok,const char *message) {
 #ifdef Q_OS_MACOS
 bool acknowledgeMacUpdateInformation();
 bool macUpdateInformationIsOpen();
+#elif defined(Q_OS_WIN)
+bool acknowledgeWindowsUpdateInformation(HWND owner, const QString &title, const QString &description);
 #endif
 
 static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,const QString &description)
@@ -87,19 +89,7 @@ static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,con
 #ifdef Q_OS_MACOS
         acknowledged=acknowledgeMacUpdateInformation();
 #elif defined(Q_OS_WIN)
-        const auto dialog=FindWindowW(L"#32770",title.toStdWString().c_str());
-        if (!IsWindowVisible(dialog) || GetWindow(dialog,GW_OWNER)!=reinterpret_cast<HWND>(owner.winId())) return false;
-        HWND button=nullptr;
-        for (auto child=FindWindowExW(dialog,nullptr,L"Button",nullptr);child;child=FindWindowExW(dialog,child,L"Button",nullptr)) {
-            if (!IsWindowVisible(child)) continue;
-            check(!button,"the Windows message box has only one visible button");
-            button=child;
-        }
-        check(button,"the Windows message box has an acknowledgment");
-        check(FindWindowExW(dialog,nullptr,L"Static",description.toStdWString().c_str()),
-            "the Windows message box describes the current and latest versions");
-        SendMessageW(dialog,WM_COMMAND,MAKEWPARAM(GetDlgCtrlID(button),BN_CLICKED),reinterpret_cast<LPARAM>(button));
-        acknowledged=true;
+        acknowledged=acknowledgeWindowsUpdateInformation(reinterpret_cast<HWND>(owner.winId()),title,description);
 #else
         auto *dialog=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
         if (!dialog) return false;
