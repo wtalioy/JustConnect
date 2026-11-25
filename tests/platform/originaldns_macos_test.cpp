@@ -1,6 +1,7 @@
 #include "infrastructure/dns/macos/originaldns.h"
 #include "infrastructure/dns/macos/propertylist.h"
 #include "infrastructure/networkaddress/ipv4.h"
+#include "infrastructure/networkpreferences/macos/lock.h"
 #include <QCoreApplication>
 #include <QJsonObject>
 #include <QScopeGuard>
@@ -9,8 +10,10 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <unistd.h>
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 static void check(bool value,const char *message)
 {
@@ -45,7 +48,7 @@ static int fixtureSource(const QString &address,int port,bool dynamic)
     check(interface,"Find actual fixture network interface metadata");
     const auto preferences=SCPreferencesCreate(nullptr,CFSTR("JustConnect owned DNS fixture"),nullptr);check(preferences,"Open fixture preferences");
     const auto releasePrefs=qScopeGuard([&]{CFRelease(preferences);});
-    check(SCPreferencesLock(preferences,false),"Lock fixture creation");bool locked=true;
+    check(MacNetworkPreferences::lock(preferences,"Lock fixture creation").succeeded(),"Lock fixture creation");bool locked=true;
     const auto unlock=qScopeGuard([&]{if(locked)SCPreferencesUnlock(preferences);});
     const auto service=SCNetworkServiceCreate(preferences,interface);check(service,"Create owned DNS-only fixture service");
     const auto releaseService=qScopeGuard([&]{CFRelease(service);});
@@ -54,7 +57,7 @@ static int fixtureSource(const QString &address,int port,bool dynamic)
     const auto cleanup=[&]{
         if(removed)return true;
         if(store){CFRelease(store);store=nullptr;}
-        if(!locked){SCPreferencesSynchronize(preferences);if(!SCPreferencesLock(preferences,false))return false;locked=true;}
+        if(!locked){if(!MacNetworkPreferences::lock(preferences,"Lock fixture cleanup").succeeded())return false;locked=true;}
         const auto present=SCNetworkServiceCopy(preferences,SCNetworkServiceGetServiceID(service));
         bool restored=true;
         if(present){
@@ -183,7 +186,19 @@ int main(int argc,char **argv) try
             && dns.snapshot().isEmpty() && read()==before,"Listener without a port changed DNS preferences");
         const auto rejected=dns.apply(owner,sources,[](const QJsonObject &){return PlatformOperationResult{PlatformOperationResult::Status::Failed,"write ahead refused"};});
         check(!rejected.succeeded() && dns.snapshot().isEmpty() && read()==before,"Failed write-ahead changed DNS preferences");
-        check(dns.apply(owner,sources,checkpoint).succeeded() && MacOriginalDns::valid(owner,record),"Apply durable private DNS source");
+        const auto path=directory.filePath("dns.plist").toCFString();
+        const auto competing=SCPreferencesCreate(nullptr,CFSTR("JustConnect concurrent DNS writer"),path);CFRelease(path);
+        check(competing,"Open a separate preference session for the competing writer");
+        const auto releaseCompeting=qScopeGuard([&]{CFRelease(competing);});
+        check(SCPreferencesLock(competing,false),"Hold the private preferences lock");
+        check(!SCPreferencesLock(preferences,false) && SCError()==kSCStatusPrefsBusy,"Confirm temporary lock contention");
+        std::thread releaseLock([&]{
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            SCPreferencesUnlock(competing);
+        });
+        const auto join=qScopeGuard([&]{releaseLock.join();});
+        check(dns.apply(owner,sources,checkpoint).succeeded() && MacOriginalDns::valid(owner,record),
+            "Apply durable private DNS source after the competing writer releases its lock");
         const auto current=read();check(current["ServerAddresses"]==QJsonArray{local} && current["ServerPort"]==54321
             && current["SupplementalMatchDomains"]==before["SupplementalMatchDomains"],"DNS endpoint or original namespace was changed incorrectly");
         auto foreign=record;foreign["owner"]=QUuid::createUuid().toString(QUuid::WithoutBraces);

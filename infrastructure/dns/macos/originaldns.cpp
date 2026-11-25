@@ -4,6 +4,7 @@
 #include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/dns/domainlimits.h"
 #include "infrastructure/networkaddress/ipv4.h"
+#include "infrastructure/networkpreferences/macos/lock.h"
 #include <QJsonDocument>
 #include <QDeadlineTimer>
 #include <QScopeGuard>
@@ -200,8 +201,7 @@ Result MacOriginalDns::apply(const QUuid &owner,const QJsonArray &sources,const 
 {
     if(!preferences || owner.isNull() || sources.isEmpty() || sources.size()>qsizetype(NetworkDnsDomainLimit) || !installed.isEmpty() || !checkpoint)
         return failed("Invalid original DNS ownership.");
-    SCPreferencesSynchronize(preferences);
-    if(!SCPreferencesLock(preferences,false))return failed("Cannot lock original DNS preferences.");
+    if(auto result=MacNetworkPreferences::lock(preferences,"Lock original DNS preferences");!result.succeeded())return result;
     const auto unlock=qScopeGuard([&]{SCPreferencesUnlock(preferences);});
     QJsonArray entries;QSet<QString> seen;
     for(const auto &value:sources){
@@ -255,8 +255,7 @@ Result MacOriginalDns::apply(const QUuid &owner,const QJsonArray &sources,const 
 Result MacOriginalDns::restore(const QUuid &owner,const QJsonObject &record,const Checkpoint &checkpoint)
 {
     if(!preferences || !valid(owner,record) || !checkpoint)return failed("Invalid original DNS recovery ownership.",true);
-    SCPreferencesSynchronize(preferences);
-    if(!SCPreferencesLock(preferences,false))return failed("Cannot lock original DNS restoration.",true);
+    if(auto result=MacNetworkPreferences::lock(preferences,"Lock original DNS restoration",true);!result.succeeded())return result;
     const auto unlock=qScopeGuard([&]{SCPreferencesUnlock(preferences);});
     auto restoring=record;restoring["phase"]="restoring";
     auto result=checkpoint(restoring);if(!result.succeeded())return result;installed=restoring;

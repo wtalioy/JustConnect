@@ -1,12 +1,11 @@
 #include "infrastructure/systemproxy/platformsystemproxybackend.h"
 #include "infrastructure/systemproxy/proxyvalidation.h"
+#include "infrastructure/networkpreferences/macos/lock.h"
 #include "application/credentialstore.h"
 #include <QScopeGuard>
 #include <QSysInfo>
 #include <QUuid>
 #include <QSet>
-#include <QDeadlineTimer>
-#include <QThread>
 #include <algorithm>
 #include <iterator>
 #include <unistd.h>
@@ -20,25 +19,7 @@ SCPreferencesRef createMacProxyPreferences(AuthorizationRef *authorization) {
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
-constexpr int PreferencesLockTimeoutMs = 1000, PreferencesLockPollMs = 20;
-Result error(const QString &operation, bool changed = false) {
-    const auto code = SCError();
-    const auto status = code == errAuthorizationCanceled ? Status::Cancelled
-        : code == kSCStatusAccessError || code == errAuthorizationDenied ? Status::PermissionDenied
-        : code == kSCStatusNoConfigFile ? Status::Unsupported : Status::Failed;
-    return {status, operation + ": SystemConfiguration error " + QString::number(code), changed};
-}
-Result lockPreferences(SCPreferencesRef prefs, const QString &operation, bool changed = false) {
-    // Brief external commits share this lock; never wait indefinitely for another owner.
-    QDeadlineTimer deadline(PreferencesLockTimeoutMs);
-    for (;;) {
-        SCPreferencesSynchronize(prefs);
-        if (SCPreferencesLock(prefs, false)) return {};
-        if (SCError() != kSCStatusPrefsBusy) return error(operation,changed);
-        if (deadline.hasExpired()) return {Status::TimedOut,operation+": preferences remain busy",changed};
-        QThread::msleep(qMin(qint64(PreferencesLockPollMs),deadline.remainingTime()));
-    }
-}
+using MacNetworkPreferences::error;
 CFStringRef path(SCNetworkServiceRef service) {
     return CFStringCreateWithFormat(nullptr, nullptr, CFSTR("/%@/%@/%@"), kSCPrefNetworkServices, SCNetworkServiceGetServiceID(service), kSCEntNetProxies);
 }
@@ -332,7 +313,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     pending->config = config;
     if (!pending->preferences) return error("Open proxy preferences");
     auto prefs = pending->preferences;
-    if (auto result=lockPreferences(prefs,"Lock proxy preferences");!result.succeeded()) return result;
+    if (auto result=MacNetworkPreferences::lock(prefs,"Lock proxy preferences");!result.succeeded()) return result;
     bool locked = true;
     const auto unlock = qScopeGuard([&] { if (locked) SCPreferencesUnlock(prefs); });
     auto all = SCNetworkServiceCopyAll(prefs);
@@ -420,7 +401,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
             }
         }
     }
-    if (auto result=lockPreferences(prefs,"Lock proxy preferences for restoration",true);!result.succeeded()) return result;
+    if (auto result=MacNetworkPreferences::lock(prefs,"Lock proxy preferences for restoration",true);!result.succeeded()) return result;
     const auto unlock = qScopeGuard([&] { SCPreferencesUnlock(prefs); });
     if (saved->restorationCommitted) {
         if (!api.apply(prefs)) return error("Apply restored proxy preferences", true);
