@@ -32,7 +32,10 @@ public:
     Tone tone() const { return promptTone; }
     QPushButton *primaryButton() const { return primary; }
     QPushButton *dismissButton() const { return dismiss; }
+protected:
+    void changeEvent(QEvent *event) override;
 private:
+    void fitContent();
     Tone promptTone;
     QLabel *heading;
     QLabel *bodyLabel;

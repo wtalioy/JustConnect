@@ -83,8 +83,9 @@ static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QSt
             "the icon starts at the same inset as the heading");
         check(dialog->width()==qMin(504,dialog->screen()->availableGeometry().width()-32)
             && text->height()>=text->heightForWidth(text->width())
-            && dialog->rect().contains(action->geometry()),"the copy and action fit within the dialog");
-        if (cancel) check(action->height()==cancel->height() && dialog->rect().contains(cancel->geometry())
+            && dialog->contentsRect().contains(text->geometry())
+            && dialog->contentsRect().contains(action->geometry()),"the copy and action fit within the dialog");
+        if (cancel) check(action->height()==cancel->height() && dialog->contentsRect().contains(cancel->geometry())
             && (cancel->geometry().right()<action->geometry().left() || cancel->geometry().bottom()<action->geometry().top())
             && cancel->isDefault()!=update && action->isDefault()==update && !cancel->property("promptPrimary").toBool(),
             "Cancel precedes the primary button and remains the keyboard default for confirmations");

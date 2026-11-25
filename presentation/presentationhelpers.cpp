@@ -8,6 +8,7 @@
 #include <QClipboard>
 #include <QDate>
 #include <QDialog>
+#include <QEvent>
 #include <QLabel>
 #include <QLocale>
 #include <QProgressBar>
@@ -128,16 +129,29 @@ void PresentationHelpers::PromptDialog::setContent(const QString &title,const QS
     heading->setText(title);
     bodyLabel->setText(body);
     primary->setText(primaryText.isEmpty() ? tr("OK") : primaryText);
+    if (dismiss) dismiss->setText(tr("Cancel"));
+    fitContent();
+}
+
+void PresentationHelpers::PromptDialog::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type() == QEvent::ContentsRectChange && layout()) fitContent();
+}
+
+void PresentationHelpers::PromptDialog::fitContent()
+{
+    const auto area = contentsRect();
     if (dismiss) {
-        dismiss->setText(tr("Cancel"));
         const auto margins = layout()->contentsMargins();
         const int required = primary->sizeHint().width()+dismiss->sizeHint().width()+buttons->spacing();
-        buttons->setDirection(required<=width()-margins.left()-margins.right()
+        buttons->setDirection(required<=area.width()-margins.left()-margins.right()
             ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
     }
     layout()->invalidate();
-    const auto height=layout()->totalHeightForWidth(width());
-    setFixedHeight(height>=0 ? height : layout()->totalSizeHint().height());
+    const auto height = layout()->heightForWidth(area.width());
+    const auto margins = contentsMargins();
+    setFixedHeight((height>=0 ? height : layout()->sizeHint().height()) + margins.top() + margins.bottom());
 }
 
 QString PresentationHelpers::PromptDialog::text() const
