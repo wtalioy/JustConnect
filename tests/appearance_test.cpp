@@ -150,10 +150,14 @@ static void updateProgressLayout(QWidget &parent)
     const auto filled=track.pixelColor(track.width()/4,track.height()/2);
     const auto empty=track.pixelColor(track.width()*3/4,track.height()/2);
     const auto trackWidth=progress->width();
+    const auto headingFits = [&] {
+        return dialog.contentsRect().contains(heading->geometry())
+            && heading->height()>=heading->sizeHint().height();
+    };
     check(progress->value()==37 && progress->height()==8 && filled.blue()>filled.red()+60 && empty.red()>210
         && status->text()==progress->text() && !status->text().isEmpty()
         && status->alignment().testFlag(Qt::AlignLeft) && status->x()-progress->geometry().right()<=13
-        && dialog.rect().contains(progress->geometry()) && !dialog.findChild<QPushButton *>(),
+        && dialog.contentsRect().contains(progress->geometry()) && headingFits() && !dialog.findChild<QPushButton *>(),
         "download progress renders as a thin accent track with adjacent text and no button row");
     if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-downloading.png")),"save download progress screenshot");
     check(dialog.close() && dialog.result()==QDialog::Rejected,"closing the progress window cancels the pending download");
@@ -167,7 +171,7 @@ static void updateProgressLayout(QWidget &parent)
     dialog.prepareToInstall();
     QCoreApplication::processEvents();
     check(heading->text()=="Installing update" && status->text()=="Preparing…"
-        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth,
+        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && headingFits(),
         "installer preparation switches the track to a busy indicator at the same width");
     QCoreApplication::sendEvent(&dialog,&escape);
     check(dialog.isVisible() && !dialog.close(),"installer preparation stays visible on Escape or window close");

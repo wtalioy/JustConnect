@@ -41,6 +41,27 @@ void PresentationHelpers::blendWindowTitleBar(QWidget &window)
 #endif
 }
 
+PresentationHelpers::ContentDialog::ContentDialog(QWidget *parent) : QDialog(parent)
+{
+    setWindowFlag(Qt::WindowContextHelpButtonHint,false);
+    blendWindowTitleBar(*this);
+}
+
+void PresentationHelpers::ContentDialog::fitHeight()
+{
+    auto *content = layout();
+    content->invalidate();
+    const auto height = content->heightForWidth(contentsRect().width());
+    const auto margins = contentsMargins();
+    setFixedHeight((height>=0 ? height : content->sizeHint().height()) + margins.top() + margins.bottom());
+}
+
+void PresentationHelpers::ContentDialog::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type() == QEvent::ContentsRectChange && layout()) fitHeight();
+}
+
 namespace {
 class ButtonIcon final : public QIconEngine {
 public:
@@ -61,13 +82,11 @@ private:
 
 PresentationHelpers::PromptDialog::PromptDialog(QWidget *parent,const QString &title,const QString &body,
     Tone tone,const QString &primaryText,bool cancellable)
-    : QDialog(parent), promptTone(tone), heading(new QLabel(this)), bodyLabel(new QLabel(this)),
+    : ContentDialog(parent), promptTone(tone), heading(new QLabel(this)), bodyLabel(new QLabel(this)),
       primary(new QPushButton(this)), buttons(new QBoxLayout(QBoxLayout::LeftToRight))
 {
     setObjectName("actionPrompt");
     setWindowTitle(QApplication::applicationDisplayName());
-    setWindowFlag(Qt::WindowContextHelpButtonHint,false);
-    blendWindowTitleBar(*this);
     setFixedWidth(qMin(504,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(26,24,26,24);
@@ -133,12 +152,6 @@ void PresentationHelpers::PromptDialog::setContent(const QString &title,const QS
     fitContent();
 }
 
-void PresentationHelpers::PromptDialog::changeEvent(QEvent *event)
-{
-    QDialog::changeEvent(event);
-    if (event->type() == QEvent::ContentsRectChange && layout()) fitContent();
-}
-
 void PresentationHelpers::PromptDialog::fitContent()
 {
     const auto area = contentsRect();
@@ -148,10 +161,7 @@ void PresentationHelpers::PromptDialog::fitContent()
         buttons->setDirection(required<=area.width()-margins.left()-margins.right()
             ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
     }
-    layout()->invalidate();
-    const auto height = layout()->heightForWidth(area.width());
-    const auto margins = contentsMargins();
-    setFixedHeight((height>=0 ? height : layout()->sizeHint().height()) + margins.top() + margins.bottom());
+    fitHeight();
 }
 
 QString PresentationHelpers::PromptDialog::text() const
@@ -173,13 +183,11 @@ void PresentationHelpers::showMessage(QWidget *parent,const QString &title,const
 }
 
 PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
-    : QDialog(parent), heading(new QLabel(tr("Downloading update"),this)),
+    : ContentDialog(parent), heading(new QLabel(tr("Downloading update"),this)),
       status(new QLabel(this)), progress(new QProgressBar(this))
 {
     setWindowTitle(QApplication::applicationDisplayName());
     setAccessibleName(heading->text());
-    setWindowFlag(Qt::WindowContextHelpButtonHint,false);
-    blendWindowTitleBar(*this);
     setFixedWidth(qMin(472,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(24,22,24,22);
@@ -209,6 +217,8 @@ PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     layout->addLayout(row);
 
     setDownloadProgress(0);
+    ensurePolished();
+    fitHeight();
 }
 
 void PresentationHelpers::UpdateProgressDialog::setDownloadProgress(int percentage)
@@ -224,6 +234,7 @@ void PresentationHelpers::UpdateProgressDialog::prepareToInstall()
     progress->setAccessibleName(heading->text());
     progress->setRange(0,0);
     status->setText(tr("Preparing…"));
+    fitHeight();
 }
 
 void PresentationHelpers::UpdateProgressDialog::reject()
@@ -353,23 +364,17 @@ void PresentationHelpers::activateWindow(QWidget *window)
 
 void PresentationHelpers::showAboutDialog(QWidget *parent)
 {
-    QDialog dialog(parent);
+    ContentDialog dialog(parent);
     dialog.setObjectName("aboutDialog");
     dialog.setWindowTitle(QCoreApplication::translate("PresentationHelpers", "About"));
-    dialog.setWindowFlag(Qt::WindowContextHelpButtonHint, false);
-    blendWindowTitleBar(dialog);
     auto *layout = new QVBoxLayout(&dialog);
-    constexpr int sidePadding = 32;
-    layout->setContentsMargins(sidePadding, 24, sidePadding, 30);
+    layout->setContentsMargins(32, 24, 32, 30);
     layout->setSpacing(4);
-    layout->setSizeConstraint(QLayout::SetFixedSize);
 
     auto *icon = new QLabel(&dialog);
-    icon->setAlignment(Qt::AlignCenter);
-    icon->setMinimumWidth(300 - 2 * sidePadding);
     const QIcon artwork(":/resource/app-icon.svg");
     icon->setPixmap(artwork.pixmap(QSize(80, 80), dialog.devicePixelRatioF()));
-    layout->addWidget(icon);
+    layout->addWidget(icon, 0, Qt::AlignHCenter);
 
     auto *name = new QLabel(QApplication::applicationDisplayName(), &dialog);
     name->setObjectName("aboutAppName");
@@ -399,6 +404,9 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     }
 #endif
 
+    dialog.ensurePolished();
+    dialog.setFixedWidth(qMax(300,layout->sizeHint().width()));
+    dialog.fitHeight();
     dialog.exec();
 }
 

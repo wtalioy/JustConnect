@@ -653,8 +653,13 @@ static void nativeDialogChrome(MainWindow &window)
         auto *about = qobject_cast<QDialog *>(QApplication::activeModalWidget());
         check(about && about->objectName() == "aboutDialog","About opens from the application menu");
         check(hasBlendedNativeFrame(*about),"About blends its background into the native frame and keeps the close button");
-        auto *version = about->findChild<QLabel *>("aboutVersion");
-        check(version && about->contentsRect().contains(version->geometry()),"the About version fits below the native controls");
+        for (const auto name : {"aboutAppName","aboutVersion"}) {
+            auto *label = about->findChild<QLabel *>(name);
+            check(label && about->contentsRect().contains(label->geometry())
+                && label->height()>=label->sizeHint().height(),"About text fits below the native controls");
+        }
+        const auto report = qEnvironmentVariable("JC_UI_REPORT_DIR");
+        if (!report.isEmpty()) check(about->grab().save(QDir(report).filePath("about.png")),"save the native About content");
         about->reject();
     });
     window.findChild<QAction *>("aboutAction")->trigger();

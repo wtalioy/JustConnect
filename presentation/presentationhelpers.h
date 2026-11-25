@@ -21,7 +21,16 @@ class QTreeWidget;
 
 namespace PresentationHelpers
 {
-class PromptDialog : public QDialog {
+class ContentDialog : public QDialog {
+public:
+    explicit ContentDialog(QWidget *parent);
+    void fitHeight();
+
+protected:
+    void changeEvent(QEvent *event) override;
+};
+
+class PromptDialog : public ContentDialog {
     Q_OBJECT
 public:
     enum class Tone { Information, Question, Warning, Critical, Update };
@@ -32,8 +41,6 @@ public:
     Tone tone() const { return promptTone; }
     QPushButton *primaryButton() const { return primary; }
     QPushButton *dismissButton() const { return dismiss; }
-protected:
-    void changeEvent(QEvent *event) override;
 private:
     void fitContent();
     Tone promptTone;
@@ -44,7 +51,7 @@ private:
     QBoxLayout *buttons;
 };
 
-class UpdateProgressDialog : public QDialog {
+class UpdateProgressDialog : public ContentDialog {
     Q_OBJECT
 public:
     explicit UpdateProgressDialog(QWidget *parent);
