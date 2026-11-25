@@ -17,13 +17,14 @@ bool MainWindow::showNativeUpdateInformation(const QString &title,const QString 
 {
     if (QGuiApplication::platformName()!=QStringLiteral("cocoa")) return false;
     if (!isVisible() || isMinimized()) PresentationHelpers::activateWindow(this);
-    auto *view = reinterpret_cast<NSView *>(winId());
-    if (!view.window) return false;
     auto *alert = [[NSAlert alloc] init];
     alert.alertStyle = NSAlertStyleInformational;
     alert.messageText = title.toNSString();
     alert.informativeText = description.toNSString();
     [alert addButtonWithTitle:QCoreApplication::translate("QPlatformTheme","OK").toNSString()];
-    [alert beginSheetModalForWindow:view.window completionHandler:^(NSModalResponse) { [alert release]; }];
+    // Avoid the sheet dismissal transition for this brief confirmation.
+    alert.window.animationBehavior = NSWindowAnimationBehaviorNone;
+    while ([alert runModal] == NSModalResponseContinue) {}
+    [alert release];
     return true;
 }

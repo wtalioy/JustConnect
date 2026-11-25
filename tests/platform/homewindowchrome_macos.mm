@@ -17,19 +17,17 @@ bool hasUntitledNativeHomeFrame(QWidget &widget)
     return true;
 }
 
-bool acknowledgeMacUpdateInformation(QWidget &owner)
+bool acknowledgeMacUpdateInformation()
 {
-    auto *view = reinterpret_cast<NSView *>(owner.winId());
-    NSWindow *sheet = view.window.attachedSheet;
-    if (!sheet.isVisible) return false;
-    auto *button = sheet.defaultButtonCell.controlView;
+    NSWindow *alert = NSApp.modalWindow;
+    if (!alert.isVisible || alert.sheetParent || alert.animationBehavior!=NSWindowAnimationBehaviorNone) return false;
+    auto *button = alert.defaultButtonCell.controlView;
     if (![button isKindOfClass:[NSButton class]]) return false;
     [(NSButton *)button performClick:nil];
     return true;
 }
 
-bool macUpdateInformationIsOpen(QWidget &owner)
+bool macUpdateInformationIsOpen()
 {
-    auto *view = reinterpret_cast<NSView *>(owner.winId());
-    return view.window.attachedSheet != nil;
+    return NSApp.modalWindow != nil;
 }

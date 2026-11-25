@@ -75,8 +75,8 @@ static void check(bool ok,const char *message) {
 }
 
 #ifdef Q_OS_MACOS
-bool acknowledgeMacUpdateInformation(QWidget &owner);
-bool macUpdateInformationIsOpen(QWidget &owner);
+bool acknowledgeMacUpdateInformation();
+bool macUpdateInformationIsOpen();
 #endif
 
 static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,const QString &description)
@@ -85,7 +85,7 @@ static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,con
     UiWait::until(__FILE__,__LINE__,[&] {
         if (acknowledged) return true;
 #ifdef Q_OS_MACOS
-        acknowledged=acknowledgeMacUpdateInformation(owner);
+        acknowledged=acknowledgeMacUpdateInformation();
 #elif defined(Q_OS_WIN)
         const auto dialog=FindWindowW(L"#32770",title.toStdWString().c_str());
         if (!IsWindowVisible(dialog) || GetWindow(dialog,GW_OWNER)!=reinterpret_cast<HWND>(owner.winId())) return false;
@@ -111,7 +111,7 @@ static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,con
         return acknowledged;
     });
 #ifdef Q_OS_MACOS
-    UiWait::until(__FILE__,__LINE__,[&] { return !macUpdateInformationIsOpen(owner); });
+    UiWait::until(__FILE__,__LINE__,[] { return !macUpdateInformationIsOpen(); });
 #endif
 }
 
