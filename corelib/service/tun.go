@@ -70,9 +70,12 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 	}
 	addresses := make(map[[4]byte]struct{})
 	for flow := range ingress.flows {
-		address, ok := netip.AddrFromSlice(flow.id.LocalAddress.AsSlice())
-		if ok && address.Is4() && address != ingress.local && address != ingress.peer {
-			addresses[address.As4()] = struct{}{}
+		if flow.id.LocalAddress.Len() != 4 {
+			continue
+		}
+		address := flow.id.LocalAddress.As4()
+		if ip := netip.AddrFrom4(address); ip != ingress.local && ip != ingress.peer {
+			addresses[address] = struct{}{}
 		}
 	}
 	for publication := range ingress.publishingDNS {
