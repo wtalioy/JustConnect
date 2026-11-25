@@ -20,6 +20,12 @@
 #include <QStyledItemDelegate>
 #include <algorithm>
 
+#ifdef Q_OS_MACOS
+namespace ApplicationAppearance {
+void hideNativeWindowTitle(QWidget &window);
+}
+#endif
+
 namespace {
 void styleTextMenu(QMenu *menu)
 {
@@ -40,6 +46,11 @@ public:
     bool eventFilter(QObject *object,QEvent *event) override {
         if (event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
+#ifdef Q_OS_MACOS
+        if (event->type() == QEvent::Show && window && window->isWindow()
+            && window->windowFlags().testFlag(Qt::NoTitleBarBackgroundHint))
+            ApplicationAppearance::hideNativeWindowTitle(*window);
+#endif
         if(event->type()==QEvent::Polish) {
             if (auto *menu = qobject_cast<QMenu *>(window)) styleTextMenu(menu);
             // Use the same inset item rendering instead of platform-specific combo menu delegates.

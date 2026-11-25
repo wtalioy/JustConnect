@@ -59,6 +59,7 @@ QString credentialOperationMessage(CredentialStatus status);
 QString platformOperationMessage(const PlatformOperationResult &result);
 void showAboutDialog(QWidget *parent);
 void activateWindow(QWidget *window);
+void blendWindowTitleBar(QWidget &window);
 bool actionPrompt(QWidget *parent,const QString &title,const QString &body,const QString &primaryText,
     PromptDialog::Tone tone=PromptDialog::Tone::Question);
 void showMessage(QWidget *parent,const QString &title,const QString &body,

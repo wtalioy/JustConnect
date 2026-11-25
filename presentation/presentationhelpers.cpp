@@ -31,6 +31,15 @@
 #include <QSignalBlocker>
 #include <utility>
 
+void PresentationHelpers::blendWindowTitleBar(QWidget &window)
+{
+#ifdef Q_OS_MACOS
+    window.setWindowFlags(window.windowFlags() | Qt::ExpandedClientAreaHint | Qt::NoTitleBarBackgroundHint);
+#else
+    Q_UNUSED(window)
+#endif
+}
+
 namespace {
 class ButtonIcon final : public QIconEngine {
 public:
@@ -57,6 +66,7 @@ PresentationHelpers::PromptDialog::PromptDialog(QWidget *parent,const QString &t
     setObjectName("actionPrompt");
     setWindowTitle(QApplication::applicationDisplayName());
     setWindowFlag(Qt::WindowContextHelpButtonHint,false);
+    blendWindowTitleBar(*this);
     setFixedWidth(qMin(504,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(26,24,26,24);
@@ -155,6 +165,7 @@ PresentationHelpers::UpdateProgressDialog::UpdateProgressDialog(QWidget *parent)
     setWindowTitle(QApplication::applicationDisplayName());
     setAccessibleName(heading->text());
     setWindowFlag(Qt::WindowContextHelpButtonHint,false);
+    blendWindowTitleBar(*this);
     setFixedWidth(qMin(472,screen()->availableGeometry().width()-32));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(24,22,24,22);
@@ -332,14 +343,19 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     dialog.setObjectName("aboutDialog");
     dialog.setWindowTitle(QCoreApplication::translate("PresentationHelpers", "About"));
     dialog.setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    blendWindowTitleBar(dialog);
     auto *layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(32, 24, 32, 30);
+    constexpr int sidePadding = 32;
+    layout->setContentsMargins(sidePadding, 24, sidePadding, 30);
     layout->setSpacing(4);
+    layout->setSizeConstraint(QLayout::SetFixedSize);
 
     auto *icon = new QLabel(&dialog);
+    icon->setAlignment(Qt::AlignCenter);
+    icon->setMinimumWidth(300 - 2 * sidePadding);
     const QIcon artwork(":/resource/app-icon.svg");
     icon->setPixmap(artwork.pixmap(QSize(80, 80), dialog.devicePixelRatioF()));
-    layout->addWidget(icon, 0, Qt::AlignHCenter);
+    layout->addWidget(icon);
 
     auto *name = new QLabel(QApplication::applicationDisplayName(), &dialog);
     name->setObjectName("aboutAppName");
@@ -369,8 +385,6 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
     }
 #endif
 
-    dialog.ensurePolished();
-    dialog.setFixedSize(layout->totalSizeHint().expandedTo(QSize(300, 0)));
     dialog.exec();
 }
 

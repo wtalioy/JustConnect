@@ -29,7 +29,11 @@ endif()
 add_compile_definitions(PROJ_VER="${PROJ_VER}")
 message("PROJ_VER=${PROJ_VER}")
 
-find_package(Qt6 6.8 COMPONENTS
+set(justconnect_minimum_qt 6.8)
+if(APPLE)
+    set(justconnect_minimum_qt 6.9)
+endif()
+find_package(Qt6 ${justconnect_minimum_qt} COMPONENTS
     Core
     Concurrent
     Gui
@@ -65,6 +69,10 @@ install(FILES "${CORE}/internal/ping/LICENSE"
     DESTINATION "${CORE_DATA_DESTINATION}/licenses" RENAME LICENSE.ping COMPONENT CoreRuntime)
 
 include(cmake/UiResources.cmake)
+set(justconnect_appearance_sources presentation/appearance/applicationappearance.cpp)
+if(APPLE)
+    list(APPEND justconnect_appearance_sources presentation/appearance/macos/windowappearance.mm)
+endif()
 set(justconnect_update_sources
     infrastructure/update/updatechecker.cpp
     infrastructure/update/updatepackage.cpp)
@@ -81,7 +89,7 @@ endif()
 add_library(justconnect_desktop OBJECT
     infrastructure/process/applicationinstancelock.cpp
     infrastructure/process/terminationrequests.cpp
-    presentation/appearance/applicationappearance.cpp
+    ${justconnect_appearance_sources}
     presentation/main/mainwindow.cpp
     presentation/main/mainwindow.ui
     presentation/main/mainwindowcoordinator.cpp
@@ -224,8 +232,12 @@ include(CTest)
 
 
 if(BUILD_TESTING)
-    add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp presentation/presentationhelpers.cpp)
+    add_executable(appearance_test tests/appearance_test.cpp ${justconnect_appearance_sources} presentation/presentationhelpers.cpp)
     target_link_libraries(appearance_test PRIVATE Qt6::Widgets justconnect_ui_resources)
+    if(APPLE)
+        set_target_properties(appearance_test PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED ON)
+        target_link_libraries(appearance_test PRIVATE "-framework AppKit")
+    endif()
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
     add_test(NAME appearance_scaled_test COMMAND appearance_test)

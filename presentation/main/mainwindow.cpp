@@ -126,6 +126,14 @@ MainWindow::MainWindow(
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
 #endif
     ui->setupUi(this);
+#ifdef Q_OS_MACOS
+    PresentationHelpers::blendWindowTitleBar(*this);
+    constexpr int lift = 6;
+    auto pageMargins = ui->pageLayout->contentsMargins();
+    pageMargins.setTop(pageMargins.top()-lift);
+    pageMargins.setBottom(pageMargins.bottom()+lift);
+    ui->pageLayout->setContentsMargins(pageMargins);
+#endif
     ui->centralWidget->setFocus(Qt::OtherFocusReason);
     details = new ConnectionDetailsDialog(coordinator->diagnostics(),coordinator->networkPolicy(),logger,logFile,this);
     connect(ui->detailsButton,&QPushButton::clicked,details,&ConnectionDetailsDialog::openDetails);
