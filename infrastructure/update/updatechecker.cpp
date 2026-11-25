@@ -128,12 +128,6 @@ int compareSuffixes(const QString &currentSuffix, const QString &latestSuffix)
     return currentIndex == currentSuffix.size() ? -1 : 1;
 }
 
-std::optional<QString> releaseVersion(const QJsonObject &release)
-{
-    auto version=release["tag_name"].toString().trimmed();
-    if (version.startsWith('v')) version.removeFirst();
-    return version.isEmpty() ? std::nullopt : std::optional<QString>(version);
-}
 }
 
 struct UpdateChecker::Download {
@@ -187,11 +181,11 @@ void UpdateChecker::check(CheckMode mode)
     connect(reply,&QNetworkReply::finished,this,[this,reply] { handleUiReply(reply); });
 }
 
-std::optional<QString> UpdateChecker::parseReleaseVersion(
-    const QByteArray &payload
-)
+std::optional<QString> UpdateChecker::parseReleaseVersion(const QJsonObject &release)
 {
-    return releaseVersion(QJsonDocument::fromJson(payload).object());
+    auto version=release["tag_name"].toString().trimmed();
+    if (version.startsWith('v')) version.removeFirst();
+    return version.isEmpty() ? std::nullopt : std::optional<QString>(version);
 }
 
 UpdateChecker::CheckResult UpdateChecker::compareVersions(const QString &currentVersion, const QString &latestVersion)
@@ -231,7 +225,7 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
     const bool received = reply->error() == QNetworkReply::NoError
         && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200;
     const auto release = received ? QJsonDocument::fromJson(reply->readAll()).object() : QJsonObject{};
-    const auto latestVersion=releaseVersion(release);
+    const auto latestVersion=parseReleaseVersion(release);
     const auto result = latestVersion ? compareVersions(versions.uiVersion,*latestVersion) : CheckResult::Failed;
     if (result == CheckResult::Failed) {
         const auto reason = received ? QStringLiteral("The release response has no valid version tag.") : reply->errorString();

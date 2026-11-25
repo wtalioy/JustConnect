@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QNetworkReply>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 
 #include "infrastructure/update/updatechecker.h"
@@ -59,19 +60,17 @@ bool coalescesChecksAndAllowsRetry()
 
 bool validatesReleaseResponses()
 {
-    const std::optional<QString> version =
-        UpdateChecker::parseReleaseVersion(R"({"tag_name":"v1.2.3"})");
+    const auto parse = [](const QByteArray &payload) {
+        return UpdateChecker::parseReleaseVersion(QJsonDocument::fromJson(payload).object());
+    };
+    const auto version = parse(R"({"tag_name":"v1.2.3"})");
     const bool passed =
         version == std::optional<QString>("1.2.3")
-        && UpdateChecker::parseReleaseVersion(R"({"tag_name":"1.2.3"})") == version
-        && !UpdateChecker::parseReleaseVersion("not json").has_value()
-        && !UpdateChecker::parseReleaseVersion("{}").has_value()
-        && !UpdateChecker::parseReleaseVersion(
-            R"({"tag_name":""})"
-        ).has_value()
-        && !UpdateChecker::parseReleaseVersion(
-            R"({"tag_name":42})"
-        ).has_value();
+        && parse(R"({"tag_name":"1.2.3"})") == version
+        && !parse("not json")
+        && !parse("{}")
+        && !parse(R"({"tag_name":""})")
+        && !parse(R"({"tag_name":42})");
     if (!passed)
     {
         qCritical() << "validatesReleaseResponses failed";

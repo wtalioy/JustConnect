@@ -1,7 +1,6 @@
 #ifndef UPDATECHECKER_H
 #define UPDATECHECKER_H
 
-#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <memory>
@@ -9,6 +8,7 @@
 #include <optional>
 #include "updatepackage.h"
 
+class QJsonObject;
 class QNetworkAccessManager;
 class QNetworkReply;
 
@@ -39,7 +39,7 @@ public:
     bool hasStagedUpdate() const;
     bool launchStagedUpdate();
 
-    static std::optional<QString> parseReleaseVersion(const QByteArray &payload);
+    static std::optional<QString> parseReleaseVersion(const QJsonObject &release);
     static CheckResult compareVersions(const QString &currentVersion, const QString &latestVersion);
 
 signals:
