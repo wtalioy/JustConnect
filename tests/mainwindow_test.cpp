@@ -647,12 +647,18 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
 #ifdef Q_OS_MACOS
 bool hasBlendedNativeFrame(QWidget &widget, bool isHome = false);
 
+static void waitForBlendedNativeFrame(QWidget &widget, bool isHome = false)
+{
+    // Cocoa reports safe-area changes on the next run-loop pass.
+    UiWait::until(__FILE__,__LINE__,[&] {return hasBlendedNativeFrame(widget,isHome);});
+}
+
 static void nativeDialogChrome(MainWindow &window)
 {
     QTimer::singleShot(0,&window,[] {
         auto *about = qobject_cast<QDialog *>(QApplication::activeModalWidget());
         check(about && about->objectName() == "aboutDialog","About opens from the application menu");
-        check(hasBlendedNativeFrame(*about),"About blends its background into the native frame and keeps the close button");
+        waitForBlendedNativeFrame(*about);
         for (const auto name : {"aboutAppName","aboutVersion"}) {
             auto *label = about->findChild<QLabel *>(name);
             check(label && about->contentsRect().contains(label->geometry())
@@ -667,12 +673,12 @@ static void nativeDialogChrome(MainWindow &window)
     using PresentationHelpers::PromptDialog;
     PromptDialog prompt(&window,"Clear authentication cache","Clear the saved sign-in?",PromptDialog::Tone::Question,"Clear",true);
     prompt.show();
-    check(hasBlendedNativeFrame(prompt) && prompt.accessibleName() == "Clear authentication cache",
-        "confirmation blends its background into the native frame and keeps the accessible heading");
+    waitForBlendedNativeFrame(prompt);
+    check(prompt.accessibleName() == "Clear authentication cache","confirmation keeps the accessible heading");
     prompt.reject();
     PresentationHelpers::UpdateProgressDialog progress(&window);
     progress.show();
-    check(hasBlendedNativeFrame(progress),"update progress blends its background into the native frame");
+    waitForBlendedNativeFrame(progress);
     progress.reject();
 }
 #endif
@@ -1023,7 +1029,7 @@ int main(int argc,char **argv) {
         }
         if (native) {
 #ifdef Q_OS_MACOS
-            check(hasBlendedNativeFrame(window,true),"the macOS home blends its frame and keeps its title and native controls");
+            waitForBlendedNativeFrame(window,true);
             auto *profile = window.findChild<QWidget *>("profileMenuButton");
             const auto headerGap = profile->mapTo(&window,QPoint{}).y()-window.contentsRect().top();
             check(headerGap >= 0 && headerGap < 16,"the macOS profile selector sits closer to the native controls");
@@ -1048,7 +1054,7 @@ int main(int argc,char **argv) {
         }
         window.show();
 #ifdef Q_OS_MACOS
-        if (native) check(hasBlendedNativeFrame(window,true),"reopening the macOS home preserves the blended native frame");
+        if (native) waitForBlendedNativeFrame(window,true);
 #endif
         auto *inspectNetwork = window.findChild<QAction *>("inspectNetworkAction");
         check(inspectNetwork, "network inspection is reachable from the main menu");
