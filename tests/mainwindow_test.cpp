@@ -89,7 +89,7 @@ static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,con
 #ifdef Q_OS_MACOS
         acknowledged=acknowledgeMacUpdateInformation();
 #elif defined(Q_OS_WIN)
-        acknowledged=acknowledgeWindowsUpdateInformation(reinterpret_cast<HWND>(owner.winId()),title,description);
+        acknowledged=acknowledgeWindowsUpdateInformation(reinterpret_cast<HWND>(owner.winId()),QStringLiteral("JustConnect"),description);
 #else
         auto *dialog=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
         if (!dialog) return false;

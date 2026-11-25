@@ -171,7 +171,11 @@ MainWindow::MainWindow(
                     description=tr("JustConnect couldn’t get the latest release information. Try again later.");
                     tone=PromptDialog::Tone::Warning;
                 } else {
+#ifdef Q_OS_WIN
+                    title=QApplication::applicationDisplayName();
+#else
                     title=result==CheckResult::UpToDate ? tr("You’re up to date!") : tr("Latest stable release");
+#endif
                     description=currentVersion==latestVersion
                         ? tr("JustConnect %1 is the latest stable release.").arg(currentVersion)
                         : tr("You’re using JustConnect %1. The latest stable release is %2.").arg(currentVersion,latestVersion);
