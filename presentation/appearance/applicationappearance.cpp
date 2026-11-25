@@ -22,7 +22,7 @@
 
 #ifdef Q_OS_MACOS
 namespace ApplicationAppearance {
-void hideNativeWindowTitle(QWidget &window);
+void blendNativeTitleBar(QWidget &window);
 }
 #endif
 
@@ -49,7 +49,7 @@ public:
 #ifdef Q_OS_MACOS
         if (event->type() == QEvent::Show && window && window->isWindow()
             && window->windowFlags().testFlag(Qt::NoTitleBarBackgroundHint))
-            ApplicationAppearance::hideNativeWindowTitle(*window);
+            ApplicationAppearance::blendNativeTitleBar(*window);
 #endif
         if(event->type()==QEvent::Polish) {
             if (auto *menu = qobject_cast<QMenu *>(window)) styleTextMenu(menu);
