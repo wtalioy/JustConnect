@@ -206,10 +206,7 @@ func (d *Dialer) dialIP(ctx context.Context, network string, endpoint netip.Addr
 		// proxy (socks_destination_denied). Any other destination sharing the
 		// address follows the normal policy below.
 		if host == d.OriginalAuthentication.Name {
-			if useVPN && !d.campusForced {
-				return d.dialOrdinary(ctx, network, endpoint.String())
-			}
-			if useVPN {
+			if useVPN && d.campusForced {
 				return nil, policy.ErrProtectedTarget
 			}
 			return d.dialOrdinary(ctx, network, endpoint.String())
