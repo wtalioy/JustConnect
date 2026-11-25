@@ -3,7 +3,7 @@ package zctcpip
 import (
 	"encoding/binary"
 	"errors"
-	"net"
+	"net/netip"
 )
 
 type IPProtocol = byte
@@ -41,12 +41,12 @@ func (p IPv4Packet) Protocol() IPProtocol {
 	return p[9]
 }
 
-func (p IPv4Packet) SourceIP() net.IP {
-	return net.IPv4(p[12], p[13], p[14], p[15])
+func (p IPv4Packet) SourceAddr() netip.Addr {
+	return netip.AddrFrom4([4]byte(p[12:16]))
 }
 
-func (p IPv4Packet) DestinationIP() net.IP {
-	return net.IPv4(p[16], p[17], p[18], p[19])
+func (p IPv4Packet) DestinationAddr() netip.Addr {
+	return netip.AddrFrom4([4]byte(p[16:20]))
 }
 
 func (p IPv4Packet) Valid() bool {

@@ -10,6 +10,8 @@
 #include <QDir>
 #include <QFile>
 #include <QMainWindow>
+#include <QScreen>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QToolButton>
 #include <QMouseEvent>
@@ -32,8 +34,10 @@
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
 
 static void check(bool ok,const char *message) {
     if (!ok) {std::cerr<<message<<'\n';std::exit(1);}
@@ -57,30 +61,51 @@ protected:
         ++paints;
     }
 };
-static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton primary,
-    QDialogButtonBox::StandardButton dismiss,const QString &title,const QString &body,
-    const QString &label,const QString &reportName)
+using PresentationHelpers::PromptDialog;
+
+static void actionPromptLayout(QWidget &parent,PromptDialog::Tone tone,const QString &title,
+    const QString &body,const QString &label,const QString &reportName)
 {
     bool observed=false;
     QTimer::singleShot(0,&parent,[&] {
-        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
-        check(dialog && dialog->objectName()=="actionPrompt","the styled prompt is the active modal dialog");
-        auto *box=dialog->findChild<QDialogButtonBox *>();
+        auto *dialog=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+        check(dialog && dialog->tone()==tone,"the shared prompt is the active modal dialog");
         auto *icon=dialog->findChild<QLabel *>("promptIcon");
+        auto *heading=dialog->findChild<QLabel *>("promptHeading");
         auto *text=dialog->findChild<QLabel *>("promptBody");
-        auto *action=box->button(primary);
-        auto *cancel=box->button(dismiss);
-        check(dialog->windowTitle()==title && text->text()==body
-            && dialog->findChildren<QLabel *>().size()==2,
-            "the native title is the only heading and the body appears once");
-        check(icon->size()==QSize(36,36) && qAbs(icon->geometry().center().y()-text->geometry().center().y())<=1,
-            "prompt icon is aligned with the body");
-        check(text->height()>=text->heightForWidth(text->width()) && dialog->rect().contains(box->geometry())
-            && action->height()==cancel->height() && box->rect().contains(action->geometry()),
-            "wrapped copy and both actions fit inside the prompt");
-        check(text->height()<=qMax(icon->height(),text->heightForWidth(text->width()))+2,
-            "the dialog leaves no extra vertical space around the wrapped copy");
+        auto *action=dialog->primaryButton();
+        auto *cancel=dialog->dismissButton();
+        const bool update=tone==PromptDialog::Tone::Update;
+        check(dialog->accessibleName()==title && heading->text()==title && text->text()==body
+            && heading->font().pointSizeF()>text->font().pointSizeF()
+            && heading->geometry().bottom()<text->geometry().top(),"the heading and wrapped body form a clear hierarchy");
+        check(icon->size()==QSize(44,44) && !icon->pixmap().isNull() && icon->y()==heading->y(),
+            "the icon starts at the same inset as the heading");
+        check(dialog->width()==qMin(504,dialog->screen()->availableGeometry().width()-32)
+            && text->height()>=text->heightForWidth(text->width())
+            && dialog->contentsRect().contains(text->geometry())
+            && dialog->contentsRect().contains(action->geometry()),"the copy and action fit within the dialog");
+        if (cancel) check(action->height()==cancel->height() && dialog->contentsRect().contains(cancel->geometry())
+            && (cancel->geometry().right()<action->geometry().left() || cancel->geometry().bottom()<action->geometry().top())
+            && cancel->isDefault()!=update && action->isDefault()==update && !cancel->property("promptPrimary").toBool(),
+            "Cancel precedes the primary button and remains the keyboard default for confirmations");
+        else check(action->isDefault() && action->text()=="OK","a notice has one default acknowledgment");
+        check(dialog->focusWidget()==heading,"the prompt opens without a button focus outline");
+        UiWait::until(__FILE__,__LINE__,[&]{return heading->hasFocus();});
+        const auto fill = [](QPushButton *button) {
+            const auto pixels = button->grab().toImage();
+            return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
+        };
+        const auto actionFill=fill(action);
+        check(action->property("promptPrimary").toBool()
+            && actionFill.blue()>actionFill.red()+60 && actionFill.green()<170,
+            "only the primary action is accented");
+        if (cancel) {
+            const auto cancelFill=fill(cancel);
+            check(cancelFill.red()>220 && cancelFill.green()>220,"Cancel renders neutral even when it is the default");
+        }
         for (auto *button : {action,cancel}) {
+            if (!button) continue;
             QStyleOptionButton option;
             option.initFrom(button);
             option.text=button->text();
@@ -88,28 +113,70 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
             check(contents.width()>=button->fontMetrics().size(Qt::TextShowMnemonic,button->text()).width(),
                 "button text fits with the shared padding");
         }
-        check(action->property("promptPrimary").toBool() && cancel->isDefault() && !action->isDefault(),
-            "the blue action and safe keyboard default are independent");
-        const auto fill = [](QPushButton *button) {
-            const auto pixels = button->grab().toImage();
-            return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
-        };
-        const auto actionFill=fill(action), cancelFill=fill(cancel);
-        check(actionFill.blue()>actionFill.red()+60 && actionFill.green()<170
-            && cancelFill.red()>220 && cancelFill.green()>220,
-            "the affirmative button renders blue and the keyboard default renders neutral");
         const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
         if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath(reportName)),"save styled prompt screenshot");
+        if (cancel && tone==PromptDialog::Tone::Question) {
+            QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);
+            QApplication::sendEvent(heading,&tab);
+            check(dialog->focusWidget()==cancel,"Tab first reaches Cancel in a destructive prompt");
+            QApplication::sendEvent(cancel,&tab);
+            check(dialog->focusWidget()==action,"Tab then reaches the destructive action");
+        }
         observed=true;
-        if (primary==QDialogButtonBox::Yes) {
+        if (tone==PromptDialog::Tone::Information && cancel) action->click();
+        else {
             QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-            QCoreApplication::sendEvent(dialog,&enter);
-        } else {
-            action->click();
+            QCoreApplication::sendEvent(dialog->focusWidget(),&enter);
         }
     });
-    const bool accepted=PresentationHelpers::actionPrompt(&parent,title,body,primary,dismiss,label);
-    check(observed && accepted==(primary!=QDialogButtonBox::Yes),"Return dismisses a deletion and the settings button accepts");
+    if (label.isEmpty()) PresentationHelpers::showMessage(&parent,title,body,tone);
+    else check(PresentationHelpers::actionPrompt(&parent,title,body,label,tone)==(tone!=PromptDialog::Tone::Question),
+        "Return cancels a destructive action, while the update and settings actions accept");
+    check(observed,"the prompt was exercised");
+}
+
+static void updateProgressLayout(QWidget &parent)
+{
+    PresentationHelpers::UpdateProgressDialog dialog(&parent);
+    auto *progress=dialog.findChild<QProgressBar *>();
+    auto *heading=dialog.findChild<QLabel *>("promptHeading");
+    auto *status=dialog.findChild<QLabel *>("updateProgressStatus");
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    dialog.setModal(true);
+    dialog.show();
+    dialog.setDownloadProgress(37);
+    QCoreApplication::processEvents();
+    const auto track=progress->grab().toImage();
+    const auto filled=track.pixelColor(track.width()/4,track.height()/2);
+    const auto empty=track.pixelColor(track.width()*3/4,track.height()/2);
+    const auto trackWidth=progress->width();
+    const auto headingFits = [&] {
+        return dialog.contentsRect().contains(heading->geometry())
+            && heading->height()>=heading->sizeHint().height();
+    };
+    check(progress->value()==37 && progress->height()==8 && filled.blue()>filled.red()+60 && empty.red()>210
+        && status->text()==progress->text() && !status->text().isEmpty()
+        && status->alignment().testFlag(Qt::AlignLeft) && status->x()-progress->geometry().right()<=13
+        && dialog.contentsRect().contains(progress->geometry()) && headingFits() && !dialog.findChild<QPushButton *>(),
+        "download progress renders as a thin accent track with adjacent text and no button row");
+    if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-downloading.png")),"save download progress screenshot");
+    check(dialog.close() && dialog.result()==QDialog::Rejected,"closing the progress window cancels the pending download");
+
+    dialog.show();
+    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+    QCoreApplication::sendEvent(&dialog,&escape);
+    check(!dialog.isVisible() && dialog.result()==QDialog::Rejected,"Escape cancels the pending download");
+
+    dialog.show();
+    dialog.prepareToInstall();
+    QCoreApplication::processEvents();
+    check(heading->text()=="Installing update" && status->text()=="Preparing…"
+        && progress->minimum()==0 && progress->maximum()==0 && progress->width()==trackWidth && headingFits(),
+        "installer preparation switches the track to a busy indicator at the same width");
+    QCoreApplication::sendEvent(&dialog,&escape);
+    check(dialog.isVisible() && !dialog.close(),"installer preparation stays visible on Escape or window close");
+    if (!report.isEmpty()) check(dialog.grab().save(QDir(report).filePath("update-preparing.png")),"save installer preparation screenshot");
+    dialog.accept();
 }
 
 static void checkboxAlignment(const QString &caption, bool checked = true) {
@@ -240,27 +307,50 @@ static void textContextMenus()
 }
 
 int main(int argc,char **argv) {
+    const bool checkboxOnly = std::find(argv, argv + argc, std::string_view("--checkbox-only")) != argv + argc;
+    if (checkboxOnly)
+        std::cerr << "Initializing Qt for the checkbox checks\n";
     QApplication app(argc,argv);
+    if (checkboxOnly)
+        std::cerr << "Installing the application appearance\n";
     ApplicationAppearance::install();
-    if (app.arguments().contains("--checkbox-only")) {
-        checkboxAlignment(QStringLiteral("Launch at sign-in"), false);
-        checkboxAlignment(QStringLiteral("后台启动"), false);
-        checkboxAlignment(QStringLiteral("Remember authentication"));
-        checkboxAlignment(QStringLiteral("Check for updates at startup"));
-        checkboxAlignment(QStringLiteral("Start in the background"));
-        checkboxAlignment(QStringLiteral("Skip tunnel verification"));
-        checkboxAlignment(QStringLiteral("验证服务器证书"));
-        checkboxAlignment(QStringLiteral("记住登录"));
+    if (checkboxOnly) {
+        const struct {
+            QString caption;
+            bool checked;
+        } cases[] = {
+            {QStringLiteral("Launch at sign-in"), false},
+            {QStringLiteral("后台启动"), false},
+            {QStringLiteral("Remember authentication"), true},
+            {QStringLiteral("Check for updates at startup"), true},
+            {QStringLiteral("Start in the background"), true},
+            {QStringLiteral("Skip tunnel verification"), true},
+            {QStringLiteral("验证服务器证书"), true},
+            {QStringLiteral("记住登录"), true},
+        };
+        for (const auto &[caption, checked] : cases) {
+            std::cerr << "Rendering checkbox: " << caption.toStdString() << '\n';
+            checkboxAlignment(caption, checked);
+        }
+        std::cerr << "Finished checkbox rendering checks\n";
         return 0;
     }
     QWidget promptParent;
     promptParent.show();
-    actionPromptLayout(promptParent,QDialogButtonBox::Yes,QDialogButtonBox::No,"Clear authentication cache",
+    actionPromptLayout(promptParent,PromptDialog::Tone::Update,"Update available",
+        "Version 0.0.3 is available. You’re using 0.0.2.","Open release page","update-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear authentication cache",
         "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
-        {},"cache-prompt.png");
-    actionPromptLayout(promptParent,QDialogButtonBox::Open,QDialogButtonBox::Cancel,"Background access required",
+        "Clear","cache-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Question,"Clear legacy data",
+        "Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept.",
+        "Clear","legacy-data-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Information,"Background access required",
         "Allow JustConnect under Login Items & Extensions, then connect again.",
         "Open System Settings","background-prompt.png");
+    actionPromptLayout(promptParent,PromptDialog::Tone::Warning,"Could not save connection",
+        "Your draft was preserved. Check the file permissions and try again.",{},"warning-prompt.png");
+    updateProgressLayout(promptParent);
     promptParent.hide();
     textContextMenus();
     checkboxAlignment(QStringLiteral("Launch at sign-in"));
@@ -477,7 +567,7 @@ int main(int argc,char **argv) {
         "natural-width captions render fully, matching a roomier button even with fractional glyph advances");
     QPushButton details("Details");details.setObjectName("detailsButton");details.setFlat(true);layout.addWidget(&details);details.show();
     QToolButton tool;tool.setAutoRaise(true);tool.setFocusPolicy(Qt::StrongFocus);layout.addWidget(&tool);tool.show();
-    QWidget::setTabOrder(&secret,&details);QCoreApplication::processEvents();secret.setFocus();
+    QWidget::setTabOrder(&secret,&details);inputs.activateWindow();QCoreApplication::processEvents();secret.setFocus();
     UiWait::until(__FILE__,__LINE__,[&]{return secret.hasFocus();});
     check(details.focusPolicy()==Qt::TabFocus && tool.focusPolicy()==Qt::TabFocus,
         "flat and icon tools keep keyboard focus without mouse click focus");

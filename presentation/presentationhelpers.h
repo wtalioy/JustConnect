@@ -4,7 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QList>
-#include <QDialogButtonBox>
+#include <QDialog>
 #include <functional>
 #include "application/platformoperationresult.h"
 #include "application/credentialstore.h"
@@ -13,17 +13,67 @@ class QWidget;
 class QLineEdit;
 class QAction;
 class QAbstractButton;
+class QBoxLayout;
+class QLabel;
+class QProgressBar;
+class QPushButton;
 class QTreeWidget;
 
 namespace PresentationHelpers
 {
+class ContentDialog : public QDialog {
+public:
+    explicit ContentDialog(QWidget *parent);
+    void fitHeight();
+
+protected:
+    void changeEvent(QEvent *event) override;
+};
+
+class PromptDialog : public ContentDialog {
+    Q_OBJECT
+public:
+    enum class Tone { Information, Question, Warning, Critical, Update };
+    PromptDialog(QWidget *parent,const QString &title,const QString &body,Tone tone,
+        const QString &primaryText={},bool cancellable=false);
+    void setContent(const QString &title,const QString &body,const QString &primaryText={});
+    QString text() const;
+    Tone tone() const { return promptTone; }
+    QPushButton *primaryButton() const { return primary; }
+    QPushButton *dismissButton() const { return dismiss; }
+private:
+    void fitContent();
+    Tone promptTone;
+    QLabel *heading;
+    QLabel *bodyLabel;
+    QPushButton *primary;
+    QPushButton *dismiss = nullptr;
+    QBoxLayout *buttons;
+};
+
+class UpdateProgressDialog : public ContentDialog {
+    Q_OBJECT
+public:
+    explicit UpdateProgressDialog(QWidget *parent);
+    void setDownloadProgress(int percentage);
+    void prepareToInstall();
+    void reject() override;
+
+private:
+    QLabel *heading;
+    QLabel *status;
+    QProgressBar *progress;
+};
+
 QString credentialOperationMessage(CredentialStatus status);
 QString platformOperationMessage(const PlatformOperationResult &result);
 void showAboutDialog(QWidget *parent);
 void activateWindow(QWidget *window);
-bool actionPrompt(QWidget *parent,const QString &title,const QString &body,
-    QDialogButtonBox::StandardButton primary=QDialogButtonBox::Yes,
-    QDialogButtonBox::StandardButton dismiss=QDialogButtonBox::No,const QString &primaryText={});
+void blendWindowTitleBar(QWidget &window);
+bool actionPrompt(QWidget *parent,const QString &title,const QString &body,const QString &primaryText,
+    PromptDialog::Tone tone=PromptDialog::Tone::Question);
+void showMessage(QWidget *parent,const QString &title,const QString &body,
+    PromptDialog::Tone tone=PromptDialog::Tone::Information);
 QAction *passwordVisibilityAction(QLineEdit *field);
 void setButtonIcon(QAbstractButton *button,const QString &path);
 void connectCopyButton(QAbstractButton *button, std::function<QString()> text);

@@ -85,7 +85,7 @@ NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &own
             if(!found)return {};
         }
     }
-    return [configuration,name,index,owned,dnsKey,expectedDns,original](QJsonObject network,QJsonObject dns)
+    return [configuration,name,index,owned,dnsKey,expectedDns,original](QJsonObject network,QJsonObject dns,QString *)
         -> std::optional<NetworkPolicySession::OriginalView> {
         if (!assignedUnixTunPair(name,index,configuration.address,configuration.peer) || !network["interfaces"].isArray() || !network["routes"].isArray()) return {};
         const auto native = readMacRoutes(); if (!native.result.succeeded()) return {};

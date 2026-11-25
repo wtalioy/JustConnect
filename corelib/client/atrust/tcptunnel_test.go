@@ -37,19 +37,24 @@ func BenchmarkTCPTunnelWrite(b *testing.B) {
 }
 
 func BenchmarkTCPTunnelRead(b *testing.B) {
-	for _, size := range []int{128, 1200, 32768} {
-		b.Run(fmt.Sprint(size), func(b *testing.B) {
+	for _, size := range []int{128, 1200, 32768, 65535} {
+		bufferSize := min(size, 32768)
+		b.Run(fmt.Sprintf("%d_into_%d", size, bufferSize), func(b *testing.B) {
 			frame := make([]byte, size+4)
 			frame[0] = 1
 			binary.BigEndian.PutUint16(frame[2:4], uint16(size))
 			source := bytes.NewReader(frame)
 			conn := &tcpTunnelConn{reader: bufio.NewReader(source)}
-			payload := make([]byte, size)
+			payload := make([]byte, bufferSize)
 			b.SetBytes(int64(size))
 			b.ReportAllocs()
 			for b.Loop() {
-				if n, err := conn.Read(payload); n != size || err != nil {
-					b.Fatal(n, err)
+				for remaining := size; remaining > 0; {
+					n, err := conn.Read(payload)
+					if n != min(remaining, len(payload)) || err != nil {
+						b.Fatal(n, err)
+					}
+					remaining -= n
 				}
 				source.Reset(frame)
 			}
@@ -60,20 +65,23 @@ func BenchmarkTCPTunnelRead(b *testing.B) {
 func TestTCPTunnelReadDecodesDownstreamFramesAcrossBufferSizes(t *testing.T) {
 	for _, bufferSize := range []int{2, 5, 16} {
 		t.Run(fmt.Sprintf("buffer_%d", bufferSize), func(t *testing.T) {
-			payload := []byte("hello")
-			frame := append([]byte{0x01, 0x00, 0x00, byte(len(payload))}, payload...)
-			conn := &tcpTunnelConn{reader: bufio.NewReader(bytes.NewReader(frame))}
+			frames := []byte("\x01\x00\x00\x05hello\x01\x00\x00\x01!\x01\x00\x00\x05world")
+			frames = append(frames, []byte("\x01\x00\x00\x05bad")...)
+			conn := &tcpTunnelConn{reader: bufio.NewReader(bytes.NewReader(frames))}
 			var got []byte
 			buf := make([]byte, bufferSize)
-			for len(got) < len(payload) {
+			for {
 				n, err := conn.Read(buf)
+				if errors.Is(err, io.ErrUnexpectedEOF) && n == 0 {
+					break
+				}
 				if err != nil {
-					t.Fatalf("Read() error = %v", err)
+					t.Fatalf("Read() = (%d, %v), want a complete read or a rejected truncated frame", n, err)
 				}
 				got = append(got, buf[:n]...)
 			}
-			if !bytes.Equal(got, payload) {
-				t.Fatalf("Read() payload = %q, want %q", got, payload)
+			if string(got) != "hello!world" {
+				t.Fatalf("Read() payload = %q, want %q", got, "hello!world")
 			}
 		})
 	}
@@ -156,26 +164,25 @@ func TestWaitForTCPConnectPreservesBufferedDownstreamData(t *testing.T) {
 	}
 }
 
-func TestReadSOCKS5ConnectReplyReturnsReuseFlag(t *testing.T) {
-	reply := []byte{0x05, 0x00, 0x01, 0x01, 10, 249, 8, 102, 0x01, 0xBB}
-	status, reuse, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(reply)))
-	if err != nil {
-		t.Fatalf("readSOCKS5ConnectReply() error = %v", err)
-	}
-	if status != 0x00 {
-		t.Fatalf("readSOCKS5ConnectReply() status = 0x%02X, want 0x00", status)
-	}
-	if !reuse {
-		t.Fatal("readSOCKS5ConnectReply() reuse = false, want true")
-	}
-
-	reply[2] = 0x00
-	_, reuse, err = readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(reply)))
-	if err != nil {
-		t.Fatalf("readSOCKS5ConnectReply(non-reuse) error = %v", err)
-	}
-	if reuse {
-		t.Fatal("readSOCKS5ConnectReply() reuse = true, want false")
+func TestReadSOCKS5ConnectReply(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		reply []byte
+		reuse bool
+	}{
+		{"IPv4", []byte{5, 0, 0, 1, 10, 249, 8, 102, 1, 0xbb}, false},
+		{"IPv6 reuse", append([]byte{5, 0, 1, 4}, make([]byte, 18)...), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status, reuse, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(test.reply)))
+			if status != 0 || reuse != test.reuse || err != nil {
+				t.Fatalf("reply = (%d, %t, %v), want (0, %t, nil)", status, reuse, err, test.reuse)
+			}
+			short := test.reply[:len(test.reply)-1]
+			if _, _, err := readSOCKS5ConnectReply(bufio.NewReader(bytes.NewReader(short))); !errors.Is(err, io.EOF) {
+				t.Fatalf("truncated bind address error = %v, want EOF", err)
+			}
+		})
 	}
 }
 
@@ -421,7 +428,7 @@ func TestParseTCPTunnelAuthResponse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := parseTCPTunnelAuthResponse(test.response)
+			err := parseTCPTunnelAuthResponse([]byte(test.response))
 			if test.wantErrMsg == "" {
 				if err != nil {
 					t.Fatalf("parseTCPTunnelAuthResponse() error = %v", err)
@@ -511,19 +518,6 @@ func TestTCPTunnelAuthRequestOmitsEmptyDestIP(t *testing.T) {
 	}
 }
 
-func TestEncodeTCPTunnelAuthLengthRejectsOverflow(t *testing.T) {
-	encoded, err := encodeTCPTunnelAuthLength(0xFFFF)
-	if err != nil {
-		t.Fatalf("encodeTCPTunnelAuthLength() error = %v", err)
-	}
-	if got := binary.BigEndian.Uint16(encoded[:]); got != 0xFFFF {
-		t.Fatalf("encoded length = %d, want %d", got, 0xFFFF)
-	}
-	if _, err := encodeTCPTunnelAuthLength(0x10000); err == nil {
-		t.Fatal("encodeTCPTunnelAuthLength() accepted an overflowing length")
-	}
-}
-
 type shortWriter struct{}
 
 func (shortWriter) Write(data []byte) (int, error) {
@@ -537,15 +531,25 @@ func TestWriteTCPTunnelHandshakeMessageRejectsShortWrite(t *testing.T) {
 	}
 }
 
-func TestWriteTCPTunnelInitialMessagesSelectsWireHandshake(t *testing.T) {
-	initMsg := []byte("init")
-	destMsg := []byte("dest")
+func TestWriteTCPTunnelRequest(t *testing.T) {
 	var got bytes.Buffer
-	if err := writeTCPTunnelInitialMessages(&got, initMsg, destMsg); err != nil {
+	if err := writeTCPTunnelRequest(&got, []byte("{}"), "10.75.11.237", 443, true); err != nil {
 		t.Fatal(err)
 	}
-	if got.String() != "initdest" {
-		t.Fatalf("wire handshake = %q, want initdest", got.String())
+	want := []byte{0x05, 0x01, 0x81, 0x53, 0x03, 0x00, 0x02, '{', '}', 0x05, 0x01, 0x01, 0x01, 10, 75, 11, 237, 0x01, 0xBB}
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Fatalf("wire handshake = % x, want % x", got.Bytes(), want)
+	}
+	got.Reset()
+	if err := writeTCPTunnelRequest(&got, make([]byte, 0xFFFF), "10.75.11.237", 443, false); err != nil {
+		t.Fatal(err)
+	}
+	if size := binary.BigEndian.Uint16(got.Bytes()[5:7]); size != 0xFFFF {
+		t.Fatalf("encoded length = %d, want %d", size, 0xFFFF)
+	}
+	got.Reset()
+	if err := writeTCPTunnelRequest(&got, make([]byte, 0x10000), "10.75.11.237", 443, false); err == nil || got.Len() != 0 {
+		t.Fatalf("oversized auth request wrote %d bytes, err = %v", got.Len(), err)
 	}
 }
 
@@ -560,10 +564,7 @@ func TestEncodeTCPTunnelDestinationCopiesZeroRTTToRSV(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			want := []byte{0x05, 0x01, test.rsv, 0x01, 10, 75, 11, 237, 0x00, 0x50}
-			got, err := encodeTCPTunnelDestination("10.75.11.237", 80, test.zeroRTT)
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := appendTCPTunnelDestination(nil, "10.75.11.237", 80, test.zeroRTT)
 			if !bytes.Equal(got, want) {
 				t.Fatalf("destination = % x, want % x", got, want)
 			}
@@ -582,10 +583,7 @@ func TestEncodeTCPTunnelDestinationDetectsHostType(t *testing.T) {
 		{name: "domain", host: "service.internal", want: append(append([]byte{0x05, 0x01, 0x00, 0x03, 16}, "service.internal"...), 0x01, 0xBB)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := encodeTCPTunnelDestination(test.host, 443, false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := appendTCPTunnelDestination(nil, test.host, 443, false)
 			if !bytes.Equal(got, test.want) {
 				t.Fatalf("destination = % x, want % x", got, test.want)
 			}
@@ -595,10 +593,7 @@ func TestEncodeTCPTunnelDestinationDetectsHostType(t *testing.T) {
 
 func TestEncodeTCPTunnelDestinationTruncatesDomainLengthByte(t *testing.T) {
 	host := strings.Repeat("a", 300)
-	got, err := encodeTCPTunnelDestination(host, 80, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := appendTCPTunnelDestination(nil, host, 80, false)
 	if got[3] != 0x03 || got[4] != byte(len(host)) {
 		t.Fatalf("domain header = % x, want ATYP 03 and truncated length %02x", got[3:5], byte(len(host)))
 	}
@@ -840,38 +835,24 @@ func TestWaitForTCPConnectRejectsMalformedResponse(t *testing.T) {
 	}
 }
 
-func TestMatchTCPIPResourceUsesLastMatchingRule(t *testing.T) {
-	resources := []client.IPResource{
-		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "first"},
-		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "last"},
+func TestDialTCPKeepsTheSelectedIPResource(t *testing.T) {
+	ip := net.IPv4(192, 0, 2, 7)
+	specific := client.IPResource{
+		IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443,
+		Protocol: "tcp", AppID: "specific", NodeGroupID: "specific-node",
 	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443})
-	if !ok {
-		t.Fatal("matchTCPIPResource() did not find matching resource")
+	defaultGrant := client.IPResource{
+		IPMin: net.IPv4(0, 0, 0, 0), IPMax: net.IPv4(255, 255, 255, 255),
+		PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "default", NodeGroupID: "default-node",
 	}
-	if resource.AppID != "last" {
-		t.Fatalf("matched AppID = %q, want last matching rule", resource.AppID)
-	}
-}
-
-func TestMatchTCPIPResourceRejectsTCPPrefL3(t *testing.T) {
-	resources := []client.IPResource{{
-		IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443,
-		Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true,
-	}}
-	if resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443}); ok {
-		t.Fatalf("matchTCPIPResource() = %#v, want no TCP tunnel resource", resource)
-	}
-}
-
-func TestMatchTCPIPResourceExcludesL3WhenTCPAlsoMatches(t *testing.T) {
-	resources := []client.IPResource{
-		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "tcp-app"},
-		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true},
-	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222})
-	if !ok || resource.AppID != "tcp-app" {
-		t.Fatalf("matchTCPIPResource() = (%#v, %t), want regular tcp-app", resource, ok)
+	c := NewClient(ClientOptions{})
+	defer c.Close()
+	c.resourceIndex = ipresource.New([]client.IPResource{specific, defaultGrant})
+	c.BestNodes = map[string]string{}
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyIPResource, specific)
+	_, err := c.DialTCP(ctx, &net.TCPAddr{IP: ip, Port: 443})
+	if !errors.Is(err, client.ErrTCPNodeConnect) || !strings.Contains(err.Error(), `"specific-node"`) {
+		t.Fatalf("DialTCP chose a different node group: %v", err)
 	}
 }
 

@@ -7,7 +7,7 @@
 <p align="center"><strong>Connect to campus. Keep your network.</strong></p>
 
 <p align="center">
-  An open-source aTrust client for Windows and macOS.
+  An open-source aTrust client for Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@ Always remember your saved sign-in between launches. As long as it’s still val
 
 ### Lightweight. Ready to go.
 
-14–22 MiB for JustConnect vs. 201–224 MiB for official aTrust client. Get onto your campus network with about a tenth of the download.
+14–22 MiB for the Windows and macOS builds vs. 201–224 MiB for official aTrust client. Get onto your campus network with about a tenth of the download.
 
 ## Screenshots
 
@@ -45,10 +45,23 @@ Always remember your saved sign-in between launches. As long as it’s still val
 | --- | --- |
 | **Windows** · x64 or ARM64 | Run the installer, or extract the portable ZIP and open `JustConnect.exe`. |
 | **macOS** · 14.4 or later, Apple silicon or Intel | Open the DMG and drag JustConnect into Applications. |
+| **Linux** · x64 | Extract the portable archive and run `bin/JustConnect`, or use `sudo apt install ./JustConnect-…-linux-x64.deb` on a compatible system. |
 
 Windows installers are unsigned, so Windows may show a warning.
 
 macOS builds are not notarized. If macOS blocks the first launch, confirm you downloaded the DMG from [JustConnect Releases](https://github.com/wtalioy/JustConnect/releases), then go to **System Settings → Privacy & Security → Open Anyway**.
+
+#### Linux requirements
+
+- **Sign-in** requires WebKitGTK 4.1. The `.deb` installs it as a dependency. For the portable build, install it through your distribution’s package manager. Wayland sessions also need XWayland.
+- **Automatic routing** requires polkit and an active systemd-resolved with `/etc/resolv.conf` using its DNS stub at `127.0.0.53`. The `.deb` installs the network helper. With the portable build, run `sudo ./setup-network-helper.sh` from the extracted directory after installing or upgrading.
+- **Saved sign-in** requires a Secret Service keyring. Without one, JustConnect keeps the sign-in in memory until you quit.
+
+The `.deb` is built and tested on Debian 13. See [Building on Linux](docs/build-linux.md) for source builds and packaging details.
+
+### Update
+
+Choose **Check for updates → Install update** to download, verify, and install a new release. JustConnect disconnects cleanly before installation and reopens afterward. The Windows installer, a writable macOS app bundle, and the Linux `.deb` support in-app updates. Linux asks for system authorization when installing. For portable builds, use the release page to get the new package.
 
 ### Connect
 
@@ -62,12 +75,16 @@ The default. Click **Connect** and follow the sign-in and network permission pro
 
 Select **Local proxy only**, then click **Connect** and sign in. Point your proxy app at `127.0.0.1` and the Local SOCKS5 port in your connection settings. Your proxy app handles routing; JustConnect leaves system routes, DNS, and proxy settings alone and needs no privileged network helper.
 
-**Using Clash Verge Rev?** Once connected, choose **Copy Clash Extend Script** from JustConnect’s connection menu. In [Extend Script](https://www.clashverge.dev/guide/script.html) for your active profile:
+Send campus hostnames through the proxy so JustConnect can resolve them with campus DNS. If Firefox connects directly to JustConnect over SOCKS5, enable **Proxy DNS when using SOCKS v5**.
+
+**Using Clash Verge Rev?** Once connected, choose **Import into Clash Verge Rev** from the connection menu, then use **Reactivate Profiles** in Clash Verge Rev. The import adds the campus rules after your existing global script runs and keeps the original file as `Script.js.justconnect.bak`.
+
+**Copying the script manually?** Choose **Copy Clash Extend Script**, then open the extend script in your proxy app. For example, use [Extend Script](https://www.clashverge.dev/guide/script.html) in Clash Verge Rev.
 
 - **New script:** Paste the whole script.
 - **Existing script:** Paste the `addJustConnect` function and call `addJustConnect(config);` before your `main` returns.
 
-Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and copy the script again.
+Apply the script in **Rule** mode. It adds a node named after your connection and uses the gateway’s campus rules, including protocol and port limits, while keeping your existing rules. If an authorized SSH destination is missing, add its IPv4 address and port under **Additional Clash destinations** (for example, `192.0.2.10:22`), then reconnect and import or copy the updated script.
 
 ## License and credits
 

@@ -48,13 +48,8 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
     using Status=PlatformOperationResult::Status;
     const auto unsupported=[](const char *message){return WindowsHelperPreparation{{Status::Unsupported,QString::fromLatin1(message)},{}};};
     const auto protection=originalDnsProtection(dns);
-    const auto global=dns["native_global"].toObject();const auto text=global["Value"].toObject()["SettingFlags"].toString();
-    bool valid=false;const auto flags=text.toULongLong(&valid);
-    if(!protection || global["Status"]!=0 || !valid || QString::number(flags)!=text || !WindowsDNS::plainGlobalPolicy(flags)
-        || !dns["nrpt_sources"].isArray() || !dns["nrpt"].isArray() || !dns["configured_encryption"].isArray() || !dns["doh"].isArray())
-        return unsupported("The original Windows DNS source or security policy cannot be confirmed.");
-    const bool encrypted=(flags&(WindowsDNS::EnableDoh|WindowsDNS::EnableDot)) && !(flags&WindowsDNS::EncryptionDisabled);
-    if(encrypted && dns["doh_supported"]!=true)return unsupported("The original Windows DNS encryption table is unavailable.");
+    if(!protection || !dns["nrpt_sources"].isArray() || !dns["nrpt"].isArray())
+        return unsupported("The original Windows DNS source inventory cannot be confirmed.");
     QStringList local;
     for(const auto &item:network["interfaces"].toArray()){
         const auto row=item.toObject();if(row["up"]!=true)continue;
@@ -75,7 +70,9 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
             for(const auto &reference:target["sources"].toArray()){
                 const auto ref=reference.toObject();const auto at=ref["index"].toInt(-1);
                 if(ref["kind"]!="namespace" || at<0 || at>=facts.size())return unsupported("A protected Windows name lacks a native namespace source.");
-                const auto origin=facts[at].toObject()["source"].toObject();const auto index=origin["row"].toInt(-1);
+                const auto fact=facts[at].toObject();
+                if(fact["role"]=="search")return unsupported("A Windows DNS search suffix overlaps the campus DNS scope and has no supported native forwarding source.");
+                const auto origin=fact["source"].toObject();const auto index=origin["row"].toInt(-1);
                 if(origin["provider"]!="nrpt" || index<0 || index>=policies.size())return unsupported("The protected name requires an unsupported Windows DNS provider.");
                 const auto policy=policies[index].toObject();const auto names=namespaces(policy["Namespace"].toArray());
                 const auto servers=policy["NameServers"].toArray();
@@ -98,10 +95,6 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
                     if(!server.isString() || address.isNull() || address.isMulticast() || address==QHostAddress::AnyIPv4
                         || address==QHostAddress::AnyIPv6 || address==QHostAddress::Broadcast || sameServer(server.toString(),listen))
                         return unsupported("The original Windows DNS server is not a distinct unicast endpoint.");
-                    if(encrypted){
-                        for(const auto &known:dns["configured_encryption"].toArray())if(sameServer(server.toString(),known.toString()))return unsupported("The original Windows DNS source requires native encryption.");
-                        for(const auto &known:dns["doh"].toArray())if(sameServer(server.toString(),known.toObject()["ServerAddress"].toString()))return unsupported("The original Windows DNS source requires native encryption.");
-                    }
                 }
                 const auto key=id.toString(QUuid::WithBraces).toUpper();
                 if(serverGroups.contains(key) && serverGroups[key]!=servers)return unsupported("One Windows DNS source has conflicting effective server groups.");
@@ -110,11 +103,26 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
         }
         if(!found)return unsupported("The original Windows DNS requirements are not fully mapped.");
     }
+    const auto global=dns["native_global"].toObject();
+    const auto status=global["Status"].toInteger(-1);
+    if(status>0)return {{Status::Unsupported,QStringLiteral("Cannot verify the original Windows DNS transport policy (Windows error %1).").arg(status)}, {}};
+    const auto text=global["Value"].toObject()["SettingFlags"].toString();
+    bool valid=false;const auto flags=text.toULongLong(&valid);
+    if(status!=0 || !valid || QString::number(flags)!=text || !WindowsDNS::plainGlobalPolicy(flags))
+        return unsupported("The original Windows DNS transport policy cannot be confirmed.");
+    if(!dns["configured_encryption"].isArray() || !dns["doh"].isArray())
+        return unsupported("The original Windows DNS encryption table is unavailable.");
+    const bool encrypted=(flags&(WindowsDNS::EnableDoh|WindowsDNS::EnableDot)) && !(flags&WindowsDNS::EncryptionDisabled);
+    if(encrypted && dns["doh_supported"]!=true)return unsupported("The original Windows DNS encryption table is unavailable.");
     WindowsHelperPreparation result;QJsonArray requests,contexts,effective;QList<QJsonObject> routes;QMap<QString,QJsonArray> routed;
     qsizetype count=0;QJsonArray defaultServers;
     for(auto it=selected.begin();it!=selected.end();++it){
         const auto source=it.value();const auto servers=serverGroups[it.key()];QJsonArray endpoints;
         for(const auto &server:servers){
+            if(encrypted){
+                for(const auto &known:dns["configured_encryption"].toArray())if(sameServer(server.toString(),known.toString()))return unsupported("The original Windows DNS source requires native encryption.");
+                for(const auto &known:dns["doh"].toArray())if(sameServer(server.toString(),known.toObject()["ServerAddress"].toString()))return unsupported("The original Windows DNS source requires native encryption.");
+            }
             const auto text=QHostAddress(server.toString()).toString();
             endpoints.append((text.contains(':')?'['+text+']':text)+':'+QString::number(WindowsDNS::ServerPort));
         }

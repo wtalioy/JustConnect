@@ -109,6 +109,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                 ComPtr<ICoreWebView2ControllerOptions> controllerOptions;
                 if (FAILED(modern->CreateCoreWebView2ControllerOptions(&controllerOptions))) {fail();return S_OK;}
                 if (FAILED(controllerOptions->put_IsInPrivateModeEnabled(TRUE))) {fail();return S_OK;}
+                qCDebug(browserLog)<<"controller request start";
                 const auto result=modern->CreateCoreWebView2ControllerWithOptions(reinterpret_cast<HWND>(self->winId()),controllerOptions.Get(),
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([self,callbackUrl,tls,navigation,fail](HRESULT status,ICoreWebView2Controller *controller)->HRESULT {
                         qCDebug(browserLog)<<"controller result"<<Qt::hex<<status;
@@ -230,6 +231,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                         if(state->htmlPending)self->setHtml(state->html);else if(!state->pending.isEmpty())self->load(state->pending);
                         return S_OK;
                     }).Get());
+                qCDebug(browserLog)<<"controller request result"<<Qt::hex<<result;
                 if(FAILED(result))fail();return S_OK;
             }).Get());
         if (FAILED(result)) fail();

@@ -30,6 +30,7 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 		t.Run(fmt.Sprint(saveFails), func(t *testing.T) {
 			var resource atomic.Value
 			var setupCancelled atomic.Bool
+			var renewAfterCancel bool
 			refreshed := make(chan struct{}, 1)
 			gateway := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -37,12 +38,6 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 					fmt.Fprint(w, `{"code":0,"data":{}}`)
 				case "/passport/v1/public/authConfig":
 					fmt.Fprint(w, `{"code":0,"data":{"isLogin":1}}`)
-					if setupCancelled.Load() && r.URL.Query().Get("needTicket") == "0" {
-						select {
-						case refreshed <- struct{}{}:
-						default:
-						}
-					}
 				case "/passport/v1/user/onlineInfo":
 					fmt.Fprint(w, `{"code":0,"data":{"username":"fixture-user"}}`)
 				case "/controller/v1/user/clientResource":
@@ -93,7 +88,25 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 			resource.Store(fmt.Sprintf(`{"data":{"appList":{"data":{"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"test"},"nodeGroupList":[{"ID":"test","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, listener.Addr().String()))
 			host, port, _ := net.SplitHostPort(strings.TrimPrefix(gateway.URL, "https://"))
 			portNumber, _ := strconv.Atoi(port)
-			c := NewClient(ClientOptions{TLSConfig: gateway.Client().Transport.(*http.Transport).TLSClientConfig, UnderlayDialer: &localUnderlay{}, Session: SessionOptions{Username: "fixture-user"}})
+			c := NewClient(ClientOptions{
+				TLSConfig:      gateway.Client().Transport.(*http.Transport).TLSClientConfig,
+				UnderlayDialer: &localUnderlay{},
+				Session:        SessionOptions{Username: "fixture-user"},
+				Observe: func(stage, result string) {
+					if stage != "renewal" {
+						return
+					}
+					if result == "running" {
+						renewAfterCancel = setupCancelled.Load()
+					}
+					if result == "succeeded" && renewAfterCancel {
+						select {
+						case refreshed <- struct{}{}:
+						default:
+						}
+					}
+				},
+			})
 			defer c.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -132,8 +145,12 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 			}
 			select {
 			case <-refreshed:
-			case <-time.After(time.Second):
-				t.Fatal("setup cancellation killed ongoing session refresh")
+			case err := <-c.Errors():
+				t.Fatalf("session failed after setup cancellation: %v", err)
+			case <-c.refreshDone:
+				t.Fatal("refresh worker stopped after setup cancellation")
+			case <-time.After(5 * time.Second):
+				t.Fatal("no successful renewal after setup cancellation")
 			}
 			c.Close()
 			select {

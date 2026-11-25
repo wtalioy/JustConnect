@@ -30,7 +30,7 @@ func (p *Listeners) socksServer() *socks5.Server {
 		socks5.WithConnectHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 			target, err := p.dial(ctx, "tcp", request.DestAddr.String())
 			if err != nil {
-				if p.diagnostic != nil && p.ctx.Err() == nil {
+				if p.diagnostic != nil && p.ctx.Err() == nil && !errors.Is(err, client.ErrTCPTunnelDenied) {
 					code := "socks_campus_dial_failed"
 					switch {
 					case errors.Is(err, dial.ErrACLDenied), errors.Is(err, policy.ErrProtectedTarget), errors.Is(err, client.ErrResourceNotFound):

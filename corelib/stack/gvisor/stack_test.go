@@ -4,20 +4,21 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	clientpkg "github.com/wtalioy/JustConnect/corelib/client"
-	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"io"
 	"net"
 	"sync"
 	"testing"
 	"time"
+
+	clientpkg "github.com/wtalioy/JustConnect/corelib/client"
+	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-func outgoingPacket() *stack.PacketBuffer {
+func outgoingPacket(payloadSize int) *stack.PacketBuffer {
 	packet := stack.NewPacketBuffer(stack.PacketBufferOptions{
-		ReserveHeaderBytes: 40,
-		Payload:            buffer.MakeWithData(bytes.Repeat([]byte{0xa5}, 1160)),
+		ReserveHeaderBytes: 96,
+		Payload:            buffer.MakeWithData(bytes.Repeat([]byte{0xa5}, payloadSize)),
 	})
 	copy(packet.TransportHeader().Push(20), bytes.Repeat([]byte{0x06}, 20))
 	copy(packet.NetworkHeader().Push(20), bytes.Repeat([]byte{0x45}, 20))
@@ -25,25 +26,33 @@ func outgoingPacket() *stack.PacketBuffer {
 }
 
 func TestEndpointWritePacketsPreservesHeadersAndPayload(t *testing.T) {
-	packet := outgoingPacket()
-	defer packet.DecRef()
-	var list stack.PacketBufferList
-	list.PushBack(packet)
-	want := append(bytes.Repeat([]byte{0x45}, 20), bytes.Repeat([]byte{0x06}, 20)...)
-	want = append(want, bytes.Repeat([]byte{0xa5}, 1160)...)
-	var got []byte
-	endpoint := Endpoint{l3Conn: &lifecycleConn{write: func(data []byte) (int, error) {
-		got = bytes.Clone(data)
-		return len(data), nil
-	}}}
-	if count, err := endpoint.WritePackets(list); err != nil || count != 1 || !bytes.Equal(got, want) {
-		t.Fatal("packet headers or payload changed during endpoint write", count, err)
+	for _, test := range []struct {
+		name        string
+		payloadSize int
+	}{{"headers only", 0}, {"headers and payload", 1160}} {
+		t.Run(test.name, func(t *testing.T) {
+			packet := outgoingPacket(test.payloadSize)
+			defer packet.DecRef()
+			var list stack.PacketBufferList
+			list.PushBack(packet)
+			want := append(bytes.Repeat([]byte{0x45}, 20), bytes.Repeat([]byte{0x06}, 20)...)
+			want = append(want, bytes.Repeat([]byte{0xa5}, test.payloadSize)...)
+			endpoint := Endpoint{l3Conn: &lifecycleConn{write: func(data []byte) (int, error) {
+				if !bytes.Equal(data, want) {
+					t.Fatalf("packet contents or reserved header area changed, got %d bytes, want %d", len(data), len(want))
+				}
+				return len(data), nil
+			}}}
+			if count, err := endpoint.WritePackets(list); err != nil || count != 1 {
+				t.Fatal("packet was not written", count, err)
+			}
+		})
 	}
 }
 
 func TestEndpointWritePacketsPreservesErrorHandling(t *testing.T) {
 	for _, denied := range []bool{false, true} {
-		packet := outgoingPacket()
+		packet := outgoingPacket(1160)
 		var list stack.PacketBufferList
 		list.PushBack(packet)
 		failure := errors.New("tunnel write failed")
@@ -66,18 +75,24 @@ func TestEndpointWritePacketsPreservesErrorHandling(t *testing.T) {
 }
 
 func BenchmarkEndpointWritePackets(b *testing.B) {
-	packet := outgoingPacket()
-	defer packet.DecRef()
-	var list stack.PacketBufferList
-	list.PushBack(packet)
-	endpoint := Endpoint{l3Conn: &lifecycleConn{}}
-	b.ReportAllocs()
-	b.SetBytes(1200)
-	b.ResetTimer()
-	for b.Loop() {
-		if count, err := endpoint.WritePackets(list); err != nil || count != 1 {
-			b.Fatal(count, err)
-		}
+	for _, test := range []struct {
+		name        string
+		payloadSize int
+	}{{"40 bytes", 0}, {"1200 bytes", 1160}} {
+		b.Run(test.name, func(b *testing.B) {
+			packet := outgoingPacket(test.payloadSize)
+			defer packet.DecRef()
+			var list stack.PacketBufferList
+			list.PushBack(packet)
+			endpoint := Endpoint{l3Conn: &lifecycleConn{}}
+			b.ReportAllocs()
+			b.SetBytes(int64(packet.Size()))
+			for b.Loop() {
+				if count, err := endpoint.WritePackets(list); err != nil || count != 1 {
+					b.Fatal(count, err)
+				}
+			}
+		})
 	}
 }
 

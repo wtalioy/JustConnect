@@ -13,6 +13,10 @@ type domainResourceEntry struct {
 
 type domainResourceIndex map[string]*domainResourceEntry
 
+func (r *Resolver) HasDomainGrant(host string) bool {
+	return r.domainIndex.Contains(normalizeHostname(host))
+}
+
 func newDomainResourceIndex(resources client.DomainResources) domainResourceIndex {
 	index := make(domainResourceIndex, len(resources))
 	for domain, domainResources := range resources {

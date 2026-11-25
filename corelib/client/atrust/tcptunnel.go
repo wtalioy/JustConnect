@@ -19,21 +19,20 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
-	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 type tcpTunnelConn struct {
-	tlsConn    net.Conn
-	reader     *bufio.Reader
-	readMu     sync.Mutex
-	writeMu    sync.Mutex
-	readHeader [4]byte
-	readBuf    []byte
-	writeBuf   []byte
-	reuse      bool
-	raw        bool
+	tlsConn     net.Conn
+	reader      *bufio.Reader
+	readMu      sync.Mutex
+	writeMu     sync.Mutex
+	readHeader  [4]byte
+	readBuf     []byte
+	readPending int
+	writeBuf    []byte
+	reuse       bool
+	raw         bool
 
 	owner          *Client
 	closeOnce      sync.Once
@@ -52,16 +51,16 @@ func tcpTunnelHandshakeDeadline(ctx context.Context, now time.Time) time.Time {
 	return deadline
 }
 
-func readTCPProtocolResponse(reader *bufio.Reader) (string, error) {
+func readTCPProtocolResponse(reader *bufio.Reader) ([]byte, error) {
 	lengthBytes := make([]byte, 2)
 	if _, err := io.ReadFull(reader, lengthBytes); err != nil {
-		return "", err
+		return nil, err
 	}
 	data := make([]byte, binary.BigEndian.Uint16(lengthBytes))
 	if _, err := io.ReadFull(reader, data); err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(data), nil
+	return data, nil
 }
 
 type tcpTunnelAuthResponse struct {
@@ -103,15 +102,6 @@ func marshalTCPTunnelAuthRequest(request tcpTunnelAuthRequest, signKey []byte) (
 	return signed, nil
 }
 
-func encodeTCPTunnelAuthLength(length int) ([2]byte, error) {
-	var encoded [2]byte
-	if length > 0xFFFF {
-		return encoded, fmt.Errorf("tcp tunnel auth request too large: %d bytes", length)
-	}
-	binary.BigEndian.PutUint16(encoded[:], uint16(length))
-	return encoded, nil
-}
-
 func writeTCPTunnelHandshakeMessage(writer io.Writer, data []byte) error {
 	n, err := writer.Write(data)
 	if err != nil {
@@ -123,22 +113,29 @@ func writeTCPTunnelHandshakeMessage(writer io.Writer, data []byte) error {
 	return nil
 }
 
-func writeTCPTunnelInitialMessages(writer io.Writer, initMsg, destMsg []byte) error {
-	message := make([]byte, 0, len(initMsg)+len(destMsg))
-	message = append(message, initMsg...)
-	message = append(message, destMsg...)
+func writeTCPTunnelRequest(writer io.Writer, auth []byte, host string, port int, zeroRTT bool) error {
+	if len(auth) > 0xFFFF {
+		return fmt.Errorf("tcp tunnel auth request too large: %d bytes", len(auth))
+	}
+	header := [...]byte{0x05, 0x01, 0x81, 0x53, 0x03}
+	destinationCapacity := 6 + max(net.IPv6len, 1+len(host))
+	message := make([]byte, 0, len(header)+2+len(auth)+destinationCapacity)
+	message = append(message, header[:]...)
+	message = binary.BigEndian.AppendUint16(message, uint16(len(auth)))
+	message = append(message, auth...)
+	message = appendTCPTunnelDestination(message, host, port, zeroRTT)
 	if err := writeTCPTunnelHandshakeMessage(writer, message); err != nil {
 		return fmt.Errorf("failed to send tcp tunnel handshake: %w", err)
 	}
 	return nil
 }
 
-func encodeTCPTunnelDestination(host string, port int, zeroRTT bool) ([]byte, error) {
+func appendTCPTunnelDestination(msg []byte, host string, port int, zeroRTT bool) []byte {
 	rsv := byte(0)
 	if zeroRTT {
 		rsv = 1
 	}
-	msg := []byte{0x05, 0x01, rsv}
+	msg = append(msg, 0x05, 0x01, rsv)
 	if ip := net.ParseIP(host); ip != nil {
 		if ipv4 := ip.To4(); ipv4 != nil {
 			msg = append(msg, 0x01)
@@ -151,12 +148,12 @@ func encodeTCPTunnelDestination(host string, port int, zeroRTT bool) ([]byte, er
 		msg = append(msg, 0x03, byte(len(host)))
 		msg = append(msg, host...)
 	}
-	return binary.BigEndian.AppendUint16(msg, uint16(port)), nil
+	return binary.BigEndian.AppendUint16(msg, uint16(port))
 }
 
-func parseTCPTunnelAuthResponse(data string) error {
+func parseTCPTunnelAuthResponse(data []byte) error {
 	var response tcpTunnelAuthResponse
-	if err := json.Unmarshal([]byte(data), &response); err != nil {
+	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to parse tcp tunnel auth response: %w", err)
 	}
 	if response.Code != 0 {
@@ -188,7 +185,7 @@ func readSOCKS5ConnectReply(reader *bufio.Reader) (status byte, reuse bool, err 
 	default:
 		return 0, false, fmt.Errorf("unexpected tcp tunnel bind address type: 0x%02X", header[3])
 	}
-	if _, err := io.CopyN(io.Discard, reader, int64(addressLength+2)); err != nil {
+	if _, err := reader.Discard(addressLength + 2); err != nil {
 		return 0, false, fmt.Errorf("failed to read tcp tunnel bind address: %w", err)
 	}
 	return 0, header[2] == 0x01, nil
@@ -249,7 +246,7 @@ func waitForTCPConnectReply(ctx context.Context, conn net.Conn, reader *bufio.Re
 	case 0x01:
 		return false, fmt.Errorf("tcp tunnel server failure")
 	case 0x02:
-		return false, fmt.Errorf("tcp tunnel connection not allowed")
+		return false, client.ErrTCPTunnelDenied
 	case 0x03:
 		return false, fmt.Errorf("network is unreachable")
 	case 0x04:
@@ -277,9 +274,9 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 	if c.raw {
 		return c.reader.Read(b)
 	}
-	if len(c.readBuf) > 0 {
-		n := copy(b, c.readBuf)
-		c.readBuf = c.readBuf[n:]
+	if c.readPending > 0 {
+		n := copy(b, c.readBuf[len(c.readBuf)-c.readPending:])
+		c.readPending -= n
 		return n, nil
 	}
 
@@ -301,13 +298,16 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 				return length, nil
 			}
 
-			payload := make([]byte, length)
-			if _, err := io.ReadFull(c.reader, payload); err != nil {
+			if cap(c.readBuf) < length {
+				c.readBuf = make([]byte, length)
+			}
+			c.readBuf = c.readBuf[:length]
+			if _, err := io.ReadFull(c.reader, c.readBuf); err != nil {
 				return 0, err
 			}
 
-			n := copy(b, payload)
-			c.readBuf = payload[n:]
+			n := copy(b, c.readBuf)
+			c.readPending = length - n
 			return n, nil
 		case header[0] == 0x01 && header[1] == 0x01:
 			return 0, io.EOF
@@ -415,12 +415,6 @@ func calcXRequestSig(key []byte, data []byte) string {
 	return strings.ToUpper(hex.EncodeToString(sum))
 }
 
-func matchTCPIPResource(index *ipresource.Index, addr *net.TCPAddr) (client.IPResource, bool) {
-	return index.MatchLastWhere(addr.IP, "tcp", addr.Port, func(resource client.IPResource) bool {
-		return !resource.EnableTCPPrefL3
-	})
-}
-
 func tcpTunnelAuthDestinations(realDstHost string, port int, domain string, addrPretend bool) (destAddr, destIP string) {
 	destAddr = net.JoinHostPort(realDstHost, strconv.Itoa(port))
 	if !addrPretend && domain != "" {
@@ -464,12 +458,21 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		}
 		addrPretend = resource.AddrPretend
 	}
+	domainGrant := appID != ""
 	if appID == "" {
-		resource, ok := matchTCPIPResource(c.resourceIndex, addr)
+		resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource)
+		if !ok {
+			// DNS transport can dial the fixed gateway endpoint without passing through the dialer.
+			resource, ok = c.resourceIndex.MatchTCPTunnel(addr.IP, addr.Port)
+		}
 		if ok {
+			if resource.EnableTCPPrefL3 {
+				return nil, client.ErrResourceNotFound
+			}
 			appID = resource.AppID
 			nodeGroupID = resource.NodeGroupID
-			domain = ""
+			domain = resource.AuthDomain
+			addrPretend = false
 		}
 	}
 	if appID == "" {
@@ -478,6 +481,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 
 	c.BestNodesRWMutex.RLock()
 	nodeAddr := c.BestNodes[nodeGroupID]
+	defaultNode := nodeAddr == "" && nodeGroupID != c.MajorNodeGroup
 	if nodeAddr == "" {
 		nodeAddr = c.BestNodes[c.MajorNodeGroup]
 	}
@@ -527,21 +531,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		_ = conn.Close()
 		return nil, err
 	}
-	lenBytes, err := encodeTCPTunnelAuthLength(len(msgBytes))
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	initHeader := []byte{0x05, 0x01, 0x81, 0x53, 0x03}
-	initMsg := append(initHeader, lenBytes[:]...)
-	initMsg = append(initMsg, msgBytes...)
-	destMsg, err := encodeTCPTunnelDestination(realDstHost, addr.Port, c.tcpTunnelZeroRTT)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-
-	if err := writeTCPTunnelInitialMessages(conn, initMsg, destMsg); err != nil {
+	if err := writeTCPTunnelRequest(conn, msgBytes, realDstHost, addr.Port, c.tcpTunnelZeroRTT); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -559,6 +549,16 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		}
 		if ctx.Err() != nil {
 			waitErr = ctx.Err()
+		}
+		if c.diagnostic != nil && errors.Is(waitErr, client.ErrTCPTunnelDenied) {
+			code := "tcp_tunnel_ip_denied"
+			if domainGrant {
+				code = "tcp_tunnel_domain_denied"
+			}
+			if defaultNode {
+				code += "_default_node"
+			}
+			c.diagnostic(code)
 		}
 		_ = conn.Close()
 		return nil, waitErr

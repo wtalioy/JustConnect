@@ -35,7 +35,7 @@ bool seedsOnlyUnconfiguredManagedDefaults()
         const auto server = settings.value("JustConnect/ServerAddress").toString();
         if (scenario == "fresh" || scenario == "previous" || scenario.startsWith(QLatin1String("fudan-"))) {
             if (server != "vpn.fudan.edu.cn" || settings.value("JustConnect/AuthType") != "httpsOauth2"
-                || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn") return false;
+                || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn\ncloud.fudan.edu.cn\nelearning.fudan.edu.cn") return false;
         } else if (scenario == "custom") {
             if (server != "other.example.invalid" || settings.value("JustConnect/AuthType") != "psw") return false;
         } else if (!server.isEmpty()) {

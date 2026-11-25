@@ -12,19 +12,23 @@ const streamBufferSize = 32 << 10 // io.Copy's fallback buffer size.
 var streamBuffers = sync.Pool{New: func() any { return new([streamBufferSize]byte) }}
 
 func relayStream(client io.Writer, reader io.Reader, target net.Conn, fail func(error)) {
-	abort := sync.OnceFunc(func() {
-		_ = target.Close()
-		if closer, ok := client.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	})
-	done := make(chan struct{})
+	var abortOnce sync.Once
+	abort := func() {
+		abortOnce.Do(func() {
+			_ = target.Close()
+			if closer, ok := client.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		})
+	}
+	var upstream sync.WaitGroup
+	upstream.Add(1)
 	go func() {
-		defer close(done)
+		defer upstream.Done()
 		relayDirection(target, reader, abort, fail)
 	}()
 	relayDirection(client, target, abort, fail)
-	<-done
+	upstream.Wait()
 }
 
 func relayDirection(dst io.Writer, src io.Reader, abort func(), fail func(error)) {

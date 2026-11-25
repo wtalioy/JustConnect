@@ -47,6 +47,7 @@ func TestParseResourceAddrPretendDefaultsTrueAndOnlyAcceptsBool(t *testing.T) {
 		name  string
 		field string
 		want  bool
+		host  string
 	}{
 		{name: "absent", want: true},
 		{name: "null is ignored", field: `,"addrPretend":null`, want: true},
@@ -56,16 +57,29 @@ func TestParseResourceAddrPretendDefaultsTrueAndOnlyAcceptsBool(t *testing.T) {
 		{name: "nonzero number is ignored", field: `,"addrPretend":1`, want: true},
 		{name: "string is ignored", field: `,"addrPretend":"false"`, want: true},
 		{name: "object is ignored", field: `,"addrPretend":{}`, want: true},
+		{name: "wildcard has no exact authentication domain", field: `,"addrPretend":false`, host: "*.example.com"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"app","AccessModel":"L3VPN"` + test.field + `,"AddressList":[{"Protocol":"tcp","Port":"80","Host":"example.com"}]}]}]}}}}`)
+			host, domain := test.host, ".example.com"
+			if host == "" {
+				host, domain = "example.com", "example.com"
+			}
+			policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"app","AccessModel":"L3VPN"` + test.field + `,"AddressList":[{"Protocol":"tcp","Port":"80","Host":"` + host + `","IP":["192.0.2.11"]}]}]}]}}}}`)
 			c := &Client{}
 			if err := c.parseResource(policy); err != nil {
 				t.Fatalf("parseResource() error = %v", err)
 			}
-			resource, ok := client.MatchDomainResource(c.domainResources["example.com"], "tcp", 80)
+			resource, ok := client.MatchDomainResource(c.domainResources[domain], "tcp", 80)
 			if !ok || resource.AddrPretend != test.want {
 				t.Fatalf("AddrPretend = (%t, %t), want %t", resource.AddrPretend, ok, test.want)
+			}
+			wantDomain := ""
+			if !test.want && host == domain {
+				wantDomain = domain
+			}
+			ipResource, ok := c.resourceIndex.MatchTCPTunnel(net.ParseIP("192.0.2.11"), 80)
+			if !ok || ipResource.AuthDomain != wantDomain {
+				t.Fatalf("IPv4 authorization hostname = (%q, %t), want %q", ipResource.AuthDomain, ok, wantDomain)
 			}
 		})
 	}

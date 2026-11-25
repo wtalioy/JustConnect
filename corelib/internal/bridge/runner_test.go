@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -33,11 +34,12 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	g := newGateway(t)
 	g.probeDNS.Store(true)
 	g.exportDNS.Store(true)
+	g.addCampusDomain.Store(true)
 	e := New(RunProtocol)
 	h := create(t, e)
 	c := g.config(t)
 	c.LocalProxy = true
-	c.Network.DomainDNSRules = "alias.test\nunauthorized.test"
+	c.Network.DomainDNSRules = "alias.test\nunauthorized.test\nhost.campus.test"
 	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -70,15 +72,28 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 	if event := next(t, e, h); event.Type != "terminal" || event.Status != Cancelled {
 		t.Fatal(event)
 	}
+	c.Listeners.HTTP = freeAddress(t)
 	startProtocol(t, e, h, c)
 	ready := next(t, e, h)
 	if ready.State != "ready" {
 		t.Fatal(ready)
 	}
+	if count := g.dnsUDPPackets.Load(); count != 0 {
+		t.Fatalf("local proxy readiness must not wait for export DNS, got %d queries", count)
+	}
+	g.exportDNS.Store(false) // The gateway has granted the IP but its DNS is temporarily empty.
+	first, status := readResourceBytes(e, h, ready.Generation)
+	var initial resourcesEnvelope
+	if status != OK || json.Unmarshal(first, &initial) != nil || len(initial.Resources.DomainDNSPermissions) != 0 {
+		t.Fatal("an unavailable DNS answer must not create an export grant", status, initial.Resources.DomainDNSPermissions)
+	}
+	g.exportDNS.Store(true)
 	data, status := readResourceBytes(e, h, ready.Generation)
 	var snapshot resourcesEnvelope
 	if status != OK || json.Unmarshal(data, &snapshot) != nil || snapshot.Resources.Listeners.SOCKS != c.Listeners.SOCKS ||
+		snapshot.Resources.Listeners.HTTP != c.Listeners.HTTP ||
 		len(snapshot.Resources.Domains["campus.test"]) == 0 || len(snapshot.Resources.IPs) == 0 ||
+		len(snapshot.Resources.Domains["host.campus.test"]) == 0 ||
 		len(snapshot.Resources.DNSRecords) != 0 || len(snapshot.Resources.PrivateIPRanges) != 0 {
 		t.Fatal("local mode must publish its listener and export grants, without system capture data", status)
 	}
@@ -88,24 +103,72 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 		permissions[1] != (resourcePermission{Protocol: "udp", PortMin: 1053, PortMax: 1053}) {
 		t.Fatal("DNS aliases must inherit only the exact port and protocol grants for their answer", aliases)
 	}
+	if count := g.dnsUDPPackets.Load(); count != 4 {
+		t.Fatalf("expected DNS queries only for names without gateway domain grants, got %d: %v", count, g.observedDNSQuestions())
+	}
+	if cached, status := readResourceBytes(e, h, ready.Generation); status != OK || !bytes.Equal(cached, data) || g.dnsUDPPackets.Load() != 4 {
+		t.Fatal("a second export must reuse current successful DNS answers", status, g.observedDNSQuestions())
+	}
 	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "host.campus.test:80")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer connection.Close()
 	echo(t, connection)
+	if count := g.dnsUDPPackets.Load(); count != 5 {
+		t.Fatalf("expected the first SOCKS request to use the configured DNS, got %d queries: %v", count, g.observedDNSQuestions())
+	}
 	for _, denied := range []string{c.Listeners.SOCKS, "192.0.2.99:80"} {
 		if rejected, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", denied); err == nil {
 			rejected.Close()
 			t.Fatal("local mode opened a non-campus connection")
 		}
 	}
+	tunnel, err := net.DialTimeout("tcp", c.Listeners.HTTP, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	if err := tunnel.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.WriteString(tunnel, "CONNECT campus.test:80 HTTP/1.1\r\nHost: campus.test:80\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := http.ReadResponse(bufio.NewReader(tunnel), &http.Request{Method: http.MethodConnect})
+	if err != nil || reply.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP CONNECT = %v, %v", reply, err)
+	}
+	echo(t, tunnel)
+	proxyURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 5 * time.Second}
+	response, err := client.Get("http://campus.test/resource")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || string(body) != "vpn-response" {
+		t.Fatalf("HTTP proxy response = %q, %v", body, err)
+	}
+	deniedURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+	denied := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(deniedURL)}, Timeout: 5 * time.Second}
+	if rejection, err := denied.Get("http://192.0.2.99:80/"); err == nil {
+		rejectionBody, _ := io.ReadAll(rejection.Body)
+		_ = rejection.Body.Close()
+		if rejection.StatusCode == http.StatusOK {
+			t.Fatalf("HTTP proxy served a non-campus connection: %q", rejectionBody)
+		}
+	}
+	client.CloseIdleConnections()
+	denied.CloseIdleConnections()
 	if e.Stop(h, 3000) != OK {
 		t.Fatal("local proxy did not stop")
 	}
@@ -113,6 +176,147 @@ func TestLocalProxyOnlyLifecycle(t *testing.T) {
 		t.Fatal("local export remained accessible after disconnect", status)
 	}
 	awaitClosed(t, connection)
+}
+
+func TestLocalProxyNegotiatesAdvertisedTCPFraming(t *testing.T) {
+	g := newGateway(t)
+	g.requireZeroRTT.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.SOCKS = freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	echo(t, conn)
+	if g.tcpCount.Load() != 1 || e.Stop(h, 3000) != OK {
+		t.Fatal("expected one framed tunnel and successful cleanup")
+	}
+}
+
+func TestLocalProxyAuthenticatesPublishedIPAsGatewayDomain(t *testing.T) {
+	g := newGateway(t)
+	g.publishedDomain.Store(true)
+	g.probeDNS.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Network.DomainDNSRules = "alias.test"
+	c.Listeners.SOCKS = freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialer := socks.(proxy.ContextDialer)
+	for _, target := range []string{"alias.test:8443", "192.0.2.17:8443"} {
+		t.Run(target, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			conn, err := dialer.DialContext(ctx, "tcp", target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			echo(t, conn)
+		})
+	}
+	for _, target := range []string{"192.0.2.17:8444", "192.0.2.18:8443"} {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		conn, err := dialer.DialContext(ctx, "tcp", target)
+		cancel()
+		if err == nil {
+			conn.Close()
+			t.Errorf("opened a tunnel outside the grant: %s", target)
+		}
+	}
+	if got := g.tcpCount.Load(); got != 2 {
+		t.Errorf("tunnel attempts = %d, want two authorized targets", got)
+	}
+	if e.Stop(h, 3000) != OK {
+		t.Fatal("local proxy did not stop")
+	}
+}
+
+func TestProxyDenialDiagnostics(t *testing.T) {
+	t.Run("assigned_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, false, "") })
+	t.Run("default_node", func(t *testing.T) { checkProxyDenialDiagnostics(t, true, "_default_node") })
+}
+
+func checkProxyDenialDiagnostics(t *testing.T, missingNodeGroup bool, suffix string) {
+	t.Helper()
+	g := newGateway(t)
+	g.rejectTCP.Store(true)
+	g.missingNodeGroup.Store(missingNodeGroup)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.LocalProxy = true
+	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
+	startProtocol(t, e, h, c)
+	if ready := next(t, e, h); ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	proxyURL := &url.URL{Scheme: "http", Host: c.Listeners.HTTP}
+	httpProxy := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 5 * time.Second}
+	defer httpProxy.CloseIdleConnections()
+	for _, target := range []string{"192.0.2.99:80", "campus.test:80"} {
+		response, err := httpProxy.Get("http://" + target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("HTTP proxy accepted %s: %d", target, response.StatusCode)
+		}
+	}
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "192.0.2.10:80"); err == nil {
+		conn.Close()
+		t.Fatal("SOCKS accepted the node's refusal")
+	}
+	if g.tcpCount.Load() != 2 || e.Stop(h, 3000) != OK {
+		t.Fatal("unexpected tunnel attempt or failed stop", g.tcpCount.Load())
+	}
+	var codes []string
+	for {
+		data, _, status := e.Read(h, MaxOutput, 0)
+		if status == End {
+			break
+		}
+		var message event
+		if status != OK || json.Unmarshal(data, &message) != nil || strings.Contains(string(data), "private-") {
+			t.Fatalf("diagnostic event = %s, %v", data, status)
+		}
+		if message.Type == "diagnostic" {
+			codes = append(codes, message.Code)
+		}
+	}
+	if want := []string{"http_destination_denied", "tcp_tunnel_domain_denied" + suffix, "tcp_tunnel_ip_denied" + suffix}; !slices.Equal(codes, want) {
+		t.Fatalf("proxy diagnostics = %v, want %v", codes, want)
+	}
 }
 
 func (p *hostLogProbe) Write(data []byte) (int, error) {

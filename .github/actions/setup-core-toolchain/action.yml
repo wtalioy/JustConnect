@@ -42,3 +42,9 @@ runs:
       shell: bash
       run: |
         echo 'CC=clang' >> "$GITHUB_ENV"
+
+    - name: Select Linux cgo compiler
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo 'CC=gcc' >> "$GITHUB_ENV"

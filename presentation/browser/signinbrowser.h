@@ -22,6 +22,13 @@ public:
     void runJavaScript(const QString &script,std::function<void(const QVariant &)> result);
     void setHtml(const QString &html);
 
+    // The per-platform translation unit defines Native and owns all browser
+    // state; it drives this class from native callbacks, which are plain
+    // functions rather than members. The type stays incomplete outside that
+    // file, so the accessor cannot leak state to other code.
+    struct Native;
+    static Native *nativeOf(SignInBrowser *self) { return self ? self->native.get() : nullptr; }
+
 signals:
     void loadStarted();
     void loadFinished(bool success);
@@ -31,12 +38,14 @@ signals:
     void addressFocusRequested();
 
 protected:
+#ifdef Q_OS_LINUX
+    bool event(QEvent *) override;
+#endif
     void resizeEvent(QResizeEvent *) override;
     void showEvent(QShowEvent *) override;
     void hideEvent(QHideEvent *) override;
     void focusInEvent(QFocusEvent *) override;
 
 private:
-    struct Native;
     std::unique_ptr<Native> native;
 };

@@ -828,3 +828,52 @@ func TestDomainDNSCacheRequiresCampusAnswer(t *testing.T) {
 		t.Fatalf("domain DNS cache or transport selection changed: %v, %v, %v", ip, err, transports)
 	}
 }
+
+func TestCampusDNSFailuresEmitRateLimitedDiagnostics(t *testing.T) {
+	failure := errors.New("campus-only transport failure")
+	tunnel := &campusDNSStack{failure: failure, endpoint: "192.0.2.53:53"}
+	var mu sync.Mutex
+	var codes []string
+	record := func(code string) {
+		mu.Lock()
+		defer mu.Unlock()
+		codes = append(codes, code)
+	}
+	r := NewResolver(tunnel, "192.0.2.53", "", 60, nil, nil, true)
+	defer r.Close()
+	r.Diagnostic = record
+	r.secondaryResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("ordinary resolver unavailable in this scenario")
+	}}
+	if _, _, err := r.Resolve(t.Context(), "www.public.test"); err == nil {
+		t.Fatal("resolution succeeded against a failing campus transport")
+	}
+	mu.Lock()
+	unreachable := len(codes)
+	seen := append([]string(nil), codes...)
+	mu.Unlock()
+	if unreachable == 0 || seen[0] != "campus_dns_unreachable" {
+		t.Fatal("campus DNS unreachability was not reported", seen)
+	}
+	// Hot retries inside the rate-limit window stay quiet.
+	for i := 0; i < 5; i++ {
+		_, _, _ = r.Resolve(t.Context(), "www.public.test")
+	}
+	mu.Lock()
+	after := len(codes)
+	mu.Unlock()
+	if after != unreachable {
+		t.Fatal("campus DNS diagnostics exceeded their rate limit")
+	}
+	// A session without any configured campus resolver reports a distinct cause.
+	unconfigured := NewResolver(tunnel, "192.0.2.53", "", 60, nil, nil, false)
+	defer unconfigured.Close()
+	var configuredCodes []string
+	unconfigured.Diagnostic = func(code string) { configuredCodes = append(configuredCodes, code) }
+	if _, _, err := unconfigured.ResolveCampus(t.Context(), "www.campus.test", true); !errors.Is(err, ErrCampusDNSUnavailable) {
+		t.Fatal("campus-only resolution without a campus resolver failed differently", err)
+	}
+	if len(configuredCodes) != 1 || configuredCodes[0] != "campus_dns_unconfigured" {
+		t.Fatal("the missing campus resolver was not reported distinctly", configuredCodes)
+	}
+}

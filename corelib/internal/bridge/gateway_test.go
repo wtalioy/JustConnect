@@ -41,6 +41,10 @@ type gateway struct {
 	udpCount         atomic.Int32
 	delay            atomic.Int64
 	tcpCount         atomic.Int32
+	rejectTCP        atomic.Bool
+	requireZeroRTT   atomic.Bool
+	publishedDomain  atomic.Bool
+	missingNodeGroup atomic.Bool
 	sshCount         atomic.Int32
 	sshHandler       atomic.Value
 	authCount        atomic.Int32
@@ -49,7 +53,12 @@ type gateway struct {
 	ipStarted        chan struct{}
 	resumeCookies    atomic.Bool
 	expireCookies    atomic.Bool
+	manifestFails    atomic.Bool
 	authConfigFails  atomic.Bool
+	onlineInfoStatus atomic.Int32
+	omitOnlineUser   atomic.Bool
+	resourceHTTP     atomic.Int32
+	resourceCode     atomic.Int32
 	invalidIP        atomic.Bool
 	cacheProbes      atomic.Int32
 	sessions         sync.Map
@@ -61,7 +70,7 @@ type gateway struct {
 	nativeDNSQueries atomic.Int32
 	dnsUDPPackets    atomic.Int32
 	dnsQuestions     sync.Map
-	originalDNSName  atomic.Bool
+	addCampusDomain  atomic.Bool
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 	resourceIP       atomic.Value
@@ -98,7 +107,15 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/favicon.ico":
 			w.WriteHeader(http.StatusNoContent)
 		case "/public/manifest":
-			fmt.Fprint(w, `{"code":0,"data":{}}`)
+			if g.manifestFails.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			if g.requireZeroRTT.Load() {
+				fmt.Fprint(w, `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`)
+			} else {
+				fmt.Fprint(w, `{"code":0,"data":{}}`)
+			}
 		case "/passport/v1/public/authConfig":
 			if r.URL.Query().Get("needTicket") == "0" {
 				g.renewals.Add(1)
@@ -156,6 +173,13 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/controller/v1/public/reportEnv":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/user/onlineInfo":
+			if status := g.onlineInfoStatus.Load(); status != 0 {
+				w.WriteHeader(int(status))
+			}
+			if g.omitOnlineUser.Load() {
+				fmt.Fprint(w, `{"code":0,"data":{}}`)
+				return
+			}
 			username := "fixture-user"
 			if g.resumeCookies.Load() {
 				if cookie, err := r.Cookie("sid"); err == nil {
@@ -166,6 +190,9 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			}
 			fmt.Fprintf(w, `{"code":0,"data":{"username":%q}}`, username)
 		case "/controller/v1/user/clientResource":
+			if status := g.resourceHTTP.Load(); status != 0 {
+				w.WriteHeader(int(status))
+			}
 			if g.rotateSID.Load() {
 				http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-resource-sid", Path: "/"})
 				g.sessions.Store("private-resource-sid", "fixture-user")
@@ -198,13 +225,22 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.nativeDNS.Load() {
 				addresses = fmt.Sprintf(`{"protocol":"udp","port":"0-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
 			}
-			if g.originalDNSName.Load() {
+			if g.addCampusDomain.Load() {
 				addresses += `,{"protocol":"tcp","port":"80","host":"host.campus.test"}`
 			}
 			if g.exportDNS.Load() {
 				addresses += `,{"protocol":"tcp","port":"8443-8450","host":"192.0.2.17"},{"protocol":"udp","port":"1053","host":"192.0.2.17"}`
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, addresses, extraResource, g.node.Addr().String(), extraNode)
+			domainOptions := ""
+			if g.publishedDomain.Load() {
+				domainOptions = `,"addrPretend":false`
+				addresses += `,{"protocol":"tcp","port":"8443","host":"published.campus.test","IP":["192.0.2.17"]}`
+			}
+			group := "fixture-group"
+			if g.missingNodeGroup.Load() {
+				group = "private-missing-group"
+			}
+			fmt.Fprintf(w, `{"code":%d,"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":%q,"accessModel":"L3VPN"%s,"addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, g.resourceCode.Load(), dnsPolicy, group, domainOptions, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -285,7 +321,8 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 	default:
 		return
 	}
-	if _, err := io.CopyN(io.Discard, conn, int64(length)); err != nil {
+	var endpoint [257]byte
+	if _, err := io.ReadFull(conn, endpoint[:length]); err != nil {
 		return
 	}
 
@@ -316,13 +353,36 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 		payload = []byte(`{"code":10000004,"message":"private-gateway-detail"}`)
 	}
 	response := append([]byte{5, 0x81, 0x53, 0, byte(len(payload) >> 8), byte(len(payload))}, payload...)
-	response = append(response, 5, 0, 0, 1, 10, 0, 0, 2, 0, 80)
+	var framed byte
+	if g.requireZeroRTT.Load() {
+		framed = 1
+	}
+	if g.rejectTCP.Load() || destination[2] != framed ||
+		g.publishedDomain.Load() && !validResolvedDomainRequest(auth, destination[3], endpoint[:length]) {
+		_, _ = conn.Write(append(response, 5, 0x02, 0, 1))
+		return
+	}
+	response = append(response, 5, 0, framed, 1, 10, 0, 0, 2, 0, 80)
 	time.Sleep(time.Duration(g.delay.Load()))
 	if _, err := conn.Write(response); err != nil {
 		return
 	}
 	if g.invalid.Load() {
 		return
+	}
+	if framed != 0 {
+		for {
+			var frame [4]byte
+			if _, err := io.ReadFull(conn, frame[:]); err != nil || frame[0] != 1 || frame[1] != 0 {
+				return
+			}
+			if _, err := conn.Write(frame[:]); err != nil {
+				return
+			}
+			if _, err := io.CopyN(conn, conn, int64(binary.BigEndian.Uint16(frame[2:]))); err != nil {
+				return
+			}
+		}
 	}
 	buf := make([]byte, 64<<10)
 	first := true
@@ -349,6 +409,18 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 			return
 		}
 	}
+}
+
+func validResolvedDomainRequest(auth []byte, addressType byte, endpoint []byte) bool {
+	const resource = "published.campus.test:8443"
+	const ip = "192.0.2.17"
+	var request struct {
+		AppID, URL, DestAddr, DestIP string
+	}
+	return addressType == 1 && net.IP(endpoint[:4]).String() == ip &&
+		binary.BigEndian.Uint16(endpoint[4:]) == 8443 &&
+		json.Unmarshal(auth, &request) == nil && request.AppID == "fixture-app" &&
+		request.DestAddr == resource && request.DestIP == ip && request.URL == "tcp://"+resource
 }
 func (g *gateway) config(t *testing.T) Config {
 	t.Helper()
@@ -523,7 +595,7 @@ func (g *gateway) serveL3(conn net.Conn) {
 						}
 						reply := new(dns.Msg)
 						reply.SetReply(request)
-						if g.exportDNS.Load() && len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeA {
+						if (g.exportDNS.Load() || g.publishedDomain.Load()) && len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeA {
 							name := request.Question[0].Name
 							address := "192.0.2.99"
 							if name == "alias.test." {

@@ -1,3 +1,4 @@
+#include "presentation/presentationhelpers.h"
 #include "presentation/browser/signinbrowser.h"
 #include "application/connectionsession.h"
 #include "application/authmethodsquery.h"
@@ -28,7 +29,6 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
@@ -47,6 +47,8 @@
 #include <atomic>
 
 using ProxyCheck::check;
+using PresentationHelpers::PromptDialog;
+
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
 static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
@@ -150,6 +152,8 @@ static void reconnectDelayBounds() {
 }
 static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);
+    // Linux refuses automatic routing in the UI; fixtures that connect use local proxy only.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
     settings.setValue(DefaultSettings::RememberAuthentication,false);
@@ -188,12 +192,11 @@ static void manualCredentialsAndLateResults() {
         "Secure storage permission was denied. Check authorization.\nYou can sign in manually for this connection."
     };
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget);message && message->isVisible()) {
-            // macOS ignores QMessageBox titles; assert the actual warning and available action.
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<PromptDialog *>(widget);message && message->isVisible()) {
             check(warnings<expectedWarnings.size() && message->text()==expectedWarnings.at(warnings)
-                && message->icon()==QMessageBox::Warning && message->standardButtons()==QMessageBox::Ok,
+                && message->tone()==PromptDialog::Tone::Warning && !message->dismissButton(),
                 "only the expected native failure and manual-login action are shown");
-            ++warnings;message->button(QMessageBox::Ok)->click();
+            ++warnings;message->primaryButton()->click();
         }
     });dismiss.start(1);store->failure=CredentialStatus::PermissionDenied;
     login(true,"unsaved");
@@ -256,6 +259,7 @@ static void manualCredentialsAndLateResults() {
 }
 static void authenticationCacheLifecycle() {
     QTemporaryDir folder;QSettings settings(folder.filePath("cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","login-alias");
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
@@ -306,11 +310,11 @@ static void authenticationCacheLifecycle() {
     bool confirmed=false;QTimer confirm;
     QObject::connect(&confirm,&QTimer::timeout,[&]{
         for(auto *widget:QApplication::topLevelWidgets()) {
-            if (widget->objectName()!="actionPrompt" || !widget->isVisible()) continue;
-            auto *box=widget->findChild<QDialogButtonBox *>();
-            check(widget->findChild<QLabel *>("promptBody")->text().contains("login-alias")
-                && box->button(QDialogButtonBox::No)->isDefault(),"cache clear identifies the selected account and defaults to cancel");
-            confirmed=true;box->button(QDialogButtonBox::Yes)->click();
+            auto *prompt=qobject_cast<PromptDialog *>(widget);
+            if (!prompt || !prompt->isVisible()) continue;
+            check(prompt->text().contains("login-alias") && prompt->dismissButton() && prompt->dismissButton()->isDefault(),
+                "cache clear identifies the selected account and defaults to cancel");
+            confirmed=true;prompt->primaryButton()->click();
         }
     });confirm.start(1);controller.clearAuthenticationCache();confirm.stop();
     emit engine->authenticationCacheUpdated({cached.account,"late-authentication"});ready();
@@ -333,9 +337,9 @@ static void authenticationCacheLifecycle() {
     connectButton.click();until([&]{return engine->starts==5;});
     bool deferredClear=false;QTimer bindingNotice;
     QObject::connect(&bindingNotice,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->icon()==QMessageBox::Information && box->text()=="Wait for the save before clearing authentication caches.",
-                "unfinished account binding reports clear as deferred");box->button(QMessageBox::Ok)->click();
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
+            check(box->tone()==PromptDialog::Tone::Information && box->text()=="Wait for the save before clearing authentication caches.",
+                "unfinished account binding reports clear as deferred");box->primaryButton()->click();
         }
     });bindingNotice.start(1);
     const auto bindingObserver=QObject::connect(&access,&CredentialAccess::configurationSaved,[&](const QString &){
@@ -373,6 +377,7 @@ static void authenticationCacheLifecycle() {
 
 static void onlineExpiryOffersOneReauthentication() {
     QTemporaryDir folder;QSettings settings(folder.filePath("online-expiry.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.setValue("Common/AutoReconnect",true);settings.sync();
@@ -400,7 +405,7 @@ static void onlineExpiryOffersOneReauthentication() {
     connectButton.click();until([&]{return engine->starts==1;});emit engine->connectionEstablished();
     int errors=0;QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             check(box->text().contains("sign in again"),"online expiry explains the manual reauthentication action");++errors;box->accept();
         }
     });dismiss.start(1);
@@ -425,6 +430,7 @@ static void onlineExpiryOffersOneReauthentication() {
 
 static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("official-client.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/AuthType","httpsOauth2");settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
@@ -449,6 +455,7 @@ static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
 
 static void authenticationSurvivesTunnelFailure() {
     QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
@@ -461,7 +468,7 @@ static void authenticationSurvivesTunnelFailure() {
     connectButton.click();until([&]{return engine->starts==1;});
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             check(box->text().contains("certificate"),"tunnel certificate rejection remains visible");
             errorShown=true;box->accept();
         }
@@ -479,6 +486,40 @@ static void authenticationSurvivesTunnelFailure() {
     check(engine->connectionOptions.authenticationCache.account==saved.account && engine->connectionOptions.authenticationCache.data==saved.data,
         "retry restores the authenticated account instead of starting with an empty cache");
     emit engine->finished(ConnectionError::NONE);
+}
+
+static void platformFailureDetailAppearsInTheErrorDialog() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("platform-detail-dialog.ini"),QSettings::IniFormat);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;
+    class DetailNetwork : public NetworkAccess {
+    public:
+        QUuid attempt;
+        void prepare(const QUuid &id) override {
+            attempt=id;
+            emit prepared(id,{PlatformOperationResult::Status::Failed,
+                "helper binary is missing: pkexec sh -c 'install helper'",false});
+        }
+        void activate(const QUuid &,const ConnectionOptions &) override {}
+        void stop(const QUuid &) override {}
+    };
+    auto *network=new DetailNetwork;
+    ConnectionSession session(engine,nullptr,network);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
+    CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
+    bool errorShown=false;QTimer closeError;
+    QObject::connect(&closeError,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
+            check(box->text().contains("Unexpected error") && box->text().contains("helper binary is missing"),
+                "platform failure detail is shown alongside the error guidance");
+            errorShown=true;box->accept();
+        }
+    });closeError.start(1);
+    session.start({},{});emit network->stopped(network->attempt,{});closeError.stop();
+    check(errorShown,"failed platform setup surfaces its concrete cause, not only a generic message");
 }
 
 static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
@@ -507,7 +548,7 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     emit network->quiesced(network->attempt);
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,&parent,[&]{
-        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()){
             errorShown=true;box->accept();
         }
     });closeError.start(1);
@@ -579,6 +620,7 @@ static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
 
 static void quitWaitsForInitialSsoCache() {
     QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::LocalProxyMode);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
@@ -901,11 +943,10 @@ static void uiContracts() {
     for (bool confirm:{false,true}) {
         const auto before=responses;
         dialogs.requestAuthentication(deviceRequest,{});
-        auto *dialog=challenge(parent);
-        auto *buttons=dialog->findChild<QDialogButtonBox *>();
-        check(responses==before && buttons->button(QDialogButtonBox::Cancel)->isDefault()
-            && !buttons->button(QDialogButtonBox::Ok)->isDefault(),"trusted device never confirms on opening or by default");
-        buttons->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
+        auto *dialog=qobject_cast<PromptDialog *>(challenge(parent));
+        check(dialog && dialog->dismissButton() && responses==before && dialog->dismissButton()->isDefault()
+            && !dialog->primaryButton()->isDefault(),"trusted device never confirms on opening or by default");
+        (confirm ? dialog->primaryButton() : dialog->dismissButton())->click();
         check(responses==before+1 && submitted["action"]==(confirm?"confirm":"cancel")
             && submitted["generation"]=="3" && submitted["request_id"]=="19" && !submitted.contains("code"),"explicit device decision retains request identity");
     }
@@ -1176,6 +1217,8 @@ static void gateway(const QJsonObject &config) {
     });
     QTemporaryDir profileFolder;QSettings settings(profileFolder.filePath("gateway.ini"),QSettings::IniFormat);
     DefaultSettings::reset(settings);
+    // The protocol host verifies the full automatic-routing flow against the real core.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::AutomaticMode);
     settings.setValue("JustConnect/ServerAddress",p.endpoint.server);settings.setValue("JustConnect/ServerPort",p.endpoint.port);
     settings.setValue("JustConnect/AuthType",p.endpoint.authType);settings.setValue("JustConnect/AuthID",p.endpoint.authId);
     settings.setValue("JustConnect/AuthSubType",p.endpoint.authSubType);settings.setValue("JustConnect/LoginDomain",p.endpoint.loginDomain);
@@ -1201,9 +1244,17 @@ static void gateway(const QJsonObject &config) {
     until([&]{return resourceSnapshots==1;});
     check(resourceStatus==CoreEngine::RequestStatus::Pending,"Qt distinguishes resources pending authentication from missing capability");
     enterCode(parent, "fixture-code");
-    until([&] {for (auto *dialog:parent.findChildren<QDialog *>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox *>() && !dialog->findChild<QLineEdit *>("authCodeEdit"))return true;return false;});
+    PromptDialog *devicePrompt=nullptr;
+    until([&] {
+        for (auto *dialog : parent.findChildren<PromptDialog *>()) {
+            if (!dialog->isVisible() || dialog->tone()!=PromptDialog::Tone::Question) continue;
+            devicePrompt=dialog;
+            return true;
+        }
+        return false;
+    });
     check(responses==1 && session.state()==ConnectionState::Starting,"device registration waits for a second explicit UI action");
-    challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    devicePrompt->primaryButton()->click();
     until([&] { return session.state() == ConnectionState::Running; });
     until([&]{return resourceSnapshots==2 && networkSnapshots==1 && networkPolicy.status()==CoreEngine::RequestStatus::Success;});
     check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
@@ -1395,5 +1446,5 @@ int main(int argc, char **argv) {
         });
         return app.exec();
     }
-    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); reconnectDelayBounds(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); reconnectDelayBounds(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); platformFailureDetailAppearsInTheErrorDialog(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

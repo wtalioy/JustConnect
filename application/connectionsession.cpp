@@ -221,6 +221,7 @@ void ConnectionSession::startCore()
     networkLost = waitingCoreStop = false;
     currentPhase = networkStopped ? ConnectionPhase::Initializing : ConnectionPhase::NetworkRecovering;
     observations.clear();
+    platformFailureDetailText.clear();
     clearAuthentication();
     emit progressChanged();
     if (!networkStopped) network->prepare(attempt);
@@ -269,9 +270,14 @@ void ConnectionSession::networkFailure(const PlatformOperationResult &result)
 {
     // User-requested teardown failures remain retryable; confirmed recovery resolves that error.
     if (sessionState.wantsConnection() && result.status != PlatformOperationResult::Status::Cancelled)
+    {
+        // Only the failure that becomes the primary error carries its detail into the dialog.
+        if (sessionState.error() == ConnectionError::NONE)
+            platformFailureDetailText = result.detail;
         sessionState.recordError(result.offerBackgroundSettings ? ConnectionError::BACKGROUND_HELPER_UNAVAILABLE
             : result.status == PlatformOperationResult::Status::PermissionDenied
             ? ConnectionError::PERMISSION_DENIED : ConnectionError::OTHER);
+    }
     emit diagnostic(result.detail);
 }
 

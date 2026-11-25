@@ -11,7 +11,7 @@
 #include "infrastructure/credentialstore/systemcredentialstore.h"
 #if defined(Q_OS_WIN)
 #include "infrastructure/systemproxy/windows/proxyrecoverylock.h"
-#else
+#elif defined(Q_OS_MACOS)
 #include "infrastructure/systemproxy/macos/proxyreceiptstore.h"
 #include <Security/Security.h>
 #include <sys/stat.h>
@@ -49,10 +49,13 @@ int main(int argc, char **argv)
 #if defined(Q_OS_WIN)
     WindowsProxyRecoveryLock ownership;
     return runProxyRecoveryWorker(backend,application.arguments()[1],directory+"/proxy-recovery.lock",{},ownership.isLocked(),owner,resume);
-#else
+#elif defined(Q_OS_MACOS)
     struct stat scope{};
     const bool trusted=stat("/var/tmp",&scope)==0 && S_ISDIR(scope.st_mode) && scope.st_uid==0 && (scope.st_mode&S_ISVTX);
     return runProxyRecoveryWorker(backend,application.arguments()[1],MacProxyRecoveryLockFile,
                                   directory+"/proxy-recovery.lock",trusted,owner,resume);
+#else
+    // The Linux worker holds the application-private lock only; no privileged legacy scope exists.
+    return runProxyRecoveryWorker(backend,application.arguments()[1],directory+"/proxy-recovery.lock",{},true,owner,resume);
 #endif
 }

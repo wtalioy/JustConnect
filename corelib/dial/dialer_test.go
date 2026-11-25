@@ -68,28 +68,140 @@ func TestInternalCampusDNSBypassesOnlyItsEndpointProtectionAndStillRequiresACL(t
 	}
 }
 
-func TestOriginalAuthenticationAddressKeepsTheOrdinaryPath(t *testing.T) {
+func TestLoginOriginExceptionStaysWithTheVerifiedName(t *testing.T) {
 	address := netip.MustParseAddr("192.0.2.7")
 	resource := client.IPResource{IPMin: net.IP(address.AsSlice()), IPMax: net.IP(address.AsSlice()),
 		PortMin: 443, PortMax: 443, Protocol: "tcp"}
 	stack := &capturingStack{}
 	d := NewDialer(stack, nil, []client.IPResource{resource}, false)
 	d.OriginalAuthentication = AuthenticationOrigin{Name: "authentication.test", Address: address}
-	endpoint := netip.AddrPortFrom(address, 443).String()
 	ordinary := errors.New("ordinary upstream reached")
 	d.Upstream = func() client.DialContextFunc {
 		return func(_ context.Context, network, address string) (net.Conn, error) {
-			if network != "tcp" || address != endpoint {
+			if network != "tcp" || address != "authentication.test:443" {
 				t.Fatalf("unexpected upstream destination: %s %s", network, address)
 			}
 			return nil, ordinary
 		}
 	}
-	if _, err := d.DialIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, ordinary) {
-		t.Fatalf("ordinary authentication was captured: %v", err)
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "Authentication.Test.")
+	if _, err := d.DialIPPort(ctx, "tcp", "192.0.2.7:443"); !errors.Is(err, ordinary) {
+		t.Fatalf("verified login origin lost the ordinary path: %v", err)
 	}
-	if _, err := d.DialCaptured(t.Context(), "tcp", netip.MustParseAddrPort(endpoint)); !errors.Is(err, policy.ErrProtectedTarget) || stack.tcpCalls != 0 {
-		t.Fatalf("forced campus authentication escaped: %v", err)
+}
+
+func TestLoginOriginAddressFollowsNormalPolicyForOtherDestinations(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	resource := client.IPResource{IPMin: net.IP(address.AsSlice()), IPMax: net.IP(address.AsSlice()),
+		PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "granted"}
+	stack := &capturingStack{}
+	d := NewDialer(stack, nil, []client.IPResource{resource}, false)
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "authentication.test", Address: address}
+	ordinary := errors.New("ordinary upstream reached")
+	d.Upstream = func() client.DialContextFunc {
+		return func(context.Context, string, string) (net.Conn, error) {
+			return nil, ordinary
+		}
+	}
+	// A granted destination that merely shares the address follows the normal
+	// policy and enters the tunnel; the login-origin exemption no longer hides it.
+	if _, err := d.DialIPPort(t.Context(), "tcp", "192.0.2.7:443"); err != nil || stack.tcpCalls != 1 || stack.ipResource.AppID != "granted" {
+		t.Fatalf("granted same-address destination lost its normal route: %v", err)
+	}
+	// Without a grant the destination stays on the ordinary path through policy.
+	ungranted := NewDialer(stack, nil, nil, false)
+	ungranted.OriginalAuthentication = d.OriginalAuthentication
+	ungranted.Upstream = d.Upstream
+	if _, err := ungranted.DialIPPort(t.Context(), "tcp", "192.0.2.7:443"); !errors.Is(err, ordinary) || stack.tcpCalls != 1 {
+		t.Fatalf("ungranted same-address destination was not routed by policy: %v", err)
+	}
+	// A forced (strict) dialer refuses the ungranted same-address destination.
+	strict := NewDialer(stack, nil, nil, true)
+	strict.OriginalAuthentication = d.OriginalAuthentication
+	if _, err := strict.DialIPPort(t.Context(), "tcp", "192.0.2.7:443"); !errors.Is(err, ErrACLDenied) {
+		t.Fatalf("strict dialer leaked an ungranted same-address destination: %v", err)
+	}
+}
+
+func TestCampusOnlyProbeNeverBorrowsTheLoginOriginException(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	stack := &capturingStack{}
+	// Local proxy constructs the dialer with forced VPN routing and no capture.
+	d := NewDialer(stack, nil, nil, true)
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "login.test", Address: address}
+	ordinary := errors.New("ordinary upstream reached")
+	d.Upstream = func() client.DialContextFunc {
+		return func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != "login.test:443" {
+				t.Fatalf("unexpected upstream destination: %s %s", network, address)
+			}
+			return nil, ordinary
+		}
+	}
+	// A user flow to the verified portal name keeps the original network.
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "login.test")
+	if _, err := d.DialIPPort(ctx, "tcp", "192.0.2.7:443"); !errors.Is(err, ordinary) {
+		t.Fatalf("local proxy user flow to the login origin was refused: %v", err)
+	}
+	if stack.tcpCalls != 0 {
+		t.Fatal("login origin entered the tunnel")
+	}
+	// The campus-only copy is a captured flow: it must be refused instead of
+	// silently probing through the original network.
+	if _, err := d.CampusOnly().DialIPPort(ctx, "tcp", "192.0.2.7:443"); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatalf("campus-only probe borrowed the login-origin exception: %v", err)
+	}
+	if _, err := d.CampusOnly().DialIPPort(t.Context(), "tcp", "192.0.2.7:443"); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatalf("campus-only probe to the origin address was not refused: %v", err)
+	}
+	if _, err := d.DialCaptured(t.Context(), "tcp", netip.MustParseAddrPort("192.0.2.7:443")); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatalf("captured flow to the origin address escaped: %v", err)
+	}
+	if stack.tcpCalls != 0 {
+		t.Fatal("campus-only probe reached the original network or the tunnel")
+	}
+}
+
+func TestLocalProxyUserFlowReachesTheAuthenticationOriginOnTheOriginalNetwork(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	stack := &capturingStack{}
+	// Local proxy constructs the dialer with forced VPN routing and no capture.
+	d := NewDialer(stack, nil, nil, true)
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "login.test", Address: address}
+	ordinary := errors.New("ordinary upstream reached")
+	d.Upstream = func() client.DialContextFunc {
+		return func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != "login.test:443" {
+				t.Fatalf("unexpected upstream destination: %s %s", network, address)
+			}
+			return nil, ordinary
+		}
+	}
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "login.test")
+	if _, err := d.DialIPPort(ctx, "tcp", "192.0.2.7:443"); !errors.Is(err, ordinary) {
+		t.Fatalf("local proxy user flow to the login origin was refused: %v", err)
+	}
+	if stack.tcpCalls != 0 {
+		t.Fatal("login origin entered the tunnel")
+	}
+}
+
+func TestCampusDNSTransportNeverBorrowsTheAuthenticationOriginExemption(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	r := resolve.NewResolver(nil, "192.0.2.7", "", 60, nil, nil, true)
+	defer r.Close()
+	stack := &capturingStack{}
+	d := NewDialer(stack, r, nil, true)
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "login.test", Address: address}
+	ordinary := errors.New("ordinary upstream reached")
+	d.Upstream = func() client.DialContextFunc {
+		return func(context.Context, string, string) (net.Conn, error) { return nil, ordinary }
+	}
+	if _, err := d.DialCampusDNS(t.Context(), "tcp", "192.0.2.7:53"); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatalf("campus DNS transport lost its tunnel exception: %v", err)
+	}
+	if stack.tcpCalls != 0 {
+		t.Fatal("campus DNS transport left the tunnel")
 	}
 }
 
@@ -528,6 +640,29 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 	}
 	if !stack.ipResource.EnableTCPPrefL3 || stack.ipResource.AppID != "l3" {
 		t.Fatalf("selected IP resource = %#v, want l3 TCP-prefers-L3", stack.ipResource)
+	}
+}
+
+func TestLocalProxyDialKeepsAddressAndPortValidation(t *testing.T) {
+	ip := net.ParseIP("203.0.113.7")
+	resolver := resolve.NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"campus.test": {ip}}, false)
+	defer resolver.Close()
+	stack := &capturingStack{}
+	dialer := NewDialer(stack, resolver, []client.IPResource{{
+		IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "campus",
+	}}, true)
+	for _, host := range []string{"campus.test", "203.0.113.7", "::ffff:203.0.113.7"} {
+		if _, err := dialer.Dial(t.Context(), "tcp", net.JoinHostPort(host, "443")); err != nil || stack.ipResource.AppID != "campus" {
+			t.Fatalf("%s lost its IPv4 grant: %v", host, err)
+		}
+		for _, port := range []string{"0", "65536", "https"} {
+			if _, err := dialer.Dial(t.Context(), "tcp", net.JoinHostPort(host, port)); err == nil {
+				t.Fatalf("%s accepted invalid port %q", host, port)
+			}
+		}
+	}
+	if _, err := dialer.Dial(t.Context(), "icmp", "campus.test:443"); !errors.Is(err, ErrACLDenied) || stack.tcpCalls != 3 || stack.udpCalls != 0 {
+		t.Fatalf("invalid destinations escaped validation: err=%v, TCP=%d, UDP=%d", err, stack.tcpCalls, stack.udpCalls)
 	}
 }
 

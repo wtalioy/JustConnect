@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=JustConnect
+GenericName=VPN Client
+Comment=Connect to aTrust campus VPN gateways
+Exec=@PROJECT_NAME@
+Icon=@PROJECT_NAME@
+Terminal=false
+Categories=Network;VPN;
+Keywords=vpn;campus;network;proxy;

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
@@ -40,6 +41,10 @@ type Dialer struct {
 	scopedIndex   *ipresource.Index
 	resourceIndex *ipresource.Index
 	alwaysUseVPN  bool
+	// campusForced marks dialer copies whose flows were already captured into the
+	// campus path (TUN capture, campus DNS transport, probes). A local-proxy user
+	// dial is not captured, so it may still reach the login origin directly.
+	campusForced bool
 }
 
 func dialDirect(ctx context.Context, network, address string) (net.Conn, error) {
@@ -47,12 +52,12 @@ func dialDirect(ctx context.Context, network, address string) (net.Conn, error) 
 }
 
 // CampusOnly shares the resource indexes and live policy without an ordinary fallback.
+// The copy is always marked as captured: flows routed through it, including on a
+// dialer that already forces VPN routing, must never leak back to the original
+// network through the login-origin exception.
 func (d *Dialer) CampusOnly() *Dialer {
-	if d.alwaysUseVPN {
-		return d
-	}
 	campus := *d
-	campus.alwaysUseVPN = true
+	campus.alwaysUseVPN, campus.campusForced = true, true
 	return &campus
 }
 
@@ -60,6 +65,7 @@ func (d *Dialer) dialOrdinary(ctx context.Context, network, address string) (net
 	if d.Upstream != nil {
 		if upstream := d.Upstream(); upstream != nil {
 			if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
+				host = strings.TrimSuffix(strings.ToLower(host), ".")
 				if _, port, err := net.SplitHostPort(address); err == nil {
 					address = net.JoinHostPort(host, port)
 				}
@@ -114,6 +120,7 @@ func (d *Dialer) DialCampusDNS(ctx context.Context, network, address string) (ne
 	}
 	campus := *d
 	campus.alwaysUseVPN, campus.ProtectionPolicy = true, nil
+	campus.campusForced = true // The DNS transport stays in the tunnel even on a shared login-origin address.
 	// This applies only to this fixed DNS connection; query names and answers keep the original policy.
 	ctx = context.WithValue(ctx, resolve.ContextKeyProtectionPolicy, (*policy.ProtectionPolicy)(nil))
 	return campus.DialIPPort(ctx, network, address)
@@ -166,16 +173,20 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if err != nil {
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
+	address, _ := netip.ParseAddr(ip)
+	return d.dialResolvedIP(ctx, network, address, portStr, ipAddr)
+}
+
+func (d *Dialer) dialResolvedIP(ctx context.Context, network string, address netip.Addr, portStr, target string) (net.Conn, error) {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		return nil, errors.New("Invalid port in address: " + ipAddr)
+		return nil, errors.New("Invalid port in address: " + target)
 	}
-	address, err := netip.ParseAddr(ip)
-	if err != nil {
+	if !address.IsValid() {
 		if d.alwaysUseVPN {
 			return nil, ErrACLDenied
 		}
-		return nil, errors.New("Invalid address: " + ipAddr)
+		return nil, errors.New("Invalid address: " + target)
 	}
 	return d.dialIP(ctx, network, netip.AddrPortFrom(address, uint16(port)))
 }
@@ -183,15 +194,28 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 func (d *Dialer) dialIP(ctx context.Context, network string, endpoint netip.AddrPort) (net.Conn, error) {
 	address, port := endpoint.Addr().Unmap(), int(endpoint.Port())
 	resource, host, matchedResource := matchContextDomainResource(ctx, network, port)
+	// DNS-derived hosts arrive normalized; a native-fallback name may not.
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	useVPN := d.alwaysUseVPN
 	if !useVPN {
 		useVPN, _ = ctx.Value(resolve.ContextKeyDomainDNS).(bool)
 	}
-	if address == d.OriginalAuthentication.Address && (host == d.OriginalAuthentication.Name || !matchedResource) {
-		if useVPN {
+	if address == d.OriginalAuthentication.Address {
+		// Only the verified login origin keeps its original-network path: refusing
+		// the portal name made it unreachable in the browser through the local
+		// proxy (socks_destination_denied). Any other destination sharing the
+		// address follows the normal policy below.
+		if host == d.OriginalAuthentication.Name {
+			if useVPN && d.campusForced {
+				return nil, policy.ErrProtectedTarget
+			}
+			return d.dialOrdinary(ctx, network, endpoint.String())
+		}
+		// A captured or forced flow into the verified origin address without
+		// server authorization must never leak to the original network either.
+		if !matchedResource && d.campusForced {
 			return nil, policy.ErrProtectedTarget
 		}
-		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && d.ProtectionPolicy != nil {
@@ -237,12 +261,12 @@ func (d *Dialer) dialIP(ctx context.Context, network string, endpoint netip.Addr
 		return d.dialOrdinary(ctx, network, endpoint.String())
 	}
 	if !matchedResource {
-		index := d.scopedIndex
-		if useVPN || address.IsPrivate() {
-			index = d.resourceIndex
-		}
 		ip := address.As4()
-		if resource, matched := matchIPResourceForTunnel(index, ip[:], network, port); matched {
+		resource, matched := matchIPResourceForTunnel(d.scopedIndex, ip[:], network, port)
+		if !matched && d.scopedIndex != d.resourceIndex && (useVPN || address.IsPrivate()) {
+			resource, matched = matchIPResourceForTunnel(d.resourceIndex, ip[:], network, port)
+		}
+		if matched {
 			ctx = context.WithValue(ctx, resolve.ContextKeyIPResource, resource)
 			useVPN = true
 			matchedResource = true
@@ -311,9 +335,7 @@ func matchDomainResourceForTunnel(resources []client.DomainResource, network str
 
 func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network string, port int) (client.IPResource, bool) {
 	if network == "tcp" {
-		if resource, ok := index.MatchWhere(target, network, port, func(resource client.IPResource) bool {
-			return !resource.EnableTCPPrefL3
-		}); ok {
+		if resource, ok := index.MatchTCPTunnel(target, port); ok {
 			return resource, true
 		}
 	}
@@ -321,6 +343,9 @@ func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network st
 }
 
 func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Conn, error) {
+	if d.alwaysUseVPN && network != "tcp" && network != "udp" {
+		return nil, ErrACLDenied
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		if d.alwaysUseVPN {
@@ -329,8 +354,8 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		return d.dialOrdinary(ctx, network, addr)
 	}
 
-	if _, err := netip.ParseAddr(host); err == nil {
-		return d.DialIPPort(ctx, network, addr)
+	if address, err := netip.ParseAddr(host); err == nil {
+		return d.dialResolvedIP(ctx, network, address, port, addr)
 	}
 	if d.resolver == nil {
 		if d.alwaysUseVPN {
@@ -353,7 +378,8 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		return nil, err
 	}
 
-	return d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), port))
+	address, _ := netip.AddrFromSlice(ip)
+	return d.dialResolvedIP(ctx, network, address, port, addr)
 }
 
 func (d *Dialer) CaptureIPResources() ([]client.IPResource, [][2]netip.Addr) {
@@ -373,12 +399,10 @@ func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []clie
 		resourceIndex: ipresource.New(ipResources),
 		alwaysUseVPN:  alwaysUseVPN,
 	}
-	if !alwaysUseVPN {
-		d.scopedRanges, d.privateRanges = ipresource.ScopedRanges(ipResources)
-		d.scopedIndex = d.resourceIndex
-		if len(d.scopedRanges) != len(ipResources) {
-			d.scopedIndex = ipresource.New(d.scopedRanges)
-		}
+	d.scopedRanges, d.privateRanges = ipresource.ScopedRanges(ipResources)
+	d.scopedIndex = d.resourceIndex
+	if len(d.scopedRanges) != len(ipResources) {
+		d.scopedIndex = ipresource.New(d.scopedRanges)
 	}
 	return d
 }

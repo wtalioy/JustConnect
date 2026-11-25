@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -99,11 +100,12 @@ func (m *conntrackMgr) getByID(authID uint64) *conntrack {
 }
 
 func (m *conntrackMgr) getByAuthResponseIP(ip authIP) *conntrack {
-	meta := packetMeta{proto: ip.Protocol, srcPort: ip.SrcPort, dstPort: ip.DestPort,
-		srcIP: net.ParseIP(ip.SrcAddr), dstIP: net.ParseIP(ip.DestAddr)}
-	if meta.srcIP == nil || meta.dstIP == nil {
+	src, sourceErr := netip.ParseAddr(ip.SrcAddr)
+	dst, destinationErr := netip.ParseAddr(ip.DestAddr)
+	if sourceErr != nil || destinationErr != nil || src.Zone() != "" || dst.Zone() != "" {
 		return nil
 	}
+	meta := packetMeta{proto: ip.Protocol, srcPort: ip.SrcPort, dstPort: ip.DestPort, srcIP: src, dstIP: dst}
 	switch ip.Atype {
 	case authIPType(4):
 		meta.atype = 4

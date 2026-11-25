@@ -19,8 +19,9 @@ func makeConntrackKey(meta packetMeta) conntrackKey {
 	var key conntrackKey
 	// Internal fixed-width keys avoid formatting validated packet tuples on every read/write.
 	key[0], key[1] = byte(meta.atype), byte(meta.proto)
-	copy(key[2:2+net.IPv6len], meta.srcIP.To16())
-	copy(key[2+net.IPv6len:2+2*net.IPv6len], meta.dstIP.To16())
+	src, dst := meta.srcIP.As16(), meta.dstIP.As16()
+	copy(key[2:2+net.IPv6len], src[:])
+	copy(key[2+net.IPv6len:2+2*net.IPv6len], dst[:])
 	binary.BigEndian.PutUint16(key[len(key)-4:], meta.srcPort)
 	binary.BigEndian.PutUint16(key[len(key)-2:], meta.dstPort)
 	return key
@@ -44,9 +45,16 @@ func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
 		protocol = "icmp"
 	}
 
-	resource, ok := matchL3IPResource(t.resourceIndex, meta.dstIP, protocol, port)
+	destination := meta.dstIP.As4()
+	resource, ok := matchL3IPResource(t.resourceIndex, destination[:], protocol, port)
 	if ok {
 		return t.writePacket(packet, meta, resource.AppID, resource.NodeGroupID)
+	}
+
+	// A resolver query the server never authorized is dropped silently by the
+	// network stack; report it so an unreachable campus DNS stays diagnosable.
+	if port == 53 {
+		t.noteDNSMiss()
 	}
 
 	if port != -1 {
@@ -124,19 +132,10 @@ func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
 	if !packet.Valid() {
 		return packetMeta{}, zctcpip.ErrInvalidLength
 	}
-	if packet.Protocol() == zctcpip.ICMP {
-		return packetMeta{
-			atype:   4,
-			proto:   int(packet.Protocol()),
-			srcIP:   packet.SourceIP(),
-			dstIP:   packet.DestinationIP(),
-			srcPort: 0,
-			dstPort: 0,
-		}, nil
-	}
-
 	var srcPort, dstPort uint16
-	switch packet.Protocol() {
+	protocol := packet.Protocol()
+	switch protocol {
+	case zctcpip.ICMP:
 	case zctcpip.TCP:
 		tcpPacket := zctcpip.TCPPacket(packet.Payload())
 		if !tcpPacket.Valid() {
@@ -152,14 +151,14 @@ func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
 		srcPort = udpPacket.SourcePort()
 		dstPort = udpPacket.DestinationPort()
 	default:
-		return packetMeta{}, fmt.Errorf("protocol %d: %w", packet.Protocol(), client.ErrResourceNotFound)
+		return packetMeta{}, fmt.Errorf("protocol %d: %w", protocol, client.ErrResourceNotFound)
 	}
 
 	return packetMeta{
 		atype:   4,
-		proto:   int(packet.Protocol()),
-		srcIP:   packet.SourceIP(),
-		dstIP:   packet.DestinationIP(),
+		proto:   int(protocol),
+		srcIP:   packet.SourceAddr(),
+		dstIP:   packet.DestinationAddr(),
 		srcPort: srcPort,
 		dstPort: dstPort,
 	}, nil

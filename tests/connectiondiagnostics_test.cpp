@@ -176,6 +176,26 @@ try
     check(connection.start({}, {}) && !diagnostics.report().contains("HTTP 18080"),
         "a new generation cannot borrow a previous connection's display snapshot");
     connection.stop();
+    ConnectionOptions localOptions;
+    localOptions.routingMode=RoutingMode::LocalProxy;
+    localOptions.proxy.socksBind="127.0.0.1:11080";
+    localOptions.proxy.httpBind="127.0.0.1:11081";
+    check(connection.start(localOptions,{}),"start a local proxy session");
+    emit engine->connectionEstablished();
+    report=diagnostics.report();
+    check(report.contains("Routing mode: Local proxy only")
+        && report.contains("Local entry: HTTP 127.0.0.1:11081 · SOCKS 127.0.0.1:11080")
+        && report.contains("Campus exit: Campus tunnel"),
+        "local proxy diagnostics name both entry points beside Local entry while the session runs");
+    emit connection.diagnostic("tcp_tunnel_domain_denied_default_node");
+    check(diagnostics.report().contains("Diagnostic code: tcp_tunnel_domain_denied_default_node"),
+          "copied diagnostics identify a node refusal after a domain grant used the default node");
+    emit connection.diagnostic("setup_restore_failed");
+    check(diagnostics.report().contains("Diagnostic code: setup_restore_failed"),
+          "copied diagnostics identify a failed setup stage");
+    connection.stop();
+    check(diagnostics.report().contains("Local entry: Not active"),
+        "stopping the session hides the local entry points again");
     std::cout << "PASS: current-generation diagnostic evidence, redaction, failed observation and passive rendering\n";
     return 0;
 }

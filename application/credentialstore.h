@@ -15,6 +15,10 @@ public:
     virtual ~CredentialStore() = default;
     virtual CredentialResult read(const QString &key) = 0;
     virtual CredentialResult write(const QString &key,const QByteArray &value) = 0;
+    // Records that must survive a process restart (recovery journals) go through
+    // this hook: backends whose plain write() may be memory-only (no usable
+    // keyring) still guarantee durability here. The default is plain write().
+    virtual CredentialResult writePersistent(const QString &key,const QByteArray &value) { return write(key,value); }
     virtual CredentialResult remove(const QString &key) = 0;
     static constexpr qsizetype MaxBytes = 65536;
     static bool validKey(const QString &key) {

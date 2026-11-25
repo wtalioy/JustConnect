@@ -471,7 +471,10 @@ int main(int argc, char **argv) {
     QTimer heartbeat;
     QObject::connect(&heartbeat, &QTimer::timeout, &application, [&] { ++ticks; });
     heartbeat.start(1);
-    QTimer::singleShot(45000, &application, [] { check(false, "ABI/GUI coexistence timed out"); });
+    QTimer::singleShot(45000, &application, [&] {
+        std::cerr << "ABI workers finished=" << finished << " browser loaded=" << pageLoaded << '\n';
+        check(false, "ABI/GUI coexistence timed out");
+    });
     for (int i = 0; i < 4; ++i) {
         workers.emplace_back(QThread::create([&] {
             check(QThread::currentThread() != application.thread(), "ABI worker is not GUI thread");

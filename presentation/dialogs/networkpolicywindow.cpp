@@ -97,6 +97,10 @@ QString dnsSource(const QJsonObject &model, const QJsonObject &source)
         else if (row["scope"] == "service") scope = NetworkPolicyWindow::tr("Service queries");
         return NetworkPolicyWindow::tr("Effective resolver %1; %2").arg(row["resolver"].toInteger()).arg(scope);
     }
+    if (provider == "resolv_conf") {
+        if (source["field"] == "domain") return NetworkPolicyWindow::tr("Resolver domain");
+        return NetworkPolicyWindow::tr("System resolver search list");
+    }
     return NetworkPolicyWindow::tr("Source unavailable");
 }
 QString dnsRole(const QString &role)

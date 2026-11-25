@@ -32,8 +32,14 @@ func appendProxyExportTargets(scoped []client.IPResource, dialer *dial.Dialer, t
 }
 
 // A DNS override identifies an address, but the IP grants still decide which ports can use it.
-func proxyExportDomainDNS(ctx context.Context, dialer *dial.Dialer, ips []client.IPResource, overrides map[string]string) client.DomainResources {
-	if len(overrides) == 0 {
+func proxyExportDomainDNS(ctx context.Context, resolver *resolve.Resolver, ips []client.IPResource, authenticationAddress netip.Addr) client.DomainResources {
+	var aliases []string
+	for name := range resolver.DomainDNS {
+		if !resolver.HasDomainGrant(name) {
+			aliases = append(aliases, name)
+		}
+	}
+	if len(aliases) == 0 {
 		return nil
 	}
 	exported := make(client.DomainResources)
@@ -42,11 +48,11 @@ func proxyExportDomainDNS(ctx context.Context, dialer *dial.Dialer, ips []client
 	names := make(chan string)
 	var workers sync.WaitGroup
 	var mu sync.Mutex
-	for range min(len(overrides), 8) {
+	for range min(len(aliases), 8) {
 		workers.Go(func() {
 			for name := range names {
-				resolved, ip, err := dialer.Resolve(ctx, name)
-				if err != nil || resolved.Value(resolve.ContextKeyDomainResource) != nil || ip.Equal(dialer.OriginalAuthentication.Address.AsSlice()) {
+				resolved, ip, err := resolver.ResolveCampus(ctx, name, true)
+				if err != nil || resolved.Value(resolve.ContextKeyDomainResource) != nil || ip.Equal(authenticationAddress.AsSlice()) {
 					continue
 				}
 				number, ok := ipresource.IPv4Uint32(ip)
@@ -70,7 +76,7 @@ func proxyExportDomainDNS(ctx context.Context, dialer *dial.Dialer, ips []client
 		})
 	}
 send:
-	for name := range overrides {
+	for _, name := range aliases {
 		select {
 		case names <- name:
 		case <-ctx.Done():

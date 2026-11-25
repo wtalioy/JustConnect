@@ -9,6 +9,7 @@ import (
 
 var ErrResourceNotFound = errors.New("resource not found")
 var ErrTCPNodeConnect = errors.New("cannot connect to campus TCP tunnel node")
+var ErrTCPTunnelDenied = errors.New("tcp tunnel connection not allowed")
 
 type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 
@@ -28,6 +29,7 @@ type IPResource struct {
 	Protocol        string
 	AppID           string
 	NodeGroupID     string
+	AuthDomain      string // Exact gateway domain published with this IPv4 and no address masquerading.
 	EnableTCPPrefL3 bool
 }
 

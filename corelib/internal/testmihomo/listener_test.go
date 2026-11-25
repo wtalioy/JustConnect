@@ -3,6 +3,7 @@
 package testmihomo
 
 import (
+	"crypto/rand"
 	"net"
 	"testing"
 	"time"
@@ -11,12 +12,19 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestIPCListenerRetainsItsNameBetweenAccepts(t *testing.T) {
-	listener, err := listenIPC(ipcName(""))
+func listenFixturePipe(t *testing.T) net.Listener {
+	t.Helper()
+	// These listener tests run alongside controller discovery in other test processes.
+	listener, err := listenIPC(`\\.\pipe\justconnect-listener-test-` + rand.Text())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() { listener.Close() })
+	return listener
+}
+
+func TestIPCListenerRetainsItsNameBetweenAccepts(t *testing.T) {
+	listener := listenFixturePipe(t)
 	path, _ := windows.UTF16PtrFromString(listener.Addr().String())
 	for range 2 {
 		// A listening pipe must remain connectable even before the next Accept starts.
@@ -46,11 +54,7 @@ func TestIPCListenerRetainsItsNameBetweenAccepts(t *testing.T) {
 }
 
 func TestIPCListenerSurvivesAnAlreadyDisconnectedProbe(t *testing.T) {
-	listener, err := listenIPC(ipcName(""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
+	listener := listenFixturePipe(t)
 	pipe := listener.(*pipeListener)
 	path, _ := windows.UTF16PtrFromString(pipe.name)
 	probe, err := windows.CreateFile(path, 0, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)

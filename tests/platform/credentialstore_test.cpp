@@ -2,14 +2,17 @@
 #include "infrastructure/systemproxy/proxyjournal.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QFile>
+#include <QProcess>
 #include <QScopeGuard>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <iostream>
 #include <stdexcept>
 #if defined(Q_OS_MACOS)
 #include "infrastructure/credentialstore/macos/credentialstore.h"
-#else
+#elif defined(Q_OS_WIN)
 #include <windows.h>
 #endif
 
@@ -23,6 +26,21 @@ QByteArray original() {QByteArray value("fixture password");value.append('\0');v
 const QByteArray updated="updated fixture password", other="other fixture cookie";
 QByteArray proxyRecord() {QByteArray value="proxy recovery snapshot";value.append('\0');value.append("PAC token=fixture");return value;}
 QString proxyKey(const QString &scope) {return digest(scope.toUtf8()+"proxy-recovery");}
+#if defined(Q_OS_LINUX)
+// Child of the smoke run: verify in a fresh process that values written (and
+// removed) by the parent behave across restarts, whichever backend is active.
+int roundtripRead(const QString &key,const QByteArray &expected,bool missing) {
+    auto store=createSystemCredentialStore();
+    const auto result=store->read(key);
+    if (missing) {
+        if (result.status!=CredentialStatus::NotFound) {std::cerr<<"expected missing key: status="<<int(result.status)<<'\n';return 3;}
+        return 0;
+    }
+    if (!result.succeeded()) {std::cerr<<"roundtrip read: status="<<int(result.status)<<'\n';return 4;}
+    if (result.value!=expected) {std::cerr<<"roundtrip value did not survive the restart\n";return 5;}
+    return 0;
+}
+#endif
 void prepare(CredentialStore &store,const QString &a,const QString &b) {
     expect(store.read(a),CredentialStatus::NotFound,"new scope");
     expect(store.read(b),CredentialStatus::NotFound,"other new scope");
@@ -94,20 +112,52 @@ int main(int argc,char **argv) {
         expect(store->write("invalid/key",original()),CredentialStatus::InvalidArgument,"invalid key write");
         expect(store->remove("invalid/key"),CredentialStatus::InvalidArgument,"invalid key removal");
         if (mode=="unavailable") {
-            expect(store->read(a),CredentialStatus::Unavailable,"unavailable read");
-            expect(store->write(a,original()),CredentialStatus::Unavailable,"unavailable write");
-            expect(store->remove(a),CredentialStatus::Unavailable,"unavailable removal");
+            // No usable keyring: sign-in still works for the current session,
+            // with the secret held in process memory only and no plain file.
+            expect(store->read(a),CredentialStatus::NotFound,"unavailable read starts empty");
+            expect(store->write(a,original()),CredentialStatus::Success,"session-only write");
+            const auto session=store->read(a);
+            expect(session,CredentialStatus::Success,"session read back");
+            require(session.value==original(),"session secret round trip");
+            expect(store->remove(a),CredentialStatus::Success,"session removal");
+            expect(store->read(a),CredentialStatus::NotFound,"removed session secret");
         } else if (mode=="denied") {
             expect(store->write(a,original()),CredentialStatus::PermissionDenied,"real bus policy denies writing");
             expect(store->read(a),CredentialStatus::NotFound,"denied write created no secret");
         } else if (mode=="locked") locked(*store,a);
         else if (mode=="prepare") prepare(*store,a,b);
         else if (mode=="finish") finish(*store,a,b);
+#if defined(Q_OS_LINUX)
+        else if (mode=="roundtrip-read") return roundtripRead(arguments.value(2),QByteArray::fromHex(arguments.value(3).toLatin1()),arguments.value(4)=="missing");
+#endif
         else {
             expect(store->read(a),CredentialStatus::NotFound,"unique fixture key");
             expect(store->read(b),CredentialStatus::NotFound,"unique second fixture key");
             const auto cleanup=qScopeGuard([&]{store->remove(a);store->remove(b);store->remove(proxyKey(a));});
             prepare(*store,a,b);
+#if defined(Q_OS_LINUX)
+            // writePersistent() is the durability contract (recovery journals):
+            // records must survive a process restart on every backend — the
+            // keyring when present, the sanctioned 0600 file otherwise.
+            const auto durable=digest(a.toUtf8()+"roundtrip");
+            const auto payload=original()+QByteArray("restart sentinel");
+            const auto durableCleanup=qScopeGuard([&]{store->remove(durable);});
+            expect(store->writePersistent(durable,payload),CredentialStatus::Success,"durable recovery write");
+            const auto program=app.arguments().value(0);
+            require(QProcess::execute(program,{"roundtrip-read",durable,QString::fromLatin1(payload.toHex())})==0,
+                    "fresh process could not read the value written by this one");
+            expect(store->remove(durable),CredentialStatus::Success,"remove durable key");
+            require(QProcess::execute(program,{"roundtrip-read",durable,QString::fromLatin1(payload.toHex()),"missing"})==0,
+                    "removed value still readable in a fresh process");
+            // Plain credential writes never land in a plain file, on any backend.
+            const auto plain=digest(a.toUtf8()+"plain");
+            const auto plainCleanup=qScopeGuard([&]{store->remove(plain);});
+            expect(store->write(plain,payload),CredentialStatus::Success,"plain credential write");
+            const auto fallbackDirectory=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+            require(!QFile::exists(fallbackDirectory+"/credentials/v1/"+plain),
+                    "credential write leaked into a plain file");
+            require(store->read(plain).value==payload,"session write not readable in this process");
+#endif
 #if defined(Q_OS_MACOS)
             // Read item attributes from the isolated store without requesting secret data.
             const auto account=a.toCFString();
@@ -128,7 +178,7 @@ int main(int argc,char **argv) {
             require(label && CFEqual(label,CFSTR("JustConnect Saved Data")),"Keychain item label describes JustConnect data");
             require(SecKeychainLock(keychain)==errSecSuccess,"lock isolated keychain");locked(*store,a);
             require(SecKeychainUnlock(keychain,UInt32(password.size()),password.constData(),true)==errSecSuccess,"unlock isolated keychain");
-#else
+#elif defined(Q_OS_WIN)
             require(ImpersonateAnonymousToken(GetCurrentThread()),"anonymous logon boundary");
             {
                 const auto revert=qScopeGuard([]{RevertToSelf();});
@@ -138,6 +188,9 @@ int main(int argc,char **argv) {
                 ProxyRecoveryJournal journal(*store,proxyKey(a));
                 const auto record=journal.load();require(inaccessible(record.status) && record.value.isEmpty(),"anonymous logon accessed proxy recovery material");
             }
+#else
+            // Linux: prepare and finish already exercised the active provider end to end; the
+            // session-keyring access boundary is covered by the manual locked and denied modes.
 #endif
             finish(*store,a,b);
         }

@@ -15,7 +15,8 @@
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/savedconnectionstore.h"
-#if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
+#include "infrastructure/update/updatechecker.h"
+#ifdef Q_OS_WIN
 #include <windows.h>
 #endif
 
@@ -40,7 +41,6 @@
 #include <QScrollBar>
 #include <QSemaphore>
 #include <QToolButton>
-#include <QMessageBox>
 #include <QTcpServer>
 #include <QLabel>
 #include <QStandardPaths>
@@ -58,6 +58,8 @@
 #include <QStyle>
 #include <QStyleOption>
 #include <QLocale>
+#include <QNetworkReply>
+#include <QMessageBox>
 #include <QFile>
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -66,9 +68,82 @@
 #include <cstdlib>
 #include <iostream>
 
+using PresentationHelpers::PromptDialog;
+
 static void check(bool ok,const char *message) {
     if (!ok) {std::cerr << message << '\n';std::exit(1);}
 }
+
+#ifdef Q_OS_MACOS
+bool acknowledgeMacUpdateInformation();
+bool macUpdateInformationIsOpen();
+#elif defined(Q_OS_WIN)
+bool acknowledgeWindowsUpdateInformation(HWND owner, const QString &title, const QString &description);
+#endif
+
+static void acknowledgeUpdateInformation(QWidget &owner,const QString &title,const QString &description)
+{
+    bool acknowledged=false;
+    UiWait::until(__FILE__,__LINE__,[&] {
+        if (acknowledged) return true;
+#ifdef Q_OS_MACOS
+        acknowledged=acknowledgeMacUpdateInformation();
+#elif defined(Q_OS_WIN)
+        acknowledged=acknowledgeWindowsUpdateInformation(reinterpret_cast<HWND>(owner.winId()),QStringLiteral("JustConnect"),description);
+#else
+        auto *dialog=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!dialog) return false;
+        check(dialog->parentWidget()==&owner && dialog->windowTitle()==title && dialog->text()==description
+            && dialog->standardButtons()==QMessageBox::Ok,"the desktop message box presents the update result");
+        dialog->button(QMessageBox::Ok)->click();
+        acknowledged=true;
+#endif
+        return acknowledged;
+    });
+#ifdef Q_OS_MACOS
+    UiWait::until(__FILE__,__LINE__,[] { return !macUpdateInformationIsOpen(); });
+#endif
+}
+
+static void updateNotices(MainWindow &window)
+{
+    using Result = UpdateChecker::CheckResult;
+    using Mode = UpdateChecker::CheckMode;
+    auto *checker=window.findChild<UpdateChecker *>();
+    check(checker,"the main window exposes its update checker");
+    const auto version=QApplication::applicationVersion();
+    QApplication::setApplicationVersion("0.0.2");
+    emit checker->checkFinished(Result::UpdateAvailable,Mode::Automatic,"0.0.3");
+    auto *update=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+    check(update && update->tone()==PromptDialog::Tone::Update
+        && update->text().contains("0.0.3") && update->text().contains("0.0.2")
+        && update->primaryButton()->text()=="Open release page" && update->primaryButton()->isDefault()
+        && update->dismissButton(),"the update describes both versions and offers the release page");
+    update->dismissButton()->click();
+
+    emit checker->checkFinished(Result::UpToDate,Mode::Automatic,"0.0.2");
+    emit checker->checkFinished(Result::ReleaseInfo,Mode::Automatic,"0.0.2");
+    emit checker->checkFinished(Result::Failed,Mode::Automatic,{});
+    check(!QApplication::activeModalWidget(),"background checks leave non-updates quiet");
+    emit checker->checkFinished(Result::UpToDate,Mode::Manual,"0.0.2");
+    acknowledgeUpdateInformation(window,"You’re up to date!","JustConnect 0.0.2 is the latest stable release.");
+
+    QApplication::setApplicationVersion("8961409-nightly");
+    emit checker->checkFinished(Result::ReleaseInfo,Mode::Manual,"0.0.2");
+    acknowledgeUpdateInformation(window,"Latest stable release",
+        "You’re using JustConnect 8961409-nightly. The latest stable release is 0.0.2.");
+    QApplication::setApplicationVersion(version);
+
+    window.findChild<QAction *>("checkUpdateAction")->trigger();
+    auto *reply=checker->findChild<QNetworkReply *>();
+    check(reply,"the manual update action initiates a check");
+    reply->abort();
+    auto *failure=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+    check(failure && failure->tone()==PromptDialog::Tone::Warning && failure->accessibleName()=="Could not check for updates"
+        && failure->primaryButton()->text()=="OK" && !failure->dismissButton(),"the failed check has one acknowledgment");
+    failure->primaryButton()->click();
+}
+
 class RecoveryNetwork : public NetworkAccess {
 public:
     QUuid attempt;
@@ -90,7 +165,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     session->stop();
     bool errorShown=false;QTimer acknowledgeError;
     QObject::connect(&acknowledgeError,&QTimer::timeout,&window,[&]{
-        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()){
             errorShown=true;box->accept();
         }
     });acknowledgeError.start(1);
@@ -111,11 +186,22 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("addConnectionAction");
     auto *copyScript=window.findChild<QAction *>("copyClashScriptAction");
+    auto *importScript=window.findChild<QAction *>("importClashScriptAction");
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
-    check(copyScript && !copyScript->isEnabled() && menu->actions().indexOf(copyScript)==menu->actions().indexOf(editAction)+1,
-        "the automatic profile shows a disabled script action next to its editor");
+    check(copyScript && importScript && !copyScript->isEnabled() && !importScript->isEnabled(),
+        "Clash actions require a live local proxy");
+    auto *deleteAction=window.findChild<QAction *>("deleteConnectionAction");
+    auto *clearCache=window.findChild<QAction *>("clearAuthenticationCacheAction");
+    for (auto *surface : {menu,menuBarProfiles}) {
+        const auto actions = surface->actions();
+        const auto copyIndex = actions.indexOf(copyScript);
+        check(copyIndex>=2 && copyIndex+3<actions.size() && actions[copyIndex-2]==deleteAction
+            && actions[copyIndex-1]->isSeparator() && actions[copyIndex+1]==importScript
+            && actions[copyIndex+2]->isSeparator() && actions[copyIndex+3]==clearCache,
+            "Copy and Import share a group between connection management and cleanup");
+    }
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");
@@ -256,11 +342,10 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     UiWait::until(__FILE__,__LINE__,[&]{return !credentials->isBusy(newPath);});
     bool confirmedLayout=false;
     QTimer::singleShot(0,&window,[&] {
-        auto *prompt=QApplication::activeModalWidget();
-        check(prompt && prompt->objectName()=="actionPrompt","delete uses the shared confirmation");
-        auto *buttons=prompt->findChild<QDialogButtonBox *>();
-        auto *remove=buttons->button(QDialogButtonBox::Yes);
-        auto *cancel=buttons->button(QDialogButtonBox::Cancel);
+        auto *prompt=qobject_cast<PromptDialog *>(QApplication::activeModalWidget());
+        check(prompt,"delete uses the shared confirmation");
+        auto *remove=prompt->primaryButton();
+        auto *cancel=prompt->dismissButton();
         check(remove->text()=="Delete" && remove->icon().isNull() && remove->property("promptPrimary").toBool()
             && cancel->isDefault() && prompt->findChild<QLabel *>("promptBody")->text().startsWith("Delete “direct-add”?"),
             "delete uses short copy, a blue text-only action and a safe keyboard default");
@@ -467,7 +552,7 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
 static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     QTimer unexpectedMessage;
     QObject::connect(&unexpectedMessage,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             std::cerr<<"Unexpected profile translation message: "<<box->text().toStdString()<<'\n';std::exit(1);
         }
     });unexpectedMessage.start(10);
@@ -560,7 +645,42 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
 }
 
 #ifdef Q_OS_MACOS
-bool hasUntitledNativeHomeFrame(QWidget &widget);
+bool hasBlendedNativeFrame(QWidget &widget, bool isHome = false);
+
+static void waitForBlendedNativeFrame(QWidget &widget, bool isHome = false)
+{
+    // Cocoa reports safe-area changes on the next run-loop pass.
+    UiWait::until(__FILE__,__LINE__,[&] {return hasBlendedNativeFrame(widget,isHome);});
+}
+
+static void nativeDialogChrome(MainWindow &window)
+{
+    QTimer::singleShot(0,&window,[] {
+        auto *about = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        check(about && about->objectName() == "aboutDialog","About opens from the application menu");
+        waitForBlendedNativeFrame(*about);
+        for (const auto name : {"aboutAppName","aboutVersion"}) {
+            auto *label = about->findChild<QLabel *>(name);
+            check(label && about->contentsRect().contains(label->geometry())
+                && label->height()>=label->sizeHint().height(),"About text fits below the native controls");
+        }
+        const auto report = qEnvironmentVariable("JC_UI_REPORT_DIR");
+        if (!report.isEmpty()) check(about->grab().save(QDir(report).filePath("about.png")),"save the native About content");
+        about->reject();
+    });
+    window.findChild<QAction *>("aboutAction")->trigger();
+
+    using PresentationHelpers::PromptDialog;
+    PromptDialog prompt(&window,"Clear authentication cache","Clear the saved sign-in?",PromptDialog::Tone::Question,"Clear",true);
+    prompt.show();
+    waitForBlendedNativeFrame(prompt);
+    check(prompt.accessibleName() == "Clear authentication cache","confirmation keeps the accessible heading");
+    prompt.reject();
+    PresentationHelpers::UpdateProgressDialog progress(&window);
+    progress.show();
+    waitForBlendedNativeFrame(progress);
+    progress.reject();
+}
 #endif
 
 static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
@@ -837,6 +957,16 @@ int main(int argc,char **argv) {
     const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QTemporaryDir folder;
     ApplicationLogger logger;ApplicationLogFile log(folder.filePath("app.log"));
+#if defined(Q_OS_LINUX)
+    // The offscreen platform plugin warns on every unsupported window operation; keep that
+    // chatter out of the log window while forwarding every other message to the logger.
+    // Installed after ApplicationLogger so this filter sits at the head of the chain.
+    static QtMessageHandler platformNoisePrevious = nullptr;
+    platformNoisePrevious = qInstallMessageHandler([](QtMsgType type,const QMessageLogContext &context,const QString &message) {
+        if (type==QtWarningMsg && message.contains(QLatin1String("This plugin does not support"))) return;
+        if (platformNoisePrevious) platformNoisePrevious(type,context,message);
+    });
+#endif
 #if defined(Q_OS_WIN) && defined(JC_SHARED_LIBRARY)
     if (app.arguments().contains("--native-startup")) {
         const auto module = QStringLiteral(JC_SHARED_LIBRARY).toStdWString();
@@ -899,10 +1029,15 @@ int main(int argc,char **argv) {
         }
         if (native) {
 #ifdef Q_OS_MACOS
-            check(hasUntitledNativeHomeFrame(window),"the macOS home hides the caption and keeps its title and native controls");
+            waitForBlendedNativeFrame(window,true);
+            auto *profile = window.findChild<QWidget *>("profileMenuButton");
+            const auto headerGap = profile->mapTo(&window,QPoint{}).y()-window.contentsRect().top();
+            check(headerGap >= 0 && headerGap < 16,"the macOS profile selector sits closer to the native controls");
+            nativeDialogChrome(window);
 #endif
             nativeHome(window, logger);
             languagePreferences(window);
+            updateNotices(window);
             profileMenusKeepTheirActions(window,menuProfile);
         }
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
@@ -919,7 +1054,7 @@ int main(int argc,char **argv) {
         }
         window.show();
 #ifdef Q_OS_MACOS
-        if (native) check(hasUntitledNativeHomeFrame(window),"reopening the macOS home preserves the native frame without a caption");
+        if (native) waitForBlendedNativeFrame(window,true);
 #endif
         auto *inspectNetwork = window.findChild<QAction *>("inspectNetworkAction");
         check(inspectNetwork, "network inspection is reachable from the main menu");

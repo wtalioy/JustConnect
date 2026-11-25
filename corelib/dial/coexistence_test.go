@@ -108,6 +108,25 @@ func TestFullIPv4GrantDoesNotCaptureOrdinaryPublicTraffic(t *testing.T) {
 	}
 }
 
+func TestCampusDialPrefersScopedGrantOverFullGrant(t *testing.T) {
+	full := client.IPResource{
+		IPMin: net.IPv4(0, 0, 0, 0), IPMax: net.IPv4(255, 255, 255, 255),
+		PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "full",
+	}
+	ip := net.IPv4(192, 0, 2, 7)
+	scoped := client.IPResource{IPMin: ip, IPMax: ip, PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "specific"}
+	campus := &capturingStack{}
+	for _, localProxy := range []bool{false, true} {
+		d := NewDialer(campus, nil, []client.IPResource{full, scoped}, localProxy)
+		if _, err := d.DialCampusIPPort(t.Context(), "tcp", "192.0.2.7:443"); err != nil || campus.ipResource.AppID != "specific" {
+			t.Fatalf("local proxy=%t, selected app=%q, error=%v", localProxy, campus.ipResource.AppID, err)
+		}
+		if _, err := d.DialCampusIPPort(t.Context(), "tcp", "192.0.2.7:80"); err != nil || campus.ipResource.AppID != "full" {
+			t.Fatalf("local proxy=%t, selected app=%q, error=%v", localProxy, campus.ipResource.AppID, err)
+		}
+	}
+}
+
 func TestInactiveUpstreamPreservesAlreadyResolvedNativeAddress(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

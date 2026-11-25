@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <functional>
 #include <iostream>
 #include <cstdlib>
 #if defined(Q_OS_WIN)
@@ -34,11 +35,13 @@ QMap<QString,WinState> states;
 QStringList rasNames{"fixture connection"};
 bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
 int writes=0,failAt=0,queries=0,setCalls=0;
+int unavailableQueries=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
 DWORD ignoreOption=0;
 std::function<void()> beforeProxySet;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     ++queries;
+    if(unavailableQueries>0){--unavailableQueries;SetLastError(RPC_S_SERVER_UNAVAILABLE);return FALSE;}
     if(denyQuery){SetLastError(queryError);return FALSE;}
     auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
     const auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
@@ -82,6 +85,18 @@ static void backendTests() {
     states[""]=original;states["fixture connection"]={PROXY_TYPE_DIRECT,"socks=old.invalid:1080","ras.invalid",{}};
     PlatformSystemProxyBackend backend(WindowsProxyApi{query,set,entries});
     check(backend.clear().succeeded() && writes==0,"unknown LAN and RAS settings must not be cleared");
+    unavailableQueries=1;
+    const auto beforeRetry=queries;
+    const auto recovered=backend.inspect();
+    check(recovered.result.succeeded() && recovered.conflict && queries==beforeRetry+3 && setCalls==0,
+        "A temporarily unavailable WinINet query should retry and still read both native connections");
+    unavailableQueries=10;
+    const auto beforeUnavailable=queries;
+    const auto stillUnavailable=backend.apply(config);
+    check(stillUnavailable.status==Status::Failed && stillUnavailable.detail.contains("1722")
+        && queries==beforeUnavailable+4 && setCalls==0,
+        "Persistent WinINet unavailability should stop before writing proxy settings");
+    unavailableQueries=0;
     denyQuery=true;
     check(backend.check(config).result.status==Status::PermissionDenied,"query denial propagated");
     check(!backend.apply(config).succeeded() && writes==0,"failed query prevents writes");
@@ -404,9 +419,144 @@ static void nativeRecovery()
     std::cout << "PASS: native WinINet restored exactly by independent worker after Qt host SIGKILL\n";
 }
 
-#else
+#elif defined(Q_OS_MACOS)
 #include "macosproxy_test.h"
 #include "macosproxy_worker_test.h"
+#else
+namespace {
+// GNOME dconf stand-in: a key/value map of GVariant textual forms shared by every probe.
+struct FakeGsettings {
+    QJsonObject values;
+    int writeFailures = 0, writeCalls = 0;
+    std::function<void()> beforeWrite;
+    LinuxProxyApi api() {
+        LinuxProxyApi result;
+        result.read = [this](const QString &schema, const QString &key) -> std::optional<QString> {
+            const auto name = schema + '/' + key;
+            if (!values.contains(name)) return std::nullopt;
+            return values[name].toString();
+        };
+        result.write = [this](const QString &schema, const QString &key, const QString &value) {
+            if (beforeWrite) beforeWrite();
+            ++writeCalls;
+            if (writeFailures > 0) { --writeFailures; return PlatformOperationResult{Status::Failed, "gsettings write refused"}; }
+            values[schema + '/' + key] = value;
+            return PlatformOperationResult{Status::Success, {}, true};
+        };
+        return result;
+    }
+};
+
+const QJsonObject seeded = {
+    {"org.gnome.system.proxy/mode", "'none'"},
+    {"org.gnome.system.proxy/autoconfig-url", "'https://pac.invalid/original.pac'"},
+    {"org.gnome.system.proxy/ignore-hosts", "['localhost', '127.0.0.0/8', 'old.invalid']"},
+    {"org.gnome.system.proxy.http/host", "'prior.invalid'"},
+    {"org.gnome.system.proxy.http/port", "3128"},
+    {"org.gnome.system.proxy.http/use-authentication", "true"},
+    {"org.gnome.system.proxy.http/authentication-user", "'fixture-user'"},
+    {"org.gnome.system.proxy.http/authentication-password", "'fixture-secret'"},
+    {"org.gnome.system.proxy.https/host", "''"},
+    {"org.gnome.system.proxy.https/port", "0"},
+    {"org.gnome.system.proxy.ftp/host", "''"},
+    {"org.gnome.system.proxy.ftp/port", "0"},
+    {"org.gnome.system.proxy.socks/host", "''"},
+    {"org.gnome.system.proxy.socks/port", "0"}};
+}
+
+static void backendTests() {
+    // A session without dconf reports Unsupported and never writes.
+    FakeGsettings missing;
+    PlatformSystemProxyBackend unavailableBackend(missing.api());
+    const auto probe = unavailableBackend.inspect();
+    check(probe.result.status == Status::Unsupported && !probe.result.succeeded(), "absent gsettings session reports unsupported");
+    check(!unavailableBackend.apply(config).succeeded() && missing.writeCalls == 0, "unsupported session prevents writes");
+
+    FakeGsettings state;
+    state.values = seeded;
+    PlatformSystemProxyBackend backend(state.api());
+    auto view = backend.inspect();
+    check(view.result.succeeded() && !view.active && !view.conflict && view.endpoints.isEmpty(),
+          "a 'none' session has no active proxy");
+    check(backend.apply(config).succeeded(), "apply records a snapshot and writes the manual endpoints");
+    check(state.values["org.gnome.system.proxy/mode"] == "'manual'"
+          && state.values["org.gnome.system.proxy.http/host"] == "'127.0.0.1'"
+          && state.values["org.gnome.system.proxy.http/port"] == QString::number(config.httpPort)
+          && state.values["org.gnome.system.proxy.https/port"] == QString::number(config.httpPort)
+          && state.values["org.gnome.system.proxy.ftp/port"] == QString::number(config.httpPort)
+          && state.values["org.gnome.system.proxy.socks/port"] == QString::number(config.socksPort)
+          && state.values["org.gnome.system.proxy.http/use-authentication"] == "false",
+          "manual endpoints encode each protocol independently");
+    check(state.values["org.gnome.system.proxy/ignore-hosts"] == "['localhost', '*.example.test']",
+          "bypass list replaces ignore-hosts");
+    check(state.values["org.gnome.system.proxy/autoconfig-url"] == seeded["org.gnome.system.proxy/autoconfig-url"]
+          && state.values["org.gnome.system.proxy.http/authentication-user"] == "'fixture-user'",
+          "read-only keys keep their original variant values");
+    const auto record = QJsonDocument(backend.recoverySnapshot()).toJson(QJsonDocument::Compact);
+    check(!record.contains("authentication-user") && !record.contains("authentication-password"),
+          "the durable recovery record excludes GNOME proxy credentials");
+    view = backend.check(config);
+    check(view.result.succeeded() && view.active && view.managed && !view.conflict && view.endpoints.isEmpty(),
+          "the recorded session verifies against its own config");
+    check(!backend.apply(config).succeeded(), "repeated apply cannot overwrite the original snapshot");
+    check(backend.clear().succeeded() && state.values == seeded, "clear restores the exact original values");
+
+    // An active PAC configuration conflicts with the manual handoff but preserves its URL.
+    FakeGsettings pac;
+    pac.values = seeded;
+    pac.values["org.gnome.system.proxy/mode"] = "'auto'";
+    PlatformSystemProxyBackend pacBackend(pac.api());
+    view = pacBackend.inspect();
+    check(view.result.succeeded() && view.conflict && !view.active, "an active PAC configuration conflicts");
+    check(pacBackend.apply(config).succeeded() && pac.values["org.gnome.system.proxy/mode"] == "'manual'",
+          "PAC sessions switch to manual for the local handoff");
+    check(pac.values["org.gnome.system.proxy/autoconfig-url"] == seeded["org.gnome.system.proxy/autoconfig-url"],
+          "manual mode preserves the inactive PAC address");
+    check(pacBackend.clear().succeeded() && pac.values["org.gnome.system.proxy/mode"] == "'auto'",
+          "the original PAC mode returns after restoration");
+
+    // A write failure mid-apply rolls every group back before reporting failure.
+    FakeGsettings interrupted;
+    interrupted.values = seeded;
+    PlatformSystemProxyBackend interruptedBackend(interrupted.api());
+    interrupted.writeFailures = 1;
+    const auto failedApply = interruptedBackend.apply(config);
+    check(!failedApply.succeeded() && !failedApply.mayHaveChanged && interrupted.values == seeded,
+          "a refused first write leaves the session untouched");
+
+    // Automatic browser handoff rewrites only the groups that pointed at the recorded upstream.
+    FakeGsettings upstream;
+    const QJsonObject upstreamOriginal = seeded;
+    upstream.values = upstreamOriginal;
+    upstream.values["org.gnome.system.proxy/mode"] = "'manual'";
+    upstream.values["org.gnome.system.proxy.http/host"] = "'127.0.0.1'";
+    upstream.values["org.gnome.system.proxy.http/port"] = "7897";
+    upstream.values["org.gnome.system.proxy.http/use-authentication"] = "false";
+    upstream.values["org.gnome.system.proxy.http/authentication-user"] = "''";
+    upstream.values["org.gnome.system.proxy.http/authentication-password"] = "''";
+    const QJsonObject upstreamState = upstream.values;
+    PlatformSystemProxyBackend handoffBackend(upstream.api());
+    view = handoffBackend.inspect();
+    check(view.result.succeeded() && view.active && !view.managed && view.endpoints == QStringList{"127.0.0.1:7897"},
+          "observe the local upstream before the handoff");
+    SystemProxyConfig automatic = config;
+    automatic.upstream = {"127.0.0.1:7897"};
+    check(handoffBackend.apply(automatic).succeeded(), "handoff rewrites the matching upstream group");
+    check(upstream.values["org.gnome.system.proxy.http/port"] == QString::number(config.httpPort)
+          && upstream.values["org.gnome.system.proxy/mode"] == "'manual'"
+          && upstream.values["org.gnome.system.proxy/ignore-hosts"] == upstreamState["org.gnome.system.proxy/ignore-hosts"]
+          && upstream.values["org.gnome.system.proxy.https/host"] == "''",
+          "the handoff leaves foreign protocols, mode and bypass untouched");
+    view = handoffBackend.check(automatic);
+    check(view.managed && view.active && view.endpoints == automatic.upstream,
+          "the managed upstream endpoints are reported through the original view");
+    check(handoffBackend.clear().succeeded() && upstream.values == upstreamState,
+          "handoff restoration returns the recorded upstream");
+    scopedProxyTests(upstream.api(), [&] { upstream.values = upstreamState; }, [&] {
+        check(upstream.values == upstreamState, "scoped restoration returns the exact upstream values");
+    }, [&] { return upstream.writeCalls; });
+    std::cout << "PASS: Linux gsettings snapshots, rollback, PAC conflict, handoff and scoped recovery\n";
+}
 #endif
 
 
@@ -451,6 +601,11 @@ int main(int argc, char **argv) {
     if (args.contains("--readonly")) {
         PlatformSystemProxyBackend backend;
         auto result = backend.check(config);
+#if defined(Q_OS_LINUX)
+        if (result.result.status == Status::Unsupported) {
+            std::cout << "SKIP: gsettings is unavailable on this Linux session\n"; return 0;
+        }
+#endif
         check(result.result.succeeded(),qPrintable("Native read-only probe: "+result.result.detail));
         std::cout << "PASS: actual platform query, no system writes\n"; return 0;
     }

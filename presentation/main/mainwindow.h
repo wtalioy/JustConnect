@@ -51,9 +51,6 @@ signals:
     void shutdownSettled(bool success);
 
 protected:
-#ifdef Q_OS_MACOS
-    void showEvent(QShowEvent *event) override;
-#endif
     void closeEvent(QCloseEvent *e) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void changeEvent(QEvent *event) override;
@@ -83,6 +80,11 @@ private:
     );
 
     void updateVersionInfo();
+    void showUpdateInformation(const QString &title,const QString &description);
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+    bool showNativeUpdateInformation(const QString &title,const QString &description);
+#endif
+    void installUpdate();
 
     void setupTrayIcon();
 
@@ -110,6 +112,8 @@ private:
     QActionGroup *traySwitchGroup;
     QAction *addConnectionAction;
     QAction *copyClashScriptAction;
+    QAction *importClashScriptAction;
+    bool clashImportRunning = false;
     QAction *renameConnectionAction;
     QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;

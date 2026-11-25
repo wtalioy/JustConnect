@@ -293,11 +293,19 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		return nil, errors.New("underlay dialer is required")
 	}
 	c.serverAddress = options.ServerAddress
-	tlsFailureStage := "tls_authentication_failed"
+	stage := "manifest"
 	defer func() {
+		if c.diagnostic == nil || err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
 		var certificate *tls.CertificateVerificationError
-		if c.diagnostic != nil && errors.As(err, &certificate) {
-			c.diagnostic(tlsFailureStage)
+		if errors.As(err, &certificate) {
+			if stage == "manifest" || stage == "restore" {
+				stage = "authentication"
+			}
+			c.diagnostic("tls_" + stage + "_failed")
+		} else {
+			c.diagnostic("setup_" + stage + "_failed")
 		}
 	}()
 
@@ -368,6 +376,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 
 	var loginResult auth.LoginResult
 	if restore {
+		stage = "restore"
 		c.report("restore", "running")
 		c.DeviceID = clientAuthData.DeviceID
 		loginResult, err = sess.Login(nil, auth.LoginOptions{DeviceID: c.DeviceID, Cookies: clientAuthData.Cookies})
@@ -387,6 +396,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		}
 	}
 	if !restore {
+		stage = "authentication"
 		c.report("authentication", "running")
 		c.DeviceID = initialDeviceID
 		if c.DeviceID == "" {
@@ -440,22 +450,20 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	if err := publishAuthentication(); err != nil {
 		return nil, err
 	}
-	tlsFailureStage = "tls_resources_failed"
+	stage = "resources"
 	resourceData, err := sess.ClientResource()
 	if err != nil {
 		return nil, err
 	}
-	// Resource responses may replace cookies needed by the tunnels.
+	if err := c.parseResource(resourceData); err != nil {
+		return nil, err
+	}
+	// A successful resource response may replace cookies needed by the tunnels.
 	if err := publishAuthentication(); err != nil {
 		return nil, err
 	}
 
-	err = c.parseResource(resourceData)
-	if err != nil {
-		return nil, err
-	}
-
-	tlsFailureStage = "tls_node_probe_failed"
+	stage = "node_probe"
 	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.nodeTLSPolicy)
 	if err != nil {
 		return nil, err
@@ -464,7 +472,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		return nil, err
 	}
 
-	tlsFailureStage = "tls_ip_tunnel_failed"
+	stage = "ip_tunnel"
 	err = c.getIP(setupCtx)
 	if err != nil {
 		return nil, err

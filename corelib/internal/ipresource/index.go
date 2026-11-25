@@ -63,8 +63,11 @@ func (i *Index) MatchWhere(destination net.IP, protocol string, port int, accept
 	return i.match(destination, protocol, port, false, accept)
 }
 
-func (i *Index) MatchLastWhere(destination net.IP, protocol string, port int, accept func(client.IPResource) bool) (client.IPResource, bool) {
-	return i.match(destination, protocol, port, true, accept)
+// MatchTCPTunnel keeps the last matching gateway rule among grants for the TCP transport.
+func (i *Index) MatchTCPTunnel(destination net.IP, port int) (client.IPResource, bool) {
+	return i.match(destination, "tcp", port, true, func(resource client.IPResource) bool {
+		return !resource.EnableTCPPrefL3
+	})
 }
 
 func (i *Index) match(destination net.IP, protocol string, port int, preferLast bool, accept func(client.IPResource) bool) (client.IPResource, bool) {

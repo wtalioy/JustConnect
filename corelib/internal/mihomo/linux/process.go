@@ -1,0 +1,220 @@
+//go:build linux
+
+package linux
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
+)
+
+const (
+	procPath           = "/proc"
+	procNetUnix        = procPath + "/net/unix"
+	maxNativeReadBytes = 1 << 20
+	unixAcceptConn     = "00010000" // /proc/net/unix Flags for TCP_LISTEN
+	unixTypeStream     = "0001"     // SOCK_STREAM
+	unixPathLimit      = 108        // sizeof(struct sockaddr_un)::sun_path
+)
+
+// procID is one process identity fact kept local to this package.
+type procID struct {
+	name      []byte
+	uid       uint32
+	startTime uint64
+}
+
+// Valid re-reads the process start time; PID reuse or exit invalidates ownership.
+func Valid(p model.Process) bool {
+	current, err := readProcID(p.PID)
+	return err == nil && current.startTime == p.Started
+}
+
+func readProcID(pid int) (procID, error) {
+	stat, err := os.ReadFile(statPath(pid))
+	if err != nil {
+		return procID{}, err
+	}
+	name, startTime, err := parseProcStat(stat)
+	if err != nil {
+		return procID{}, err
+	}
+	info, err := os.Stat(pidPath(pid))
+	if err != nil {
+		return procID{}, err
+	}
+	stat_t, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return procID{}, errors.New("process identity is unavailable")
+	}
+	return procID{name: name, uid: stat_t.Uid, startTime: startTime}, nil
+}
+
+// The parenthesized name may contain spaces and parentheses. Fields 3 onward
+// start after its closing parenthesis, with start time at field 22.
+func parseProcStat(stat []byte) ([]byte, uint64, error) {
+	_, rest, ok := bytes.Cut(stat, []byte(" ("))
+	end := bytes.LastIndexByte(rest, ')')
+	if !ok || end < 0 {
+		return nil, 0, errors.New("malformed process stat entry")
+	}
+	field := 3
+	for value := range bytes.FieldsSeq(rest[end+1:]) {
+		if field == 22 {
+			startTime, err := strconv.ParseUint(string(value), 10, 64)
+			return rest[:end], startTime, err
+		}
+		field++
+	}
+	return nil, 0, errors.New("process stat entry is truncated")
+}
+
+// Read enumerates recognized controller processes. Facts stay readable-by-owner:
+// command lines, working directories and IPC listeners belong to the current
+// user; cross-UID matches expose only public identity metadata.
+func Read(ctx context.Context) ([]model.Process, error) {
+	entries, err := os.ReadDir(procPath)
+	if err != nil {
+		return nil, err
+	}
+	home, _ := os.UserHomeDir()
+	uid := uint32(os.Getuid())
+	var result []model.Process
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		current, err := readProcID(pid)
+		if err != nil {
+			continue
+		}
+		own := current.uid == uid
+		if !model.Recognized(string(bytes.TrimRight(current.name, "\n"))) && !(own && recognizedExe(pid)) {
+			continue
+		}
+		p := model.Process{PID: pid, Started: current.startTime, NetworkAdmin: current.uid == 0}
+		if own {
+			if data, err := os.ReadFile(cmdlinePath(pid)); err == nil && len(data) <= maxNativeReadBytes {
+				p.Args = splitNul(data)
+			}
+			if directory, err := os.Readlink(cwdPath(pid)); err == nil {
+				p.Directory = directory
+			}
+			p.Home = home
+			p.IPC = observedIPC(pid)
+		}
+		if Valid(p) {
+			result = append(result, p)
+		}
+	}
+	return result, nil
+}
+
+func recognizedExe(pid int) bool {
+	target, err := os.Readlink(exePath(pid))
+	if err != nil {
+		return false
+	}
+	return model.Recognized(target)
+}
+
+func splitNul(data []byte) []string {
+	var result []string
+	for _, part := range strings.Split(string(data), "\x00") {
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+// observedIPC maps the process's stream listener inodes to their socket paths.
+// Attribution stays owner-only: /proc/<pid>/fd is unreadable across users.
+func observedIPC(pid int) []string {
+	inodes, err := processSocketInodes(pid)
+	if err != nil || len(inodes) == 0 {
+		return nil
+	}
+	paths, err := unixListenerPaths()
+	if err != nil {
+		return nil
+	}
+	var result []string
+	for inode, path := range paths {
+		if inodes[inode] {
+			result = append(result, path)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+// The kernel prints the socket path unquoted after seven fields and one space.
+func unixListenerPaths() (map[int]string, error) {
+	file, err := os.Open(procNetUnix)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	result := make(map[int]string)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var fields [7]string
+		path := scanner.Text()
+		for i := range fields {
+			fields[i], path, _ = strings.Cut(strings.TrimLeft(path, " "), " ")
+		}
+		if fields[3] != unixAcceptConn || fields[4] != unixTypeStream {
+			continue
+		}
+		inode, err := strconv.Atoi(fields[6])
+		if err != nil || inode <= 0 {
+			continue
+		}
+		if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\x00\r\n") || len(path) >= unixPathLimit {
+			continue
+		}
+		result[inode] = path
+	}
+	return result, scanner.Err()
+}
+
+func processSocketInodes(pid int) (map[int]bool, error) {
+	descriptors, err := os.ReadDir(fdPath(pid))
+	if err != nil {
+		return nil, err
+	}
+	inodes := make(map[int]bool)
+	for _, descriptor := range descriptors {
+		target, err := os.Readlink(fdEntryPath(pid, descriptor.Name()))
+		if err != nil {
+			continue
+		}
+		if inode, ok := strings.CutPrefix(target, "socket:["); ok && strings.HasSuffix(inode, "]") {
+			if value, err := strconv.Atoi(inode[:len(inode)-1]); err == nil && value > 0 {
+				inodes[value] = true
+			}
+		}
+	}
+	return inodes, nil
+}
+
+func pidPath(pid int) string                   { return procPath + "/" + strconv.Itoa(pid) }
+func statPath(pid int) string                  { return pidPath(pid) + "/stat" }
+func cmdlinePath(pid int) string               { return pidPath(pid) + "/cmdline" }
+func cwdPath(pid int) string                   { return pidPath(pid) + "/cwd" }
+func exePath(pid int) string                   { return pidPath(pid) + "/exe" }
+func fdPath(pid int) string                    { return pidPath(pid) + "/fd" }
+func fdEntryPath(pid int, entry string) string { return fdPath(pid) + "/" + entry }

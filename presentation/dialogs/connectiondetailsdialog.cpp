@@ -12,9 +12,10 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHeaderView>
-#include <QMessageBox>
 #include <QSysInfo>
 #include <QTabBar>
+
+using PresentationHelpers::PromptDialog;
 
 ConnectionDetailsDialog::ConnectionDetailsDialog(ConnectionDiagnostics *diagnostics, NetworkPolicySession *policy,
     ApplicationLogger *logger, ApplicationLogFile *logFile, QWidget *parent)
@@ -104,7 +105,7 @@ void ConnectionDetailsDialog::openLogFile()
 {
     const auto path=logFile->filePath();
     if (QFileInfo::exists(path)) QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-    else QMessageBox::warning(this,tr("Log file"),tr("The log file could not be created."));
+    else PresentationHelpers::showMessage(this,tr("Log file"),tr("The log file could not be created."),PromptDialog::Tone::Warning);
 }
 
 void ConnectionDetailsDialog::flushLog()

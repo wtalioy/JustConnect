@@ -8,6 +8,8 @@
 #include "infrastructure/systemproxy/proxychanges.h"
 #if defined(Q_OS_MACOS)
 #include "infrastructure/networkaccess/macos/networkaccess.h"
+#elif defined(Q_OS_LINUX)
+#include "infrastructure/networkaccess/linux/networkaccess.h"
 #else
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #endif
@@ -35,6 +37,9 @@ NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *polic
 #if defined(Q_OS_MACOS)
     auto *native = new MacNetworkAccess(core, policy);
     auto backend = native->makeProxyBackend();
+#elif defined(Q_OS_LINUX)
+    auto *native = new LinuxNetworkAccess(core, policy);
+    auto backend = std::make_unique<ProxyRecoveryBackend>();
 #else
     auto *native = new WindowsNetworkAccess(core, policy);
     auto backend = std::make_unique<ProxyRecoveryBackend>();

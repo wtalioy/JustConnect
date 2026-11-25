@@ -1,5 +1,4 @@
 #pragma once
-#include <QAccessibilityHints>
 #include <QAction>
 #include <QApplication>
 #include <QKeyEvent>
@@ -8,6 +7,9 @@
 #include <QPainter>
 #include <QStyle>
 #include <QStyleHints>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
+#include <QAccessibilityHints>
+#endif
 #include <QVariantAnimation>
 
 class ConnectionMenu final : public QMenu {
@@ -21,10 +23,11 @@ public:
         connect(&stroke,&QVariantAnimation::finished,this,[this] { update(checkRect()); });
         connect(this,&QMenu::aboutToHide,&stroke,&QVariantAnimation::stop);
     }
-    void setCopyAction(QAction *action) { copyAction=action; }
-    void showCopyCheck() {
+    void showCheckFor(QAction *action) {
         if (!isVisible()) return;
         stroke.stop();
+        update(checkRect());
+        checkedAction=action;
         stroke.start();
         bool reducedMotion=style()->styleHint(QStyle::SH_Widget_Animation_Duration,nullptr,this)==0;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
@@ -36,23 +39,26 @@ public:
     }
 protected:
     void mousePressEvent(QMouseEvent *event) override {
-        if (event->button()==Qt::LeftButton && copyAt(event->position().toPoint())) {
-            setActiveAction(copyAction);
+        auto *action=actionAt(event->position().toPoint());
+        if (event->button()==Qt::LeftButton && keepsMenuOpen(action)) {
+            setActiveAction(action);
             return;
         }
         QMenu::mousePressEvent(event);
     }
     void mouseReleaseEvent(QMouseEvent *event) override {
-        if (event->button()==Qt::LeftButton && copyAt(event->position().toPoint()) && activeAction()==copyAction) {
-            copyAction->trigger();
+        auto *action=actionAt(event->position().toPoint());
+        if (event->button()==Qt::LeftButton && keepsMenuOpen(action) && activeAction()==action) {
+            action->trigger();
             return;
         }
         QMenu::mouseReleaseEvent(event);
     }
     void keyPressEvent(QKeyEvent *event) override {
-        if (copyAction && copyAction->isEnabled() && activeAction()==copyAction
+        auto *action=activeAction();
+        if (keepsMenuOpen(action)
             && (event->key()==Qt::Key_Return || event->key()==Qt::Key_Enter || event->key()==Qt::Key_Space)) {
-            copyAction->trigger();
+            action->trigger();
             return;
         }
         QMenu::keyPressEvent(event);
@@ -73,12 +79,15 @@ protected:
         else painter.drawPolyline(QPolygonF{start,corner,corner+(end-corner)*((progress-turn)/(1-turn))});
     }
 private:
-    bool copyAt(QPoint point) const { return copyAction && copyAction->isEnabled() && actionAt(point)==copyAction; }
+    static bool keepsMenuOpen(const QAction *action) {
+        return action && action->isEnabled() && action->property("keepConnectionMenuOpen").toBool();
+    }
     QRect checkRect() const {
-        const auto row=actionGeometry(copyAction);
+        if (!checkedAction) return {};
+        const auto row=actionGeometry(checkedAction);
         // Match the leading indicator in appearance.qss.
         return QStyle::visualRect(layoutDirection(),row,QRect(row.left()+5,row.top()+(row.height()-16)/2,16,16));
     }
-    QAction *copyAction=nullptr;
+    QAction *checkedAction=nullptr;
     QVariantAnimation stroke;
 };

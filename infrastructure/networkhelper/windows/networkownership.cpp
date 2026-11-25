@@ -166,7 +166,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     if(result.dnsAdapters.size()!=1)return {};
     if(failedCheck)*failedCheck="capture routes or original DNS projection";
     const auto filter=result.filter(configuration);
-    if(!filter || !filter(network,dns))return {};
+    if(!filter || !filter(network,dns,nullptr))return {};
     if(failedCheck)*failedCheck=nullptr;
     return result;
 }
@@ -177,7 +177,7 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         || configuration["peer"]!=device["peer"] || !configuration["capture_prefixes"].isArray())return {};
     const auto required=captures(configuration,peerRoute);
     if(!bindingsMatch(configuration,originalBindings))return {};
-    return [owned=*this,required,configuration](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
+    return [owned=*this,required,configuration](QJsonObject network,QJsonObject dns,QString *)->std::optional<NetworkPolicySession::OriginalView>{
         if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray() || !dns["interfaces"].isArray()
             || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
         auto pending=required;

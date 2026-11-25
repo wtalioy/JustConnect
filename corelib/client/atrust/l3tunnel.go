@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -37,6 +38,29 @@ type L3Tunnel struct {
 	closed        bool
 	connectCtx    context.Context
 	cancelConnect context.CancelFunc
+
+	// lastDNSMissDiagnostic rate-limits reports of DNS packets the server's
+	// resource list does not authorize, so a blackholed resolver stays visible
+	// without flooding the packet path.
+	lastDNSMissDiagnostic atomic.Int64
+}
+
+const dnsMissDiagnosticInterval = 30 * time.Second
+
+// noteDNSMiss reports an unauthorized DNS destination at most once per interval.
+func (t *L3Tunnel) noteDNSMiss() {
+	if t.client == nil || t.client.diagnostic == nil {
+		return
+	}
+	now := time.Now().Unix()
+	last := t.lastDNSMissDiagnostic.Load()
+	if last != 0 && time.Since(time.Unix(last, 0)) < dnsMissDiagnosticInterval {
+		return
+	}
+	if !t.lastDNSMissDiagnostic.CompareAndSwap(last, now) {
+		return
+	}
+	t.client.diagnostic("l3_dns_destination_unauthorized")
 }
 
 type l3TunnelConnectCall struct {
@@ -57,6 +81,7 @@ const (
 func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 	t := &L3Tunnel{
 		client:            aTrustClient,
+		resourceIndex:     aTrustClient.resourceIndex,
 		conns:             make(map[string]*l3TunnelConn),
 		connecting:        make(map[string]*l3TunnelConnectCall),
 		conntrackMgrs:     make(map[string]*conntrackMgr),
@@ -75,12 +100,6 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 		}
 		return newL3TunnelConn(ctx, aTrustClient.dialTunnelTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
 	}
-
-	ipResources, err := aTrustClient.IPResources()
-	if ipResources == nil {
-		ipResources = []client.IPResource{}
-	}
-	t.resourceIndex = ipresource.New(ipResources)
 
 	ip, err := aTrustClient.IP()
 	if err != nil {

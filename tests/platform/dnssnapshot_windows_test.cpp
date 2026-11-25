@@ -213,6 +213,19 @@ int main(int argc, char **argv) try
         check(timed.result.status==result.status && timed.data.isEmpty() && timed.result.detail.contains(stage+" at 321 ms")
               && !timed.result.detail.contains("private"), "Timeout lost its safe native/CIM phase or exposed raw diagnostics");
     }
+    result.status = PlatformOperationResult::Status::Failed;
+    const auto providerFailed = readWindowsDnsSnapshot([&](const QString &p, const QStringList &a) {
+        auto command = runner(p, a);
+        command.standardError = "JCDNS phase=nrpt elapsed_ms=12\n"
+            "Native DNS provider failed with code 2: permission denied; no partial snapshot published.\n"
+            "Native DNS provider failed with code 7; private.campus.test\n";
+        return command;
+    });
+    check(providerFailed.result.status == result.status && providerFailed.data.isEmpty()
+          && providerFailed.result.detail.contains("nrpt at 12 ms")
+          && providerFailed.result.detail.contains("DNS provider code 2")
+          && !providerFailed.result.detail.contains("code 7") && !providerFailed.result.detail.contains("private"),
+          "Failed provider lost its error code or exposed raw diagnostics");
     result = {};
     for (const auto &invalid : {QString("{}"), QString("warning\n") + output, QString(262145, 'x')}) {
         output = invalid;

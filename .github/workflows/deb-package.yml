@@ -1,0 +1,79 @@
+name: Debian package
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths-ignore: &non_package_changes
+      - 'README.md'
+      - 'docs/build-linux.md'
+      - '.github/screenshots/**'
+      - 'docs/releases/**'
+      - 'tests/**'
+      - 'corelib/**/*_test.go'
+      - 'scripts/package-windows-installer.ps1'
+      - 'scripts/windows-installer.iss'
+      # Debian installs its own toolchain and system Qt inside the container.
+      - '.github/actions/setup-core-toolchain/action.yml'
+      - '.github/actions/setup-qt/action.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/coreabi.yml'
+  push:
+    branches: [develop]
+    paths-ignore: *non_package_changes
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      filename:
+        type: string
+        required: true
+      version:
+        type: string
+      release-date:
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deb-package-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  DEB_FILE: ${{ inputs.filename || format('JustConnect-preview-{0}-linux-x64.deb', github.sha) }}
+
+jobs:
+  package:
+    name: Build, install and launch .deb on Debian 13
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Build with Debian 13 system Qt
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_DATE: ${{ inputs.release-date }}
+        run: |
+          docker run --rm -v "$PWD":/justconnect -w /justconnect debian:13 \
+            bash scripts/build-debian-package.sh "$VERSION" "$DEB_FILE" "$RELEASE_DATE"
+
+      - name: Clean install and launch the packaged application
+        run: |
+          docker run --rm -v "$PWD":/justconnect:ro -w /justconnect debian:13 \
+            bash scripts/verify-debian-package.sh "$DEB_FILE" "$GITHUB_SHA"
+
+      - name: Upload the verified package
+        id: upload
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ env.DEB_FILE }}
+
+      - name: Confirm uploaded package digest
+        env:
+          UPLOADED_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          expected=$(sha256sum "$DEB_FILE" | cut -d' ' -f1)
+          test "${UPLOADED_DIGEST#sha256:}" = "$expected"

@@ -159,6 +159,10 @@
         <source>Skip future verification</source>
         <translation>跳过以后的二次认证</translation>
     </message>
+    <message>
+        <source>Trust device</source>
+        <translation>信任设备</translation>
+    </message>
 </context>
 <context>
     <name>AuthenticationCacheCoordinator</name>
@@ -331,6 +335,10 @@ This connection remains usable. You may need to sign in again later.</source>
 </context>
 <context>
     <name>ConnectionUiController</name>
+    <message>
+        <source>Automatic routing unavailable</source>
+        <translation>自动分流暂不可用</translation>
+    </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="144"/>
         <source>Connect</source>
@@ -511,8 +519,7 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="385"/>
         <source>Connection failed. Check your network and server settings.</source>
-        <translation>连接失败！
-可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。</translation>
+        <translation>连接失败。请检查网络和服务器设置。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="388"/>
@@ -554,6 +561,10 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     <message>
         <source>The local SOCKS5 port could not be opened. Close the app using it or change the port in connection settings.</source>
         <translation>无法打开本地 SOCKS5 端口。请关闭占用端口的应用，或在连接设置中更换端口。</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
     </message>
 </context>
 <context>
@@ -1109,13 +1120,37 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="93"/>
-        <source>Version %1 is available.</source>
-        <translation>发现新版本 %1。</translation>
+        <source>Version %1 is available. You’re using %2.</source>
+        <translation>新版本 %1 已发布。当前版本为 %2。</translation>
+    </message>
+    <message>
+        <source>You’re up to date!</source>
+        <translation>已是最新版</translation>
+    </message>
+    <message>
+        <source>Latest stable release</source>
+        <translation>最新正式版</translation>
+    </message>
+    <message>
+        <source>You’re using JustConnect %1. The latest stable release is %2.</source>
+        <translation>当前使用 JustConnect %1，最新正式版为 %2。</translation>
+    </message>
+    <message>
+        <source>JustConnect %1 is the latest stable release.</source>
+        <translation>JustConnect %1 是最新正式版。</translation>
+    </message>
+    <message>
+        <source>Could not check for updates</source>
+        <translation>无法检查更新</translation>
+    </message>
+    <message>
+        <source>JustConnect couldn’t get the latest release information. Try again later.</source>
+        <translation>JustConnect 无法获取最新版本信息，请稍后再试。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="95"/>
-        <source>Open page</source>
-        <translation>打开页面</translation>
+        <source>Open release page</source>
+        <translation>打开发布页面</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="764"/>
@@ -1436,8 +1471,68 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>复制 Clash 扩展脚本</translation>
     </message>
     <message>
+        <source>Import into Clash Verge Rev</source>
+        <translation>导入到 Clash Verge Rev</translation>
+    </message>
+    <message>
+        <source>Script imported. Reactivate profiles in Clash Verge Rev to apply it.</source>
+        <translation>脚本已导入。请在 Clash Verge Rev 中重新激活订阅以应用。</translation>
+    </message>
+    <message>
+        <source>Could not import the Clash script</source>
+        <translation>无法导入 Clash 脚本</translation>
+    </message>
+    <message>
+        <source>The global script changed or its format could not be read. Reopen it in Clash Verge Rev before trying again.</source>
+        <translation>全局脚本已改动，或无法读取其格式。请在 Clash Verge Rev 中检查后重试。</translation>
+    </message>
+    <message>
+        <source>Could not save the global script or its backup. You can copy the script and add it in Clash Verge Rev.</source>
+        <translation>无法保存全局脚本或备份。你可以复制脚本并在 Clash Verge Rev 中添加。</translation>
+    </message>
+    <message>
         <source>Local proxy is ready. Clash routes the selected campus traffic.</source>
         <translation>本地代理已就绪。Clash 负责分流选定的校园流量。</translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>重试</translation>
+    </message>
+    <message>
+        <source>JustConnect will restart to finish installing the update.</source>
+        <translation>JustConnect 将重新启动以完成更新。</translation>
+    </message>
+    <message>
+        <source>Install update</source>
+        <translation>安装更新</translation>
+    </message>
+    <message>
+        <source>Could not start the installer</source>
+        <translation>无法启动安装程序</translation>
+    </message>
+    <message>
+        <source>JustConnect will close. Reopen it to try the update again.</source>
+        <translation>JustConnect 即将关闭。请重新打开并重试更新。</translation>
+    </message>
+    <message>
+        <source>Update incomplete</source>
+        <translation>更新未完成</translation>
+    </message>
+    <message>
+        <source>The update could not be installed. Check for updates to try again.</source>
+        <translation>无法安装更新。请重新检查更新后重试。</translation>
+    </message>
+    <message>
+        <source>Update download failed</source>
+        <translation>更新下载失败</translation>
+    </message>
+    <message>
+        <source>The download could not be completed or verified. Check for updates to try again.</source>
+        <translation>无法完成下载或验证更新。请检查更新后重试。</translation>
     </message>
 </context>
 <context>
@@ -1933,6 +2028,36 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
 </context>
 <context>
+    <name>PresentationHelpers::UpdateProgressDialog</name>
+    <message>
+        <source>Downloading update</source>
+        <translation>正在下载更新</translation>
+    </message>
+    <message>
+        <source>JustConnect will restart when installation finishes.</source>
+        <translation>安装完成后，JustConnect 将重新启动。</translation>
+    </message>
+    <message>
+        <source>Installing update</source>
+        <translation>正在安装更新</translation>
+    </message>
+    <message>
+        <source>Preparing…</source>
+        <translation>正在准备…</translation>
+    </message>
+</context>
+<context>
+    <name>PresentationHelpers::PromptDialog</name>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
     <name>ServerSettingsWidget</name>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="98"/>
@@ -1986,6 +2111,14 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>在自动分流模式下，网关未发布的域名请通过本地代理访问。</translation>
     </message>
     <message>
+        <source>Automatic routing is not yet available on Linux. Choose “Local proxy only”, then connect to use the local SOCKS5/HTTP proxy.</source>
+        <translation>Linux 暂不支持自动分流。请选择「仅本地代理」，连接后使用本地 SOCKS5/HTTP 代理。</translation>
+    </message>
+    <message>
+        <source>Connecting with automatic routing asks for administrator authorization (polkit password) once per application start.</source>
+        <translation>使用自动分流连接时，会在每次启动应用后首次连接时请求管理员授权（polkit 密码）。</translation>
+    </message>
+    <message>
         <source>Address</source>
         <translation>地址</translation>
     </message>
@@ -2010,8 +2143,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <source>Once connected, choose Copy Clash Extend Script from the connection menu.</source>
-        <translation>连接后，在连接菜单中选择「复制 Clash 扩展脚本」。</translation>
+        <source>Import or copy the script from the connection menu. After importing, reactivate profiles in Clash Verge Rev.</source>
+        <translation>从连接菜单导入或复制脚本。导入后，在 Clash Verge Rev 中重新激活订阅。</translation>
     </message>
     <message>
         <source>Additional Clash destinations</source>
@@ -2391,6 +2524,10 @@ Some system settings may have changed. Check them before retrying.</source>
         <source>Choose a local SOCKS5 port to use Local proxy only.</source>
         <translation>使用「仅本地代理」前，请设置本地 SOCKS5 端口。</translation>
     </message>
+    <message>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
 </context>
 <context>
     <name>SsoLoginWebView</name>
@@ -2441,6 +2578,40 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="83"/>
         <source>Page address</source>
         <translation>页面地址</translation>
+    </message>
+</context>
+<context>
+    <name>SignInBrowser</name>
+    <message>
+        <source>The sign-in page cannot be embedded in this desktop session and opened in a separate window instead. Complete the sign-in there.</source>
+        <translation>登录页面无法内嵌于当前桌面会话，已在独立窗口中打开；请在该窗口中完成登录。</translation>
+    </message>
+</context>
+<context>
+    <name>LinuxNetworkAvailability</name>
+    <message>
+        <source>Cannot read /etc/resolv.conf; automatic routing has no supported DNS mechanism.</source>
+        <translation>无法读取 /etc/resolv.conf；自动分流没有受支持的 DNS 机制。</translation>
+    </message>
+    <message>
+        <source>Automatic routing requires the systemd-resolved DNS stub.</source>
+        <translation>自动分流需要使用 systemd-resolved 的本地 DNS 监听地址。</translation>
+    </message>
+    <message>
+        <source>The JustConnect network helper is not installed as a root-owned executable at %1.</source>
+        <translation>JustConnect 网络 helper 未以 root 属主的可执行文件形式安装在 %1。</translation>
+    </message>
+    <message>
+        <source>Run: sudo chown root:root &apos;%1&apos; &amp;&amp; sudo chmod 0755 &apos;%1&apos; — or install it to %2 as a root-owned executable, then reconnect.</source>
+        <translation>请运行：sudo chown root:root &apos;%1&apos; &amp;&amp; sudo chmod 0755 &apos;%1&apos;；或将它以 root 属主可执行文件的形式安装到 %2，然后重新连接。</translation>
+    </message>
+    <message>
+        <source>polkit (pkexec) is not available; automatic routing needs it to request administrator privileges.</source>
+        <translation>polkit（pkexec）不可用；自动分流需要它来请求管理员权限。</translation>
+    </message>
+    <message>
+        <source>Install polkit with your package manager (for example: sudo apt install policykit-1), then reconnect.</source>
+        <translation>请用软件包管理器安装 polkit（例如：sudo apt install policykit-1），然后重新连接。</translation>
     </message>
 </context>
 </TS>

@@ -12,7 +12,6 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
@@ -41,6 +40,8 @@
 #include "infrastructure/settings/savedconnectionstore.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "application/defaultsettings.h"
+using PresentationHelpers::PromptDialog;
+
 static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
 static int checkFormRows(QWidget *view) {
     int checked=0;
@@ -79,6 +80,8 @@ int main(int argc,char **argv) {
     const auto dataRoot=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     const auto cleanup=qScopeGuard([&] { QDir(configRoot).removeRecursively(); QDir(dataRoot).removeRecursively(); });
     QSettings settings(directory.filePath("profile.ini"),QSettings::IniFormat); DefaultSettings::reset(settings);
+    // This fixture models an automatic-routing profile; Linux defaults to local proxy only.
+    settings.setValue(DefaultSettings::RoutingModeKey,DefaultSettings::AutomaticMode);
     settings.setValue("Credential/Username","fixture-user");
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
@@ -93,7 +96,7 @@ int main(int argc,char **argv) {
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
     QTimer unexpectedMessage;
     QObject::connect(&unexpectedMessage,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<PromptDialog *>(widget);box && box->isVisible()) {
             std::cerr<<"Unexpected initial settings message: "<<box->text().toStdString()<<'\n';std::exit(1);
         }
     });unexpectedMessage.start(10);
@@ -151,27 +154,21 @@ int main(int argc,char **argv) {
     check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
     write(cache,"current authentication"); write(otherCache,"other authentication");
     QString expectedText,fileSelection; bool shown=false;
-    int messageResult=QMessageBox::Ok;
+    bool confirmAction=false;
     QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
         for (auto *widget:QApplication::topLevelWidgets()) {
-            if (auto *message=qobject_cast<QMessageBox *>(widget)) {
+            if (auto *message=qobject_cast<PromptDialog *>(widget); message && message->isVisible()) {
                 check(!expectedText.isEmpty() && message->text()==expectedText,"only the expected operation message is shown");
-                shown=true; auto *choice=message->button(QMessageBox::StandardButton(messageResult));
-                check(choice!=nullptr,"expected dialog choice exists"); choice->click();
-            } else if (widget->objectName()=="actionPrompt" && widget->isVisible()) {
-                auto *body=widget->findChild<QLabel *>("promptBody");
-                auto *buttons=widget->findChild<QDialogButtonBox *>();
-                auto *yes=buttons->button(QDialogButtonBox::Yes);
-                auto *no=buttons->button(QDialogButtonBox::No);
-                check(!expectedText.isEmpty() && body->text()==expectedText && yes->property("promptPrimary").toBool()
-                    && !no->property("promptPrimary").toBool() && no->isDefault() && !yes->isDefault(),
-                    "the settings confirmation uses the expected copy, primary color and safe default");
-                if (messageResult==QMessageBox::Yes) yes->click();
+                shown=true;
+                auto *primary=message->primaryButton();
+                auto *cancel=message->dismissButton();
+                if (cancel) check(primary->property("promptPrimary").toBool() && !cancel->property("promptPrimary").toBool()
+                    && cancel->isDefault() && !primary->isDefault(),"settings confirmations highlight the action and default to cancel");
+                if (!cancel || confirmAction) primary->click();
                 else {
-                    check(messageResult==QMessageBox::No,"an explicit confirmation decision is expected");
                     QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-                    QApplication::sendEvent(widget,&enter);
+                    QApplication::sendEvent(message,&enter);
                 }
             } else if (auto *dialog=qobject_cast<QFileDialog *>(widget); dialog && dialog->isVisible() && !fileSelection.isEmpty()) {
                 const auto path=fileSelection; fileSelection.clear();
@@ -245,12 +242,12 @@ int main(int argc,char **argv) {
     window->findChild<QPushButton *>("saveProfileButton")->click(); ready();
     check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==61 && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid" && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
     window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving.");
-    messageResult=QMessageBox::No;
+    confirmAction=false;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click();
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text()=="changed.example.invalid",
         "pressing Return in the reset confirmation keeps the draft");
-    messageResult=QMessageBox::Yes;
-    window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); messageResult=QMessageBox::Ok;
+    confirmAction=true;
+    window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); confirmAction=false;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset restores default connection values in the draft");
     window->findChild<QPushButton *>("dismissSettingsButton")->click(); ready();
@@ -292,8 +289,8 @@ int main(int argc,char **argv) {
     window->findChild<QPushButton *>("saveProfileButton")->click();ready();
     check(vault.load(source.scope,secured,loaded).succeeded() && loaded.password=="saved-password" && loaded.totpSecret=="replacement-totp","editing TOTP while leaving password blank preserves the password");
     window=open();
-    expectedText=QCoreApplication::translate("SettingWindow","Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg("fixture-user");messageResult=QMessageBox::Yes;
-    window->findChild<QPushButton *>("clearCredentialButton")->click();ready();expectedText.clear();messageResult=QMessageBox::Ok;
+    expectedText=QCoreApplication::translate("SettingWindow","Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg("fixture-user");confirmAction=true;
+    window->findChild<QPushButton *>("clearCredentialButton")->click();ready();expectedText.clear();confirmAction=false;
     check(vault.load(source.scope,secured,loaded).status==CredentialStatus::NotFound
         && vault.load(source.scope,other,loaded).succeeded() && loaded.password=="saved-password"
         && !settings.contains("Credential/Password") && window->findChild<QLineEdit *>("passwordLineEdit")->text().isEmpty()

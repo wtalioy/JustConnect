@@ -9,9 +9,11 @@
 #include <windows.h>
 #include <QHostAddress>
 #endif
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
 #if defined(Q_OS_MACOS)
 #include "infrastructure/networkhelper/macos/networkhelperclient.h"
 #include "macos_listener.h"
+#endif
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -69,7 +71,7 @@ QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation oper
         {"auth", QJsonObject{{"auth_id",p.endpoint.authId},{"sub_type",p.endpoint.authSubType},{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
             {"username", p.credentials.username}, {"password", p.credentials.password},
             {"phone", p.endpoint.phone}, {"domain", p.endpoint.loginDomain}, {"totp_secret", p.credentials.totpSecret}}},
-        {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", localProxy ? QString{} : p.proxy.httpBind}}},
+        {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", p.proxy.httpBind}}},
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
@@ -107,7 +109,9 @@ QByteArray configurationBytes(const ConnectionOptions &connectionOptions, CoreEn
 }
 QJsonObject coreObject(const QByteArray &bytes, uint32_t length) {
     if (length > uint32_t(bytes.size())) return {};
-    return QJsonValue::fromJson(QByteArrayView(bytes.constData(), length)).toObject();
+    // QJsonValue::fromJson needs Qt 6.9; a document parses a bare JSON object
+    // and yields {} for arrays and scalars, matching the previous behavior.
+    return QJsonDocument::fromJson(QByteArray::fromRawData(bytes.constData(), int(length))).object();
 }
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
@@ -544,7 +548,7 @@ void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJs
 }
 void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
-#if defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
     if (!library().jc_session_attach_tun || !buildInfo()["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool()
         || (publishDNSRoutes && (!library().jc_session_attach_tun_dns || !library().jc_session_ack_dns_routes
             || !buildInfo()["capabilities"].toObject()["tun_dns_routes"].toBool()))) {

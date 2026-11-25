@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"net/netip"
@@ -62,9 +63,10 @@ func (a resourceActivity) equal(b resourceActivity) bool {
 
 type publishedResources struct {
 	// Rules are immutable. Only the last encoded view is retained.
-	base     resourcesEnvelope
-	activity resourceActivity
-	data     []byte
+	base          resourcesEnvelope
+	activity      resourceActivity
+	data          []byte
+	loadDomainDNS func(context.Context) client.DomainResources
 }
 
 func encodeResources(snapshot resourcesEnvelope) ([]byte, Status) {
@@ -114,10 +116,6 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		snapshot.IPs[i] = ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}}
 	}
 	copyPermissions(snapshot.Domains, resources.Domains)
-	if len(resources.DomainDNSPermissions) != 0 {
-		snapshot.DomainDNSPermissions = make(map[string][]resourcePermission, len(resources.DomainDNSPermissions))
-		copyPermissions(snapshot.DomainDNSPermissions, resources.DomainDNSPermissions)
-	}
 	for domain, addresses := range resources.DNSRecords {
 		values := make([]string, len(addresses))
 		for i, address := range addresses {
@@ -135,7 +133,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 	s.resourcesStatus = status
 	s.resources = nil
 	if status == OK {
-		s.resources = &publishedResources{base: base, data: data}
+		s.resources = &publishedResources{base: base, data: data, loadDomainDNS: resources.LoadDomainDNSPermissions}
 	}
 	return status
 }
@@ -163,6 +161,30 @@ func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Stat
 	if s.resourcesStatus != OK {
 		return 0, s.resourcesStatus
 	}
+	published := s.resources
+	if published.loadDomainDNS != nil {
+		// A DNS lookup can read the current protection policy and must allow Stop to cancel it.
+		ctx := s.ctx
+		permissions := func() client.DomainResources {
+			s.mu.Unlock()
+			defer s.mu.Lock()
+			return published.loadDomainDNS(ctx)
+		}()
+		if s.destroyed || s.stopping || s.resources != published {
+			return 0, StaleRequest
+		}
+		if len(permissions) == 0 {
+			return copySnapshot(dst, published.data)
+		}
+		view := published.base
+		view.Resources.DomainDNSPermissions = make(map[string][]resourcePermission, len(permissions))
+		copyPermissions(view.Resources.DomainDNSPermissions, permissions)
+		data, status := encodeResources(view)
+		if status != OK {
+			return 0, status
+		}
+		return copySnapshot(dst, data)
+	}
 	var activity resourceActivity
 	if s.captureOperation && s.protocol != nil {
 		// A publication hold ends only after its DNS binding exists; read the hold side first.
@@ -173,7 +195,7 @@ func (e *Engine) CopyResources(handle, generation uint64, dst []byte) (int, Stat
 			listeners: s.protocol.OriginalDNSListeners(),
 		}
 	}
-	data, status := s.resources.snapshot(activity)
+	data, status := published.snapshot(activity)
 	if status != OK {
 		return 0, status
 	}

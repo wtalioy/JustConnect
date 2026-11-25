@@ -57,6 +57,8 @@ public:
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentOptions.proxy; }
     KeepAliveOptions keepAliveOptions() const { return currentOptions.keepAlive; }
+    // Detail of the platform failure that produced the primary error, for the error dialog.
+    QString platformFailureDetail() const { return platformFailureDetailText; }
 
 signals:
     void stateChanged(ConnectionState state);
@@ -94,6 +96,7 @@ private:
     QMap<QString,SessionObservation> observations;
     QJsonObject pendingAuthentication;
     QString responseAction;
+    QString platformFailureDetailText;
     bool blocked = false;
 };
 

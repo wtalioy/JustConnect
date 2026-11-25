@@ -46,21 +46,39 @@ int main(int argc,char **argv) {
     auto *form=editor.findChild<QFormLayout *>();
     auto *mode=editor.findChild<QComboBox *>("routingModeComboBox");
     auto *localPort=editor.findChild<QSpinBox *>("localSocksPortSpinBox");
+    auto *httpPort=editor.findChild<QSpinBox *>("localHttpPortSpinBox");
     auto *extraRoutes=editor.findChild<QPlainTextEdit *>("clashTargetsEdit");
     for(auto *field:QList<QWidget *>{address,port,mode}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
+        if (label && std::abs(label->geometry().center().y()-field->geometry().center().y())>1)
+            qWarning() << field->objectName() << label->geometry() << field->geometry();
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
             "server address and port labels are centered beside their styled fields");
     }
     check(mode->currentIndex()==0 && mode->y()>port->y() && mode->y()<verify->y()
-        && localPort->isHidden() && extraRoutes->isHidden(),"mode is near the top and only local mode shows proxy fields");
+        && localPort->isHidden() && httpPort->isHidden() && extraRoutes->isHidden(),"mode is near the top and only local mode shows proxy fields");
+    auto *routingWarning=editor.findChild<QLabel *>("routingModeWarningLabel");
+    check(routingWarning, "the routing notice exists");
+#if defined(Q_OS_LINUX)
+    check(routingWarning->isVisibleTo(&editor) && !routingWarning->text().isEmpty(),
+        "automatic routing explains its authorization or the missing host setup");
+    if (routingWarning->text().contains("not installed as a root-owned"))
+        check(routingWarning->text().contains("root-owned executable")
+            && routingWarning->text().contains("setup-network-helper"),
+            "a missing helper names its protected location and the system installer");
+#else
+    check(routingWarning->isHidden(), "the Linux setup notice is hidden on other platforms");
+#endif
     mode->setCurrentIndex(1);
+    check(routingWarning->isHidden(),"local proxy mode hides the automatic routing notice");
     localPort->setValue(32081);
+    httpPort->setValue(32082);
     extraRoutes->setPlainText("192.0.2.18:22");
     auto local=SavedConnectionService::load(editor.settingsValues());
-    check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081",
-        "local settings share one port");
-    check(!localPort->isHidden() && !extraRoutes->isHidden() && extraRoutes->maximumHeight()==ca->maximumHeight()
+    check(local.routingMode==RoutingMode::LocalProxy && local.proxy.socksBind=="127.0.0.1:32081"
+        && local.proxy.httpBind=="127.0.0.1:32082",
+        "local settings preserve the configured SOCKS and HTTP ports");
+    check(!localPort->isHidden() && !httpPort->isHidden() && !extraRoutes->isHidden() && extraRoutes->maximumHeight()==ca->maximumHeight()
         && local.proxy.additionalClashTargets=="192.0.2.18:22","local settings expose and save extra routes with the same field style");
     check(rules->isVisibleTo(&editor) && dnsHelp && !dnsHelp->text().contains("Clash"),
         "domain DNS remains independently editable");
@@ -76,8 +94,66 @@ int main(int argc,char **argv) {
     const auto script=ClashExtension::script(local,"复旦大学",snapshot);
     check(ClashExtension::script(local,"Fudan",{}).isEmpty() && !script.isEmpty(),"export requires a live resource snapshot");
     check(ClashExtension::script(local,"Fudan",snapshot).contains("\"name\":\"Fudan\""),"export uses the current connection name");
+
+    const auto globalScript = directory.filePath("Script.js");
+    const auto writeScript = [&](const QByteArray &content) {
+        QFile file(globalScript);
+        check(file.open(QIODevice::WriteOnly) && file.write(content)==content.size(),"write the fixture script");
+    };
+    const auto read = [](const QString &name) {
+        QFile file(name);
+        check(file.open(QIODevice::ReadOnly),"read the fixture script");
+        return file.readAll();
+    };
+    const QByteArray original = "\xef\xbb\xbf// Existing global script\r\n"
+        "var calls = 0; var addJustConnect = 'keep';\r\n"
+        "const main = (config, profileName) => ({...config, name: profileName, calls: ++globalThis.calls,\r\n"
+        "  originalValue: addJustConnect, rules: ['MATCH,DIRECT']}); // no final newline";
+    writeScript(original);
+    using ImportResult = ClashExtension::ImportResult;
+    check(ClashExtension::importScript(globalScript,{},"Fudan",snapshot)==ImportResult::Unavailable && read(globalScript)==original,
+        "import does not change the file with no local-proxy session");
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Saved,"import the current campus rules");
+    const auto firstImport = read(globalScript);
+    check(firstImport.startsWith(original.first(3)) && firstImport.contains(original.sliced(3))
+        && read(globalScript+".justconnect.bak")==original,"preserve the existing script bytes and original backup");
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Saved && read(globalScript)==firstImport,
+        "importing the same connection twice leaves identical script bytes");
+    auto changedSnapshot = snapshot;
+    changedSnapshot["listeners"] = QJsonObject{{"socks", "127.0.0.1:32084"}};
+    auto dnsPermissions = snapshot["domain_dns_permissions"].toObject();
+    dnsPermissions["late.example.edu"] = dnsPermissions["alias.example.edu"];
+    changedSnapshot["domain_dns_permissions"] = dnsPermissions;
+    check(ClashExtension::importScript(globalScript,local,"Fudan",changedSnapshot)==ImportResult::Saved,"refresh the imported SOCKS port and DNS grants");
+    const auto updatedImport = read(globalScript);
+    check(updatedImport.contains("32084") && !updatedImport.contains("32081") && read(globalScript+".justconnect.bak")==original,
+        "refresh replaces only the managed rules and retains the original backup");
+    const auto lateRule = "(NETWORK,TCP),(DST-PORT,8443),(DOMAIN,late.example.edu)";
+    check(updatedImport.contains(lateRule) && ClashExtension::script(local,"Fudan",changedSnapshot).contains(lateRule),
+        "a newly resolved DNS grant reaches both copy and import with the same limits");
+
     const auto node=QStandardPaths::findExecutable("node");
     if (!node.isEmpty()) {
+        QProcess imported;
+        imported.start(node,{"-e",R"JS(
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const script = fs.readFileSync(process.argv[1], 'utf8');
+const code = `try {
+  ${script};
+  JSON.stringify(main({proxies: []}, 'Current profile') || '')
+} catch (error) { throw error; }`;
+const result = JSON.parse(vm.runInNewContext(code));
+assert.equal(result.name, 'Current profile');
+assert.equal(result.calls, 1);
+assert.equal(result.originalValue, 'keep');
+assert.deepEqual(result.proxies, [{name:'Fudan', type:'socks5', server:'127.0.0.1', port:32084, udp:true}]);
+assert.ok(result.rules[0].endsWith(',Fudan'));
+assert.equal(result.rules.at(-1), 'MATCH,DIRECT');
+)JS",globalScript});
+        check(imported.waitForFinished() && imported.exitCode()==0,
+            ("evaluate the original and imported rules in the Verge entry flow: " + imported.readAllStandardError()).constData());
         QProcess js;
         js.start(node,{"-"});
         check(js.waitForStarted(),"start JavaScript runtime");
@@ -117,6 +193,11 @@ assert.deepEqual(existingScript({}).rules.slice(-2), ["DOMAIN,keep.example,DIREC
         check(js.waitForFinished(),"Clash script test finished");
         check(js.exitStatus()==QProcess::NormalExit && js.exitCode()==0,js.readAllStandardError().constData());
     }
+    const auto editedOutside = updatedImport + "\n// new user content outside the managed script\n";
+    writeScript(editedOutside);
+    check(ClashExtension::importScript(globalScript,local,"Fudan",snapshot)==ImportResult::Conflict
+        && read(globalScript)==editedOutside && read(globalScript+".justconnect.bak")==original,
+        "refuse a changed managed layout without deleting external edits");
     mode->setCurrentIndex(0);
     check(rules->isVisibleTo(&editor) && !dnsHelp->text().contains("Clash"),
         "automatic routing keeps domain DNS editable without Clash guidance");
@@ -159,7 +240,8 @@ assert.deepEqual(existingScript({}).rules.slice(-2), ["DOMAIN,keep.example,DIREC
     DefaultSettings::applyBuiltInConnection(settings);
     editor.load(settings);
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
-        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
+        && editor.serverAddress() == "vpn.fudan.edu.cn"
+        && rules->toPlainText() == "zb.fudan.edu.cn\ncloud.fudan.edu.cn\nelearning.fudan.edu.cn",
         "Fudan displays its fixed endpoint and domain DNS default");
     settings.remove("JustConnect/TLSVerify");
     editor.load(settings);

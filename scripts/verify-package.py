@@ -16,6 +16,13 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_HELPER = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
+LINUX_HELPER = {
+    'executable': 'libexec/justconnect-network-helper',
+    'policy': 'share/polkit-1/actions/org.justconnect.network-helper.policy',
+    'setup_script': 'setup-network-helper.sh',
+    'protocol': int(re.search(r'\bLinuxHelperProtocol\s*=\s*(\d+)\s*;',
+        (ROOT / 'infrastructure/networkhelper/linux/networkhelperprotocol.h').read_text()).group(1)),
+}
 PROXY_RECOVERY_PROTOCOL = int(re.search(
     r'\bProxyRecoveryProtocol\s*=\s*(\d+)\s*;',
     (ROOT / 'infrastructure/systemproxy/proxyrecovery.h').read_text()).group(1))
@@ -151,6 +158,39 @@ def macos_audit(files, root, arch, env):
             'network_helper': check_macos_network_helper(root, env)}
 
 
+def check_linux_network_helper(root, env, revision):
+    helper = root / LINUX_HELPER['executable']
+    if not helper.is_file():
+        raise RuntimeError('Missing packaged Linux network helper')
+    if os.name == 'posix':
+        # Windows hosts cannot express Unix modes; real 0755 enforcement is a POSIX check.
+        mode = helper.stat().st_mode & 0o7777
+        if mode != 0o755:
+            raise RuntimeError(f'Linux network helper must be mode 0755: {helper}: {oct(mode)}')
+    facts = json.loads(run(helper, '--version', env=env, timeout=10))
+    # json booleans are ints in Python; require a real integer protocol.
+    protocol = facts.get('protocol') if isinstance(facts, dict) else None
+    if (type(protocol) is not int or protocol != LINUX_HELPER['protocol']
+            or facts.get('identity_ready') is not True
+            or facts.get('revision') != revision
+            or not isinstance(facts.get('source_state'), str) or not facts['source_state']):
+        raise RuntimeError('Packaged Linux network helper failed its runtime check')
+    text = (root / LINUX_HELPER['policy']).read_text() if (root / LINUX_HELPER['policy']).is_file() else ''
+    if ('action id="org.justconnect.network-helper"' not in text
+            or re.search(r'key="org\.freedesktop\.policykit\.exec\.path">\s*[^<]*libexec/justconnect-network-helper',
+                text) is None):
+        raise RuntimeError('Packaged polkit action does not authorize the packaged network helper')
+    script = root / LINUX_HELPER['setup_script']
+    if not script.is_file():
+        raise RuntimeError('Packaged network helper setup script is missing: ' + str(script))
+    if os.name == 'posix' and script.stat().st_mode & 0o7777 != 0o755:
+        script_mode = script.stat().st_mode & 0o7777
+        raise RuntimeError(f'Packaged network helper setup script must be an executable 0755 file: {script}: {oct(script_mode)}')
+    run('sh', '-n', script, env=env, timeout=10)
+    return {'protocol': facts['protocol'], 'revision': facts['revision'],
+            'source_state': facts['source_state'], 'policy': True, 'setup_script': True}
+
+
 def check_macos_network_helper(root, env):
     layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
     identifier = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier'] + layout['service_suffix']
@@ -209,6 +249,55 @@ def windows_audit(files, root, arch):
     return {'files': evidence}
 
 
+def linux_audit(files, root, arch, env):
+    bundled = {path.name: path for path in (root / 'lib').glob('*.so*') if not path.is_symlink()}
+    evidence = []
+    for path in files:
+        header = run('readelf', '--file-header', path, env=env)
+        machine = re.search(r'^\s*Machine:\s+(.+)$', header, re.M).group(1)
+        expected = 'AArch64' if arch == 'arm64' else 'Advanced Micro Devices X86-64'
+        if machine != expected:
+            raise RuntimeError(f'Wrong ELF architecture: {path}: {machine}')
+        dynamic = run('readelf', '--dynamic', path, env=env)
+        if 'There is no dynamic section in this file' in dynamic:
+            # Statically linked: no RUNPATH, dependencies or ldd output to
+            # audit (ldd refuses such files outright). Only the privileged Go
+            # helper ships this way.
+            if path.relative_to(root).as_posix() != LINUX_HELPER['executable']:
+                raise RuntimeError(f'Unexpected static ELF in package: {path}')
+            evidence.append({'file': path.relative_to(root).as_posix(), 'dependencies': {}, 'static': True})
+            continue
+        if re.search(r'\(RPATH\)', dynamic):
+            raise RuntimeError(f'Legacy DT_RPATH entry is not relocatable by the audit: {path}')
+        runpaths = re.findall(r'\(RUNPATH\)\s+Library runpath: \[(.*?)\]', dynamic)
+        parent = path.parent.relative_to(root)
+        if parent == Path('lib'):
+            runpath = '$ORIGIN'
+        elif parent.parts[:1] == ('plugins',):
+            runpath = '$ORIGIN/' + '../' * len(parent.parts) + 'lib'
+        else:
+            runpath = '$ORIGIN/../lib'
+        if runpaths != [runpath]:
+            raise RuntimeError(f'Non-relocatable ELF search path: {path}: {runpaths}')
+        dependencies = {}
+        for name in re.findall(r'\(NEEDED\)\s+Shared library: \[(\S+)\]', dynamic):
+            if name.startswith('libQt6') and name not in bundled:
+                raise RuntimeError(f'Unbundled Qt dependency: {path}: {name}')
+            dependencies[name] = ((root / 'lib' / name).relative_to(root).as_posix() if name in bundled
+                                  else 'Linux system library')
+        unresolved = [line.strip() for line in run('ldd', path, env=env).splitlines() if 'not found' in line]
+        if unresolved:
+            raise RuntimeError(f'Unresolved ELF dependencies: {path}: {unresolved}')
+        evidence.append({'file': path.relative_to(root).as_posix(), 'dependencies': dependencies})
+    if not (root / 'bin/qt.conf').is_file():
+        raise RuntimeError('Missing packaged qt.conf')
+    qt_conf = (root / 'bin/qt.conf').read_text(encoding='utf-8')
+    for key in ('Prefix', 'Plugins', 'LibExecs', 'Data', 'Translations'):
+        if not re.search(r'^' + key + r'\s*=', qt_conf, re.M):
+            raise RuntimeError(f'Packaged qt.conf does not declare its {key} search path')
+    return {'files': evidence}
+
+
 def windows_signature(path):
     # Use the same PowerShell host as CI, including its compatible module paths.
     command = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); "
@@ -248,20 +337,28 @@ def check_signin_browser(root, executable, probe, env):
     if probe is None:
         raise RuntimeError('Package verification requires the native sign-in browser probe')
     with tempfile.TemporaryDirectory() as working:
-        directory = executable.parent if sys.platform == 'win32' else Path(working)
+        # Windows and Linux probes run next to the packaged executable so the check
+        # exercises the bundled browser runtime; the macOS probe is framework-agnostic.
+        directory = executable.parent if sys.platform in ('win32', 'linux') else Path(working)
         descriptor, name = tempfile.mkstemp(prefix='signin-browser-check-', suffix=executable.suffix, dir=directory)
         os.close(descriptor)
         installed_probe = Path(name)
         try:
             shutil.copyfile(probe, installed_probe)
             installed_probe.chmod(0o755)
-            probe_env = dict(env, QT_QPA_PLATFORM='windows' if sys.platform == 'win32' else 'cocoa')
+            probe_env = dict(env, QT_QPA_PLATFORM={'win32': 'windows', 'linux': 'xcb'}.get(sys.platform, 'cocoa'))
             if sys.platform == 'win32':
                 probe_env['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(root / 'platforms')
-            run(installed_probe, cwd=working, env=probe_env, timeout=30)
+            command = [str(installed_probe)]
+            if sys.platform == 'linux':
+                # WebKitGTK renders through the windowing system, so the probe runs
+                # under Xvfb; the retired QtWebEngine Chromium flags are gone.
+                if shutil.which('xvfb-run'):
+                    command = ['xvfb-run', '-a', str(installed_probe)]
+            run(*command, cwd=working, env=probe_env, timeout=30)
         finally:
             installed_probe.unlink()
-    return 'WebView2' if sys.platform == 'win32' else 'WKWebView'
+    return {'win32': 'WebView2', 'linux': 'WebKitGTK'}.get(sys.platform, 'WKWebView')
 
 
 def verify(root, executable, revision, application_version, output, archive, browser_probe=None):
@@ -277,7 +374,7 @@ def verify(root, executable, revision, application_version, output, archive, bro
     startup_ms = (time.perf_counter() - started) * 1000
     report = json.loads(result.stdout)
     arch = {'AMD64': 'amd64', 'x86_64': 'amd64', 'aarch64': 'arm64', 'ARM64': 'arm64', 'arm64': 'arm64'}[platform.machine()]
-    system = {'win32': 'windows', 'darwin': 'darwin'}[sys.platform]
+    system = {'win32': 'windows', 'darwin': 'darwin', 'linux': 'linux'}[sys.platform]
     validate_report(report, revision, application_version, system, arch)
     report['proxy_recovery_worker'] = check_proxy_recovery(executable.parent, env)
     revisions = list(root.rglob('source-revision.txt'))
@@ -292,6 +389,8 @@ def verify(root, executable, revision, application_version, output, archive, bro
     if system == 'windows' and not (data / 'licenses/LICENSE.WebView2').is_file():
         raise RuntimeError('Missing WebView2 loader license')
     files = []
+    # No shipped platform bundles a browser runtime: Windows and macOS use the
+    # system WebView2/WKWebView, and the Linux sign-in browser is WebKitGTK.
     for path in root.rglob('*'):
         if system == 'windows' and path.name.casefold() == 'qtuiotouchplugin.dll':
             raise RuntimeError(f'Unused TUIO plugin in package: {path}')
@@ -304,7 +403,8 @@ def verify(root, executable, revision, application_version, output, archive, bro
         if path.is_file() and not path.is_symlink():
             with path.open('rb') as stream:
                 magic = stream.read(4)
-            if magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
+            if (magic == b'\x7fELF' or magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf')
+                    or magic[:2] == b'MZ'):
                 files.append(path)
     if system == 'windows':
         report['network_helper'] = check_windows_network_helper(executable.parent, env, revision)
@@ -323,6 +423,9 @@ def verify(root, executable, revision, application_version, output, archive, bro
         finally:
             hidden.rename(runtime)
         report['audit'] = windows_audit(files, root, arch)
+    elif system == 'linux':
+        report['audit'] = linux_audit(files, root, arch, env)
+        report['network_helper'] = check_linux_network_helper(root, env, revision)
     elif report['runtime'] != 'static':
         raise RuntimeError('macOS packages must link the static core')
     else:

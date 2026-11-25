@@ -35,6 +35,16 @@
 # CMake
 /cmake-build*
 /build
+/Testing/
+
+# Linux deploy output
+/JustConnect/
+/JustConnect-*.tar.gz
+/build-deb/
+/justconnect_*-1_amd64.deb
+
+# Go helper build output
+/infrastructure/networkhelper/linux/helper/helper
 
 # CLion
 /.idea
@@ -54,4 +64,5 @@ aqtinstall.log
 /AGENTS.md
 /plan.md
 /docs/*
+!/docs/build-linux.md
 !/docs/releases/

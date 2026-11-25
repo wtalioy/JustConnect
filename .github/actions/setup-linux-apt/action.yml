@@ -1,0 +1,25 @@
+name: Install Linux build dependencies
+description: Install the Ubuntu dependencies for the desktop build and tests.
+inputs:
+  portable-package:
+    description: Install patchelf for the portable archive.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PORTABLE_PACKAGE: ${{ inputs.portable-package }}
+      run: |
+        # Try the hosted runner's HTTPS archive before the frequently stalled cloud mirror.
+        mirrors=/etc/apt/apt-mirrors.txt
+        if [[ -f "$mirrors" ]]; then
+          sudo sed -i -E '\#^https://archive\.ubuntu\.com/ubuntu/([[:space:]]|$)#s/priority:[0-9]+/priority:0/' "$mirrors"
+        fi
+        packages=(libgl1-mesa-dev libegl-dev libxkbcommon-dev libfontconfig1-dev
+                  libwebkit2gtk-4.1-dev libssl-dev libx11-dev xvfb xauth)
+        if [[ "$PORTABLE_PACKAGE" == 'true' ]]; then
+          packages+=(patchelf)
+        fi
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends "${packages[@]}"

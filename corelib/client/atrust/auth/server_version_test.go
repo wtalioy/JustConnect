@@ -12,18 +12,26 @@ import (
 
 func TestServerVersionInfoSelectsTCPTunnelZeroRTT(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		version string
-		enable  bool
-		want    bool
+		name     string
+		manifest string
+		want     bool
 	}{
-		{name: "supported and enabled", version: "1.0.0.0", enable: true, want: true},
-		{name: "missing capability", enable: true},
-		{name: "disabled by option", version: "1.0.0.0"},
+		{
+			name:     "supported and enabled",
+			manifest: `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`,
+			want:     true,
+		},
+		{
+			name:     "missing capability",
+			manifest: `{"code":0,"data":{"capacities":{},"options":{"tun0rtt":{"enable":true}}}}`,
+		},
+		{
+			name:     "disabled by option",
+			manifest: `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":false}}}}`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			manifest := fmt.Sprintf(`{"code":0,"data":{"capacities":{"zeroRTT":{"version":%q}},"options":{"tun0rtt":{"enable":%t}}}}`, test.version, test.enable)
-			info, err := ParseServerVersionInfo([]byte(manifest))
+			info, err := ParseServerVersionInfo([]byte(test.manifest))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -35,7 +43,7 @@ func TestServerVersionInfoSelectsTCPTunnelZeroRTT(t *testing.T) {
 }
 
 func TestServerVersionInfoFetchesAndValidatesManifest(t *testing.T) {
-	manifest := `{"code":0,"data":{"capacities":{"zeroRTT":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`
+	manifest := `{"code":0,"data":{"capacities":{"tun0rtt":{"version":"1.0.0.0"}},"options":{"tun0rtt":{"enable":true}}}}`
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/public/manifest" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)

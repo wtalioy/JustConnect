@@ -10,7 +10,6 @@
 #include <QLabel>
 #include <QFile>
 #include <QFileDialog>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
 #include <QScrollBar>
@@ -27,6 +26,8 @@
 #include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/serversettingswidget.h"
+
+using PresentationHelpers::PromptDialog;
 
 namespace {
 constexpr int QueryProgressMinimumMs=250;
@@ -169,9 +170,9 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     PresentationHelpers::setButtonIcon(ui->resetDefaultPushButton,":/resource/undo.svg");
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
         if (!PresentationHelpers::actionPrompt(this,tr("Reset draft"),
-            tr("Reset this draft to its defaults? Changes take effect after saving."))) return;
+            tr("Reset this draft to its defaults? Changes take effect after saving."),tr("Reset"))) return;
         QTemporaryDir folder;
-        if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
+        if (!folder.isValid()) { PresentationHelpers::showMessage(this,tr("Reset failed"),tr("Could not create temporary connection settings."),PromptDialog::Tone::Warning); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
         DefaultSettings::reset(draft);
         if (serverEditor->isBuiltIn()) DefaultSettings::applyBuiltInConnection(draft);
@@ -182,10 +183,10 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         if (path.isEmpty()) return;
         QTemporaryDir folder;
         QSettings source(path,QSettings::IniFormat);
-        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,tr("Import failed"),tr("Could not read these connection settings.")); return; }
+        if (!folder.isValid() || source.status()!=QSettings::NoError) { PresentationHelpers::showMessage(this,tr("Import failed"),tr("Could not read these connection settings."),PromptDialog::Tone::Warning); return; }
         QSettings draft(folder.filePath("import.ini"),QSettings::IniFormat);
         if (!SettingsMigrator::publicDraft(source,draft)) {
-            QMessageBox::warning(this,tr("Import failed"),tr("Could not import these connection settings. Your draft was preserved.")); return;
+            PresentationHelpers::showMessage(this,tr("Import failed"),tr("Could not import these connection settings. Your draft was preserved."),PromptDialog::Tone::Warning); return;
         }
         loadSettings(draft);
     });
@@ -194,7 +195,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         if (path.isEmpty()) return;
         settings.sync();
         if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
-            QMessageBox::warning(this,tr("Export failed"),tr("Could not export the connection settings. Choose a different file."));
+            PresentationHelpers::showMessage(this,tr("Export failed"),tr("Could not export the connection settings. Choose a different file."),PromptDialog::Tone::Warning);
     });
     if (this->publishDraft) ui->exportPushButton->setEnabled(false);
     else readCredentials();
@@ -476,18 +477,18 @@ void SettingWindow::readCredentials() {
 void SettingWindow::clearCredentials() {
     if (closed || !profileEditable || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings)) {
-        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before clearing credentials."));return;
+        PresentationHelpers::showMessage(this,tr("Connection changed"),tr("Reopen the editor before clearing credentials."),PromptDialog::Tone::Warning);return;
     }
     auto account=credentialSource.connectionOptions.credentials.username;
     if (account.isEmpty()) account=credentialSource.connectionOptions.endpoint.phone;
     if (account.isEmpty()) account=tr("the current connection");
     if (!PresentationHelpers::actionPrompt(this,tr("Clear saved credentials"),
-        tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))) return;
+        tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account),tr("Clear"))) return;
     const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
     credentials->clear(source).then(this,[this](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
-        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not clear credentials"),PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (!result.succeeded()) {PresentationHelpers::showMessage(this,tr("Could not clear credentials"),PresentationHelpers::credentialOperationMessage(result.status),PromptDialog::Tone::Warning);return;}
         if (ui->passwordLineEdit->text()==loadedCredentials.password) ui->passwordLineEdit->setText({});
         if (ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret) ui->totpSecretLineEdit->setText({});
         loadedCredentials={};
@@ -506,7 +507,7 @@ void SettingWindow::saveSettings() {
         return;
     }
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
-        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before applying changes."));return;
+        PresentationHelpers::showMessage(this,tr("Connection changed"),tr("Reopen the editor before applying changes."),PromptDialog::Tone::Warning);return;
     }
     auto connectionOptions=currentOptions();
     if (connectionOptions.authenticationIdentity()==credentialSource.connectionOptions.authenticationIdentity()) {
@@ -514,19 +515,19 @@ void SettingWindow::saveSettings() {
         if (connectionOptions.credentials.totpSecret.isEmpty()) connectionOptions.credentials.totpSecret=loadedCredentials.totpSecret;
     }
     if (connectionOptions.endpoint.authType.isEmpty()) {
-        QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
+        PresentationHelpers::showMessage(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."),PromptDialog::Tone::Warning);return;
     }
     if (connectionOptions.routingMode==RoutingMode::LocalProxy) {
         if (connectionOptions.proxy.socksBind.isEmpty()) {
-            QMessageBox::warning(this,tr("Invalid connection"),tr("Choose a local SOCKS5 port to use Local proxy only."));
+            PresentationHelpers::showMessage(this,tr("Invalid connection"),tr("Choose a local SOCKS5 port to use Local proxy only."),PromptDialog::Tone::Warning);
             return;
         }
     }
     const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
-        QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
-            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
+        PresentationHelpers::showMessage(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
+            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."),PromptDialog::Tone::Warning);return;
     }
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
@@ -539,7 +540,7 @@ void SettingWindow::saveSettings() {
     credentials->save(source,connectionOptions,edited,changes).then(this,[this,source,connectionOptions](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
-        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save connection"),PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (!result.succeeded()) {PresentationHelpers::showMessage(this,tr("Could not save connection"),PresentationHelpers::credentialOperationMessage(result.status),PromptDialog::Tone::Warning);return;}
         if (settings.fileName()!=source.path || settings.value(ConnectionCredentialVault::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         accept();if(connectAfterSave)emit connectRequested();
@@ -549,8 +550,8 @@ void SettingWindow::saveSettings() {
 void SettingWindow::saveDraft(const QVariantMap &changes,const ConnectionOptions &options,bool edited)
 {
     const auto failure=[this] {
-        QMessageBox::warning(this,tr("Could not save connection"),
-            tr("Could not create the connection. Check file permissions and try again."));
+        PresentationHelpers::showMessage(this,tr("Could not save connection"),
+            tr("Could not create the connection. Check file permissions and try again."),PromptDialog::Tone::Warning);
     };
     if (!SavedConnectionService::writePublic(settings,changes)) {failure();return;}
     credentialSource=CredentialAccess::source(settings,{});
@@ -575,8 +576,8 @@ void SettingWindow::saveDraft(const QVariantMap &changes,const ConnectionOptions
         credentials->clear(source).then(this,[this,result,failure](const CredentialResult &cleanup) {
             saving=false;updateBusy();
             if (!cleanup.succeeded() || !result.succeeded())
-                QMessageBox::warning(this,tr("Could not save connection"),
-                    PresentationHelpers::credentialOperationMessage(cleanup.succeeded()?result.status:cleanup.status));
+                PresentationHelpers::showMessage(this,tr("Could not save connection"),
+                    PresentationHelpers::credentialOperationMessage(cleanup.succeeded()?result.status:cleanup.status),PromptDialog::Tone::Warning);
             else failure();
         });
     });

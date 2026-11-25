@@ -55,6 +55,10 @@ int main(int argc,char **argv) {
     DefaultSettings::initialize(saved);
     check(!SavedConnectionService::load(saved).behavior.rememberAuthentication,"a saved authentication opt-out survives initialization");
     check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
+    saved.remove(DefaultSettings::HTTPPortKey);
+    check(SavedConnectionService::load(saved).proxy.httpBind=="127.0.0.1:11081","a profile without an HTTP port enables the shipped default HTTP listener");
+    saved.setValue(DefaultSettings::HTTPPortKey,0);
+    check(SavedConnectionService::load(saved).proxy.httpBind.isEmpty(),"an explicit zero disables the HTTP listener");
     check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
     saved.setValue("Common/NeedsConfiguration",true);
     check(SavedConnectionService::load(saved).endpoint.server.isEmpty(),"legacy protocol cannot connect before explicit configuration");

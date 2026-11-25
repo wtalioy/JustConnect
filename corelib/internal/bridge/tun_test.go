@@ -74,7 +74,7 @@ func exchangeProtocolTUN(t *testing.T, peer *net.UDPConn, address *net.UDPAddr, 
 	if !reply.Valid() || !header.IPv4(reply).IsChecksumValid() {
 		t.Fatal("invalid IPv4 reply or checksum")
 	}
-	if !reply.SourceIP().Equal(ip.DestinationIP()) || !reply.DestinationIP().Equal(ip.SourceIP()) || reply.Protocol() != zctcpip.UDP {
+	if reply.SourceAddr() != ip.DestinationAddr() || reply.DestinationAddr() != ip.SourceAddr() || reply.Protocol() != zctcpip.UDP {
 		t.Fatal("packet did not return from the campus tunnel")
 	}
 	data := zctcpip.UDPPacket(reply.Payload())

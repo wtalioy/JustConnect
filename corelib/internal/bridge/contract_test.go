@@ -55,7 +55,7 @@ func TestConfigBoundary(t *testing.T) {
 	}
 }
 
-func TestLocalProxyRequiresFixedLoopbackSOCKS(t *testing.T) {
+func TestLocalProxyRequiresFixedLoopbackListeners(t *testing.T) {
 	var c Config
 	if err := json.Unmarshal([]byte(configJSON), &c); err != nil {
 		t.Fatal(err)
@@ -64,10 +64,18 @@ func TestLocalProxyRequiresFixedLoopbackSOCKS(t *testing.T) {
 	if _, status := ParseConfig(configBytes(t, c)); status != OK {
 		t.Fatal(status)
 	}
+	c.Listeners.HTTP = "127.0.0.1:1081"
+	if _, status := ParseConfig(configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
 	for _, mutate := range []func(*Config){
 		func(c *Config) { c.Listeners.SOCKS = "" },
 		func(c *Config) { c.Listeners.SOCKS = "127.0.0.1:0" },
-		func(c *Config) { c.Listeners.HTTP = "127.0.0.1:1081" },
+		func(c *Config) { c.Listeners.HTTP = "192.0.2.1:1081" },
+		func(c *Config) { c.Listeners.HTTP = "[::1]:1081" },
+		func(c *Config) { c.Listeners.HTTP = "127.0.0.1:0" },
+		func(c *Config) { c.Listeners.HTTP = "127.0.0.1:not-a-port" },
+		func(c *Config) { c.Listeners.HTTP = c.Listeners.SOCKS },
 		func(c *Config) { c.Operation = "auth_methods" },
 		func(c *Config) { c.AdditionalProxyTargets = "192.0.2.10" },
 		func(c *Config) { c.AdditionalProxyTargets = "192.0.2.10:0" },
